@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Store – RCL ERP</title>
+<link rel="icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* RCL ERP – STORE. The same family as Mechanical: a dark menu on the left (Change site at its top, the pages, the other
+     modules of this site), a white top bar, white panels, the amber main button. */
+  :root { --steel: #22303A; --steel-2: #2E3F4B; --hivis: #F2B705; --page: #EDF0F2; --panel: #fff; --line: #D3D9DE; --ink: #1C252C; --muted: #5E6B75;
+    --bad: #B3261E; --good: #2E7D32; --blue: #1D55E2; --ui: 'IBM Plex Sans', 'Segoe UI', Roboto, Arial, sans-serif; --display: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.45 var(--ui); }
+  body { overflow-x: hidden; }
+  [hidden] { display: none !important; }
+  button, input, select { font: inherit; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; font-weight: 600; }
+  .btn.primary { background: var(--hivis); border-color: #D99A00; color: #1C1300; }
+  .btn.small { min-height: 34px; padding: 5px 12px; font-size: 14px; }
+  .btn.bad { color: var(--bad); border-color: #E7B4B0; }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .btn:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  input, select { min-height: 40px; padding: 7px 10px; border: 1px solid #B8C0CC; border-radius: 8px; background: #fff; color: var(--ink); width: 100%; }
+  .link { background: none; border: 0; padding: 0; color: var(--blue); cursor: pointer; font-weight: 600; }
+  .link.del { color: var(--bad); }
+  .muted { color: var(--muted); }
+  /* ---- the dark menu ---- */
+  .app { display: flex; min-height: 100vh; }
+  .side { position: sticky; top: 0; height: 100vh; flex: 0 0 236px; width: 236px; background: var(--steel); color: #C9D3D9; display: flex; flex-direction: column; z-index: 20; }
+  .brandbox { padding: 12px 12px 10px; border-bottom: 1px solid rgba(255,255,255,.08); display: flex; flex-direction: column; gap: 6px; }
+  .brandtile { background: #fff; border-radius: 8px; padding: 8px 10px; display: grid; place-items: center; min-height: 56px; }
+  .brandtile img { max-width: 100%; max-height: 48px; }
+  .brandtile .fb { display: none; font: 700 26px var(--display); color: #B3261E; }
+  .brandtile.noimg img { display: none; } .brandtile.noimg .fb { display: block; }
+  .brandsub { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #93A3AE; text-align: center; }
+  .brandsub small { display: block; letter-spacing: .06em; font-weight: 500; color: #6E808C; text-transform: none; font-size: 11px; }
+  .sitebox { padding: 10px 8px 2px; }
+  .site-chg { appearance: none; width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(242,183,5,.45); background: rgba(242,183,5,.10); color: #fff; cursor: pointer; text-align: left; }
+  .site-chg:hover { background: rgba(242,183,5,.2); }
+  .site-chg svg { flex: 0 0 18px; width: 18px; height: 18px; color: var(--hivis); }
+  .site-chg span { min-width: 0; flex: 1; line-height: 1.2; }
+  .site-chg small { display: block; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #F2C94C; }
+  .site-chg b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side nav { flex: 1; overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .grp { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.07); }
+  .grp:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+  .grp h3 { margin: 2px 12px 4px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #93A3AE; }
+  .navbtn { appearance: none; border: 0; background: transparent; color: #C9D3D9; cursor: pointer; width: 100%; display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 6px; text-align: left; font-weight: 500; }
+  .navbtn svg { flex: 0 0 18px; width: 18px; height: 18px; }
+  .navbtn:hover { background: var(--steel-2); color: #fff; }
+  .navbtn[aria-current="page"] { background: rgba(242,183,5,.14); color: #fff; box-shadow: inset 3px 0 0 var(--hivis); }
+  .navbtn[aria-current="page"] svg { color: var(--hivis); }
+  .navbtn .ext { margin-left: auto; opacity: .7; }
+  /* ---- the page ---- */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .topbar { position: sticky; top: 0; z-index: 10; background: #fff; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; padding: 10px 18px; }
+  .topbar h1 { margin: 0; font: 700 24px var(--display); letter-spacing: .01em; }
+  .topbar .crumb { font-size: 12px; color: var(--muted); }
+  .topbar .who { margin-left: auto; text-align: right; line-height: 1.2; }
+  .topbar .who b { display: block; } .topbar .who small { color: var(--muted); }
+  .menu-btn { display: none; }
+  main { padding: 18px; max-width: 1400px; width: 100%; }
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
+  .panel h2 { margin: 0 0 4px; font-size: 18px; }
+  .bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 12px 0; }
+  .bar .field { margin: 0; min-width: 180px; flex: 0 1 220px; }
+  .bar .grow { flex: 1 1 260px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .field label { font-size: 13px; font-weight: 600; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 14px; }
+  .grid .wide { grid-column: span 2; }
+  .hint { font-size: 13px; margin-top: 2px; }
+  .sugg { background: #FFF8E1; border: 1px solid #F2D27A; border-radius: 8px; padding: 6px 10px; font-size: 13.5px; }
+  .tw { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+  th { background: #F6F8FB; font-size: 12.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  td.n, th.n { text-align: right; }
+  td.nm { white-space: normal; min-width: 200px; font-weight: 600; }
+  td small { display: block; color: var(--muted); font-weight: 400; }
+  tr.off td { opacity: .55; }
+  .acts { display: flex; gap: 12px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #E8F5E9; color: var(--good); }
+  .tag.off { background: #EEF0F2; color: var(--muted); } .tag.warn { background: #FFF3CD; color: #8A6100; } .tag.bad { background: #FDECEA; color: var(--bad); } .tag.skip { background: #EEF0F2; color: var(--muted); }
+  .count { font-size: 13px; color: var(--muted); }
+  .empty { text-align: center; color: var(--muted); padding: 22px; }
+  /* dialog, toast, the start */
+  .dlg-back { position: fixed; inset: 0; background: rgba(20,30,38,.45); display: grid; place-items: center; z-index: 50; padding: 16px; }
+  .dlg { background: #fff; border-radius: 12px; max-width: 560px; width: 100%; padding: 18px 20px; box-shadow: 0 18px 40px rgba(0,0,0,.25); max-height: 90vh; overflow: auto; }
+  .dlg h3 { margin: 0 0 8px; font-size: 18px; }
+  .dlg .mr { color: var(--muted); font-size: 14px; }
+  .dlg .btns { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+  .dlg ul { margin: 6px 0; padding-left: 20px; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #1F2B34; color: #fff; padding: 10px 18px; border-radius: 10px; max-width: calc(100% - 32px); z-index: 60; }
+  #toast.bad { background: var(--bad); }
+  .start { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+  .start .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 24px; max-width: 460px; width: 100%; text-align: center; }
+  .start .card p { margin: 8px 0; }
+  .errbox { background: #FDECEA; color: var(--bad); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin: 10px 0; }
+  @media (max-width: 860px) {
+    .side { position: fixed; left: 0; top: 0; transform: translateX(-100%); transition: transform .2s; box-shadow: 0 0 30px rgba(0,0,0,.3); }
+    .side.open { transform: none; }
+    .menu-btn { display: inline-flex; }
+    .topbar { padding: 8px 12px; } .topbar h1 { font-size: 21px; } .topbar .who small { display: none; }
+    main { padding: 12px; }
+    .grid .wide { grid-column: auto; }
+    .bar .field { flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<!-- the start: signing in through the Portal -->
+<section class="start" id="v_start"><div class="card"><h2 style="margin:0 0 6px">Store</h2><p id="st_msg">Signing in…</p><p class="mr muted" id="st_mr"></p>
+  <p id="st_go" hidden><a class="btn primary" id="st_link" href="#">Open the Portal</a></p></div></section>
+
+<div class="app" id="v_app" hidden>
+  <aside class="side" id="side">
+    <div class="brandbox">
+      <div class="brandtile" id="brandtile"><img src="https://i.ibb.co/CpSfBqXX/RCL-LOGO-PDF.png" alt="Rachana Construction Limited" onerror="this.parentNode.classList.add('noimg')"><span class="fb">Rachana</span></div>
+      <div class="brandsub">Store<small>by One Click Solution</small></div>
+    </div>
+    <div class="sitebox"><button type="button" class="site-chg" id="site_chg" title="Change site – open another of your sites" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/></svg>
+      <span><small>Change site</small><b id="site_name"></b></span></button></div>
+    <nav aria-label="Store">
+      <div class="grp"><h3>Store</h3>
+        <button type="button" class="navbtn" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/></svg>Item Master</button>
+      </div>
+      <div class="grp" id="mods" hidden></div>
+    </nav>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button type="button" class="btn small menu-btn" id="menu_btn" aria-label="Open menu">☰</button>
+      <div><div class="crumb">Store /</div><h1>Item Master</h1></div>
+      <div class="who"><b id="u_name"></b><small id="u_role"></small></div>
+      <button type="button" class="btn small" id="u_logout">Logout</button>
+    </header>
+    <main>
+      <section class="panel">
+        <h2>Item Master</h2>
+        <p class="muted" style="margin:0">The items of this site – Mechanical and Store use the same list. A name is there once: a name that is nearly the same as one already there is asked about first.</p>
+        <div class="bar">
+          <div class="field grow"><label for="f_q">Search</label><input id="f_q" placeholder="Item name, code, category, HSN" autocomplete="off"></div>
+          <div class="field"><label for="f_cat">Category</label><select id="f_cat"></select></div>
+          <div class="field" style="flex-basis:150px;min-width:140px"><label for="f_st">Status</label><select id="f_st"><option value="">All</option><option>Active</option><option>Inactive</option></select></div>
+        </div>
+        <div class="bar" style="margin-top:0">
+          <button type="button" class="btn primary" id="b_new">+ Add item</button>
+          <button type="button" class="btn" id="b_export">Export to Excel</button>
+          <button type="button" class="btn" id="b_import" data-admin hidden>Import from Excel</button>
+          <button type="button" class="btn small" id="b_tpl" data-admin hidden>Import template</button>
+          <input type="file" id="f_file" accept=".xlsx,.xls,.csv" hidden>
+          <span class="count" id="i_count"></span>
+        </div>
+      </section>
+      <!-- add / change one item -->
+      <section class="panel" id="p_form" hidden>
+        <h2 id="fm_title">Add item</h2>
+        <div class="grid" style="margin-top:10px">
+          <div class="field wide"><label for="i_name">Item Name *</label><input id="i_name" maxlength="120" autocomplete="off" placeholder="e.g. Hydraulic Hose 1/2 inch"><div class="hint" id="i_hint"></div></div>
+          <div class="field"><label for="i_unit">Unit *</label><select id="i_unit"></select></div>
+          <div class="field"><label for="i_cat">Category *</label><input id="i_cat" maxlength="40" list="dl_cat" autocomplete="off" placeholder="e.g. Spare Parts"><datalist id="dl_cat"></datalist></div>
+          <div class="field"><label for="i_hsn">HSN Code</label><input id="i_hsn" maxlength="8" inputmode="numeric" autocomplete="off" placeholder="4, 6 or 8 digits"></div>
+          <div class="field"><label for="i_gst">GST %</label><input id="i_gst" list="dl_gst" inputmode="decimal" autocomplete="off" placeholder="e.g. 18"><datalist id="dl_gst"><option value="0"><option value="5"><option value="18"><option value="40"></datalist></div>
+          <div class="field"><label for="i_min">Min Stock</label><input id="i_min" type="number" min="0" step="any" placeholder="e.g. 10"></div>
+          <div class="field" id="i_status_w" hidden><label for="i_status">Status</label><select id="i_status"><option>Active</option><option>Inactive</option></select></div>
+        </div>
+        <div class="bar"><button type="button" class="btn primary" id="b_save">Save item</button><button type="button" class="btn" id="b_cancel">Cancel</button></div>
+      </section>
+      <!-- import: what the file holds, row by row -->
+      <section class="panel" id="p_imp" hidden>
+        <h2>Import from Excel – check</h2>
+        <p class="muted" id="imp_sum" style="margin:4px 0 10px"></p>
+        <div class="tw"><table><thead><tr><th>Line</th><th>Item Name</th><th>Result</th><th>Details</th></tr></thead><tbody id="imp_rows"></tbody></table></div>
+        <div class="bar"><button type="button" class="btn primary" id="b_imp_go">Import</button><button type="button" class="btn" id="b_imp_x">Cancel</button></div>
+      </section>
+      <section class="panel">
+        <div class="tw"><table><thead><tr><th>Code</th><th>Item Name</th><th>Unit</th><th>Category</th><th>HSN</th><th class="n">GST %</th><th class="n">Min Stock</th><th>Status</th><th>Added by</th><th></th></tr></thead><tbody id="i_rows"></tbody></table></div>
+      </section>
+    </main>
+  </div>
+</div>
+<div class="dlg-back" id="dlg" hidden><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlg_t"><h3 id="dlg_t"></h3><div id="dlg_b"></div><div class="btns" id="dlg_btns"></div></div></div>
+<div id="toast" role="status" hidden></div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const S = { me: null, items: [], units: [], cats: [], edit: null, imp: null };
+  function toast(t, bad) { const e = $('toast'); e.textContent = t; e.className = bad ? 'bad' : ''; e.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { e.hidden = true; }, bad ? 7000 : 3500); }
+  async function api(path, body) {
+    const r = await fetch(path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-RCL': '1' }, body: JSON.stringify(body) });
+    let j = {}; try { j = await r.json(); } catch (e) { j = { error: 'The Store did not answer properly (' + r.status + ').' }; }
+    if (!r.ok || j.error) { const e = new Error(j.error || ('Error ' + r.status)); e.status = r.status; e.code = j.code; e.data = j; throw e; }
+    return j;
+  }
+  const items = body => api('/api/items', body);
+  // a dialog with buttons; resolves with the value of the button pressed (null = closed)
+  function ask(title, html, buttons) {
+    return new Promise(res => {
+      $('dlg_t').textContent = title; $('dlg_b').innerHTML = html;
+      $('dlg_btns').innerHTML = buttons.map((b, i) => '<button type="button" class="btn' + (b.primary ? ' primary' : '') + (b.bad ? ' bad' : '') + '" data-i="' + i + '">' + esc(b.label) + '</button>').join('');
+      $('dlg').hidden = false;
+      const done = v => { $('dlg').hidden = true; $('dlg_btns').onclick = null; document.removeEventListener('keydown', key); res(v); };
+      const key = e => { if (e.key === 'Escape') done(null); };
+      document.addEventListener('keydown', key);
+      $('dlg_btns').onclick = e => { const b = e.target.closest('[data-i]'); if (b) done(buttons[Number(b.dataset.i)].value); };
+      setTimeout(() => { const f = $('dlg_btns').querySelector('.primary') || $('dlg_btns').firstElementChild; if (f) f.focus(); }, 30);
+    });
+  }
+
+  /* ---------------- SIGN-IN THROUGH THE PORTAL ----------------
+   * The Portal opens the Store with a ticket (#sso=…). Without a sign-in here the browser goes to the Portal (which sends it
+   * back with a ticket at once while the Portal still knows the person). At most 3 automatic trips in 2 minutes – then a message. */
+  let PORTAL = '';
+  const lastSite = () => { try { return localStorage.getItem('rcl_store_site') || ''; } catch (e) { return ''; } };
+  function toPortal(path, auto) {
+    if (!PORTAL) { startMsg('The Store is not linked to the Portal yet (PORTAL_URL in Vercel).', 'Store अजून Portal ला जोडलेले नाही.'); return; }
+    if (auto) {
+      let hops = []; try { hops = JSON.parse(sessionStorage.getItem('rcl_store_hops') || '[]').filter(t => Date.now() - t < 120000); } catch (e) { hops = []; }
+      if (hops.length >= 3) { startMsg('The Portal could not sign you in here (several tries in a row). Open the Portal and choose the Store again.', 'Portal मधून इथे sign in झाले नाही. Portal उघडा आणि Store पुन्हा निवडा.', true); return; }
+      hops.push(Date.now()); try { sessionStorage.setItem('rcl_store_hops', JSON.stringify(hops)); } catch (e) { /* no guard without storage */ }
+    }
+    location.href = PORTAL + path;
+  }
+  const goSignIn = () => toPortal(lastSite() ? '/api/go?module=store&site=' + encodeURIComponent(lastSite()) : '/', true);
+  function startMsg(en, mr, link) {
+    $('v_app').hidden = true; $('v_start').hidden = false; $('st_msg').textContent = en; $('st_mr').textContent = mr || '';
+    $('st_go').hidden = !(link && PORTAL); $('st_link').href = PORTAL ? PORTAL + '/' : '#';
+  }
+  async function start() {
+    const m = /[#&]sso=([A-Za-z0-9_.-]+)/.exec(location.hash || '');
+    if (m) {
+      history.replaceState(null, '', location.pathname + location.search);
+      try { const r = await api('/api/sso', { ticket: m[1] }); try { sessionStorage.removeItem('rcl_store_hops'); } catch (e) {} PORTAL = r.portal; return show(r); }
+      catch (e) {
+        try { PORTAL = (await api('/api/me')).portal || ''; } catch (e2) { PORTAL = ''; }
+        if (e.code === 'ticket' && /ran out|already used/.test(e.message)) return goSignIn();
+        return startMsg(e.message, 'Store उघडता आले नाही. Portal मधून पुन्हा उघडा.', true);
+      }
+    }
+    let me; try { me = await api('/api/me'); } catch (e) { return startMsg(e.message, '', false); }
+    PORTAL = me.portal || '';
+    if (!me.signedIn) return goSignIn();
+    show(me);
+  }
+  function show(me) {
+    S.me = me; try { localStorage.setItem('rcl_store_site', me.site); } catch (e) { /* this tab only */ }
+    $('v_start').hidden = true; $('v_app').hidden = false;
+    $('site_name').textContent = me.siteName || me.site;
+    $('u_name').textContent = me.user.name; $('u_role').textContent = (me.user.admin ? 'Store Admin' : 'Store User') + ' · ' + (me.siteName || me.site);
+    document.querySelectorAll('[data-admin]').forEach(b => { b.hidden = !me.user.admin; });
+    const others = (me.mods || []).filter(x => x.key !== 'store');
+    $('mods').hidden = !others.length;
+    $('mods').innerHTML = '<h3>Other modules</h3>' + others.map(x => '<button type="button" class="navbtn" data-go="' + esc('/api/go?module=' + encodeURIComponent(x.key) + '&site=' + encodeURIComponent(me.site)) + '" title="Open ' + esc(x.name) + ' – no new sign-in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>' + esc(x.name) + '<span class="ext" aria-hidden="true">↗</span></button>').join('');
+    load();
+  }
+  // a sign-in that ended while working: back through the Portal (what was typed in an open form is lost – said first)
+  function failed(e) {
+    if (e.status === 401 && e.code === 'session') { toast('Your sign-in ended – signing in again through the Portal…', true); setTimeout(goSignIn, 1200); return; }
+    toast(e.message, true);
+  }
+  $('mods').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) toPortal(b.dataset.go, false); });
+  $('site_chg').addEventListener('click', async () => {
+    const me = S.me; if (!me) return;
+    const list = (me.sites || []).length ? me.sites : [{ code: me.site, name: me.siteName }];
+    const v = await ask('Change site', '<p class="muted">Your sites with the Store</p>', list.map(x => ({ label: x.name + (x.code === me.site ? ' – open now' : ''), value: x.code === me.site ? null : x.code, primary: x.code === me.site }))
+      .concat([{ label: 'All my modules (Portal)', value: '__portal' }, { label: 'Stay here', value: null }]));
+    if (v === '__portal') toPortal('/?menu=1', false); else if (v) toPortal('/api/go?module=store&site=' + encodeURIComponent(v), false);
+  });
+  $('u_logout').addEventListener('click', async () => {
+    const v = await ask('Logout?', '<p>This signs you out of the Portal and every module.</p><p class="mr">यामुळे Portal आणि सर्व modules मधून sign out होईल.</p>', [{ label: 'Cancel', value: false }, { label: 'Logout', value: true, primary: true }]);
+    if (!v) return;
+    try { await api('/api/logout', {}); } catch (e) { /* the cookie ends anyway */ }
+    try { localStorage.removeItem('rcl_store_site'); } catch (e) {}
+    if (PORTAL) location.href = PORTAL + '/?signout=1'; else startMsg('Signed out.', 'Sign out झाले.', false);
+  });
+  $('menu_btn').addEventListener('click', () => $('side').classList.toggle('open'));
+  document.addEventListener('click', e => { if (window.innerWidth <= 860 && $('side').classList.contains('open') && !e.target.closest('#side') && !e.target.closest('#menu_btn')) $('side').classList.remove('open'); });
+
+  /* ---------------- ITEM MASTER ---------------- */
+  async function load() {
+    try { const r = await items({ action: 'list' }); S.items = r.items; S.units = r.units; S.cats = r.categories; draw(); }
+    catch (e) { failed(e); $('i_rows').innerHTML = '<tr><td colspan="10" class="empty">' + esc(e.message) + '</td></tr>'; }
+  }
+  const num = v => v === null || v === undefined || v === '' ? '' : String(Number(v));
+  function draw() {
+    const keep = $('f_cat').value;
+    $('f_cat').innerHTML = '<option value="">All</option>' + S.cats.map(c => '<option' + (c === keep ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
+    $('dl_cat').innerHTML = S.cats.map(c => '<option value="' + esc(c) + '">').join('');
+    $('i_unit').innerHTML = '<option value="">Pick…</option>' + S.units.map(u => '<option>' + esc(u) + '</option>').join('');
+    const q = $('f_q').value.trim().toLowerCase(), cat = $('f_cat').value, st = $('f_st').value, adm = S.me.user.admin;
+    const list = S.items.filter(i => (!cat || i.category === cat) && (!st || i.status === st) && (!q || [i.code, i.name, i.category, i.hsn].join(' ').toLowerCase().indexOf(q) > -1));
+    $('i_count').textContent = list.length + ' of ' + S.items.length + ' items';
+    $('i_rows').innerHTML = list.length ? list.map(i => '<tr' + (i.status === 'Inactive' ? ' class="off"' : '') + ' data-code="' + esc(i.code) + '"><td>' + esc(i.code) + '</td><td class="nm">' + esc(i.name) + (i.similar_note ? '<small title="' + esc(i.similar_note) + '">near another name – confirmed different</small>' : '') + '</td><td>' + esc(i.unit) + '</td><td>' + esc(i.category) + '</td><td>' + esc(i.hsn || '') + '</td>' +
+      '<td class="n">' + num(i.gst_pct) + '</td><td class="n">' + num(i.min_stock) + '</td><td><span class="tag' + (i.status === 'Inactive' ? ' off' : '') + '">' + esc(i.status) + '</span></td><td><small>' + esc(i.created_by || '') + '</small></td>' +
+      '<td>' + (adm ? '<div class="acts"><button type="button" class="link i-edit">Edit</button><button type="button" class="link del i-del">Delete</button></div>' : '') + '</td></tr>').join('')
+      : '<tr><td colspan="10" class="empty">' + (S.items.length ? 'No item for this search.' : 'No item yet – press "+ Add item".') + '</td></tr>';
+  }
+  ['f_q', 'f_cat', 'f_st'].forEach(id => $(id).addEventListener(id === 'f_q' ? 'input' : 'change', draw));
+  function openForm(it) {
+    S.edit = it || null; $('p_form').hidden = false; $('p_imp').hidden = true;
+    $('fm_title').textContent = it ? 'Change ' + it.code : 'Add item';
+    $('i_name').value = it ? it.name : ''; $('i_unit').value = it ? it.unit : ''; $('i_cat').value = it ? it.category : '';
+    $('i_hsn').value = it ? (it.hsn || '') : ''; $('i_gst').value = it ? num(it.gst_pct) : ''; $('i_min').value = it ? num(it.min_stock) : '';
+    $('i_status_w').hidden = !it; $('i_status').value = it ? it.status : 'Active'; $('i_hint').innerHTML = '';
+    $('p_form').scrollIntoView({ block: 'nearest' }); setTimeout(() => $('i_name').focus(), 30);
+  }
+  $('b_new').addEventListener('click', () => openForm(null));
+  $('b_cancel').addEventListener('click', () => { $('p_form').hidden = true; S.edit = null; });
+  $('i_rows').addEventListener('click', async e => {
+    const tr = e.target.closest('tr[data-code]'); if (!tr) return; const it = S.items.find(i => i.code === tr.dataset.code); if (!it) return;
+    if (e.target.classList.contains('i-edit')) openForm(it);
+    if (e.target.classList.contains('i-del')) {
+      const v = await ask('Delete ' + it.code + '?', '<p><b>' + esc(it.name) + '</b> (' + esc(it.unit) + ', ' + esc(it.category) + ') is taken out of the Item Master.</p><p class="mr">हा item Item Master मधून काढला जाईल.</p>', [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, bad: true }]);
+      if (!v) return;
+      try { await items({ action: 'remove', code: it.code }); toast(it.code + ' deleted.'); load(); } catch (er) { failed(er); }
+    }
+  });
+  // while typing a name: the names already there that are near it (said at once; the save asks again)
+  let hintT = null;
+  $('i_name').addEventListener('input', () => { clearTimeout(hintT); hintT = setTimeout(async () => {
+    const n = $('i_name').value.trim(); if (n.length < 3) { $('i_hint').innerHTML = ''; return; }
+    try { const r = await items({ action: 'check', name: n, category: $('i_cat').value, code: S.edit ? S.edit.code : '' });
+      if ($('i_name').value.trim() !== n) return;
+      $('i_hint').innerHTML = r.exact ? '<span class="tag bad">Already there: ' + esc(r.exact.code + ' ' + r.exact.name) + '</span>'
+        : r.similar.length ? '<span class="tag warn">Near: ' + r.similar.map(y => esc(y.code + ' ' + y.name)).join(', ') + '</span>'
+        : r.proper.name !== n ? '<div class="sugg">Suggested: <b>' + esc(r.proper.name) + '</b> <button type="button" class="link" id="use_sugg">Use this</button></div>' : '';
+      const u = $('use_sugg'); if (u) u.onclick = () => { $('i_name').value = r.proper.name; $('i_hint').innerHTML = ''; };
+    } catch (e) { /* the save checks anyway */ }
+  }, 450); });
+  const formItem = () => ({ name: $('i_name').value, unit: $('i_unit').value, category: $('i_cat').value, hsn: $('i_hsn').value, gst: $('i_gst').value, minStock: $('i_min').value, status: $('i_status').value });
+  /* SAVE: 1) a proper name is suggested (spelling, capitals, units) – the user picks; 2) the same name → not saved;
+   * 3) a near name → "is it the same item?" – saved only when the user says it is a different item; 4) a near category → asked. */
+  $('b_save').addEventListener('click', async e => {
+    const b = e.target; if (b.disabled) return; b.disabled = true;
+    try {
+      let it = formItem();
+      if (!it.name.trim()) { toast('Enter the item name.', true); return; }
+      const chk = await items({ action: 'check', name: it.name, category: it.category, code: S.edit ? S.edit.code : '' });
+      if (chk.proper.name !== it.name.trim().replace(/\s+/g, ' ')) {
+        const v = await ask('A proper name', '<p>You typed: <b>' + esc(it.name) + '</b></p><p>Suggested: <b>' + esc(chk.proper.name) + '</b></p>' + (chk.proper.fixes.length ? '<p class="muted">Spelling: ' + esc(chk.proper.fixes.join(', ')) + '</p>' : '') + '<p class="mr">सुचवलेले नाव वापरायचे का?</p>',
+          [{ label: 'Keep mine', value: 'mine' }, { label: 'Use "' + chk.proper.name + '"', value: 'use', primary: true }]);
+        if (v === null) return;
+        if (v === 'use') { it.name = chk.proper.name; $('i_name').value = it.name; }
+      }
+      const send = async (confirm, confirmCat) => items({ action: 'save', code: S.edit ? S.edit.code : '', item: it, confirm: confirm, confirmCat: confirmCat });
+      let confirm = [], confirmCat = false, r = null;
+      for (let round = 0; round < 4 && !r; round++) {
+        try { r = await send(confirm, confirmCat); }
+        catch (er) {
+          if (er.code === 'exact') { await ask('Already there', '<p>' + esc(er.message) + '</p><p class="mr">हा item आधीच आहे – save केलेला नाही.</p>', [{ label: 'OK', value: true, primary: true }]); return; }
+          if (er.code === 'similar') {
+            const sim = er.data.similar || [];
+            const v = await ask('Is it the same item?', '<p><b>' + esc(it.name) + '</b> – nearly the same name is already there:</p><ul>' + sim.map(y => '<li><b>' + esc(y.name) + '</b> (' + esc(y.code) + ', ' + esc(y.unit) + ', ' + esc(y.category) + ')</li>').join('') + '</ul><p class="mr">"' + esc(sim[0].name) + '" आधीच आहे – हाच item आहे का? वेगळा असेल तरच save करा.</p>',
+              [{ label: 'Same item – do not save', value: 'same', primary: true }, { label: 'Different item – save', value: 'diff' }]);
+            if (v !== 'diff') { toast('Not saved – ' + sim[0].name + ' (' + sim[0].code + ') is already there.'); return; }
+            confirm = sim.map(y => y.code); continue;
+          }
+          if (er.code === 'cat') {
+            const near = er.data.categories || [];
+            const v = await ask('Category', '<p>You typed the category <b>' + esc(it.category) + '</b>; nearly the same is already there: <b>' + esc(near.join(', ')) + '</b>.</p><p class="mr">जवळपास तीच category आधीच आहे.</p>',
+              [{ label: 'New category "' + it.category.trim() + '"', value: 'new' }, { label: 'Use "' + near[0] + '"', value: 'use', primary: true }]);
+            if (v === null) return;
+            if (v === 'use') { it.category = near[0]; $('i_cat').value = near[0]; } else confirmCat = true;
+            continue;
+          }
+          throw er;
+        }
+      }
+      if (!r) return;
+      toast((S.edit ? 'Saved: ' : 'Item added: ') + r.item.code + ' ' + r.item.name);
+      $('p_form').hidden = true; S.edit = null; load();
+    } catch (er) { failed(er); }
+    finally { b.disabled = false; }
+  });
+
+  /* ---------------- EXCEL ---------------- */
+  const HEAD = ['Item Code', 'Item Name', 'Unit', 'Category', 'HSN Code', 'GST %', 'Min Stock', 'Status'];
+  function xlsx() { return window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const s = document.createElement('script'); s.src = '/vendor/xlsx-0.18.5.full.min.js'; s.onload = () => res(window.XLSX); s.onerror = () => rej(new Error('The Excel tool could not be loaded – check the internet and try again.')); document.head.appendChild(s); }); }
+  const day = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+  async function writeFile(rows, name) { const X = await xlsx(); const ws = X.utils.aoa_to_sheet([HEAD].concat(rows)); ws['!cols'] = [10, 40, 8, 22, 12, 8, 10, 10].map(w => ({ wch: w })); const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Items'); X.writeFile(wb, name); }
+  $('b_export').addEventListener('click', async () => { try { await writeFile(S.items.map(i => [i.code, i.name, i.unit, i.category, i.hsn || '', i.gst_pct === null ? '' : Number(i.gst_pct), i.min_stock === null ? '' : Number(i.min_stock), i.status]), 'Items_' + S.me.site + '_' + day() + '.xlsx'); toast('Exported ' + S.items.length + ' items.'); } catch (e) { toast(e.message, true); } });
+  $('b_tpl').addEventListener('click', async () => { try { await writeFile([['', 'Hydraulic Hose 1/2 inch', 'Mtr', 'Spare Parts', '40092100', 18, 10, '']], 'Items_template.xlsx'); } catch (e) { toast(e.message, true); } });
+  $('b_import').addEventListener('click', () => { $('f_file').value = ''; $('f_file').click(); });
+  // a file: its rows (the heading row is found by its names; "Item Code" of another site is not used – codes are this site's)
+  $('f_file').addEventListener('change', async () => {
+    const f = $('f_file').files[0]; if (!f) return;
+    try {
+      const X = await xlsx(), wb = X.read(await f.arrayBuffer(), { type: 'array' }), ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = X.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+      const hi = aoa.findIndex(r => r.some(c => /item\s*name|^name$/i.test(String(c).trim())));
+      if (hi < 0) throw new Error('The file has no "Item Name" heading – use the Import template (or an exported file).');
+      const h = aoa[hi].map(c => String(c).trim().toLowerCase()), col = re => h.findIndex(c => re.test(c));
+      const C = { name: col(/item\s*name|^name$/), unit: col(/^unit/), category: col(/^categ/), hsn: col(/hsn/), gst: col(/gst/), minStock: col(/min/) };
+      if (C.unit < 0 || C.category < 0) throw new Error('The file needs the headings Item Name, Unit and Category.');
+      const rows = []; aoa.slice(hi + 1).forEach((r, k) => { const g = c => c < 0 ? '' : String(r[c] === undefined ? '' : r[c]).trim(); const x = { line: hi + k + 2, name: g(C.name), unit: g(C.unit), category: g(C.category), hsn: g(C.hsn), gst: g(C.gst), minStock: g(C.minStock) };
+        if (x.name || x.unit || x.category) rows.push(x); });
+      if (!rows.length) throw new Error('The file has no item rows.');
+      S.imp = { rows: rows, confirm: {} }; await impCheck();
+    } catch (e) { failed(e); }
+  });
+  const ST = { new: ['tag', 'New – will be added'], exists: ['tag skip', 'Already there – left out'], similar: ['tag warn', 'Near name – confirm'], error: ['tag bad', 'Mistake'] };
+  async function impCheck() {
+    const r = await items({ action: 'import', check: true, rows: S.imp.rows, confirm: S.imp.confirm });
+    S.imp.report = r; $('p_imp').hidden = false; $('p_form').hidden = true;
+    $('imp_sum').textContent = S.imp.rows.length + ' rows: ' + r.fresh + ' new, ' + r.exists + ' already there (left out), ' + r.similar + ' near names to confirm, ' + r.errors + ' with a mistake.' + (r.errors ? ' Correct the mistakes in the file and choose it again – nothing is imported while one is left.' : '');
+    $('imp_rows').innerHTML = r.rows.map(x => '<tr><td>' + x.line + '</td><td class="nm">' + esc(x.name) + '</td><td><span class="' + ST[x.status][0] + '">' + ST[x.status][1] + '</span></td><td style="white-space:normal">' +
+      (x.status === 'similar' ? 'Near: ' + x.similar.map(y => esc(y.code + ' ' + y.name)).join(', ') + '<br><label><input type="checkbox" class="imp-ok" data-line="' + x.line + '" data-codes="' + esc(JSON.stringify(x.similar.map(y => y.code))) + '"' + (x.confirmed ? ' checked' : '') + ' style="width:auto;min-height:0"> Different item – add it</label>' : esc(x.msg || x.catNote || '')) + '</td></tr>').join('');
+    $('b_imp_go').disabled = !!r.errors || !(r.fresh + r.similar);
+    $('p_imp').scrollIntoView({ block: 'nearest' });
+  }
+  $('imp_rows').addEventListener('change', e => { const c = e.target.closest('.imp-ok'); if (!c) return; if (c.checked) S.imp.confirm[c.dataset.line] = JSON.parse(c.dataset.codes); else delete S.imp.confirm[c.dataset.line]; });
+  $('b_imp_x').addEventListener('click', () => { $('p_imp').hidden = true; S.imp = null; });
+  $('b_imp_go').addEventListener('click', async e => {
+    const b = e.target; b.disabled = true;
+    try { const r = await items({ action: 'import', rows: S.imp.rows, confirm: S.imp.confirm });
+      toast(r.added + ' items imported' + (r.exists ? ', ' + r.exists + ' already there (left out)' : '') + '.'); $('p_imp').hidden = true; S.imp = null; load(); }
+    catch (er) { if (er.data && er.data.report) { try { await impCheck(); } catch (e2) { /* shown below */ } } failed(er); b.disabled = false; }
+  });
+
+  start();
+})();
+</script>
+</body>
+</html>
