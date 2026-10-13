@@ -1,0 +1,1 @@
+{ "module": "store", "name": "Store", "pages": [ { "key": "dashboard", "name": "Dashboard" }, { "key": "items", "name": "Item Master" } ] }

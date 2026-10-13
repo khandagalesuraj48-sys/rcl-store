@@ -50,3 +50,18 @@ timeout 120 node --test test/unit.test.js     # no database
 timeout 300 node test/api.test.js             # rig: Portal :3010, Store :3020, site databases :3100 / :3102
 timeout 400 node test/browser.test.js         # rig + Chromium; pictures in test/shots/
 ```
+
+## One address (13-10-2026)
+The Store is also served under the main address, `https://oneclicksolution-erp.vercel.app/store/`. Mechanical's `vercel.json`
+rewrites `/store/:path*` to this project, so the installed app never opens a second window. Because of that:
+* Every address the page uses is **relative** (`api/…`, `vendor/…`), so the page works at its own address and under `/store/`.
+* `PUBLIC_URL` (Vercel setting, an address, not a secret) is set to `https://oneclicksolution-erp.vercel.app/store`. Changes
+  sent from the page at that address pass the origin check (`lib/http.js`).
+* `PORTAL_URL` may be the Portal under the main address: `https://oneclicksolution-erp.vercel.app/portal`.
+* `public/menu.json` lists the Store's pages. The other modules show them in their dark menus, and a click opens
+  `<store address>/#site=S1&page=items`.
+* The page reads `#sso=…`, `#site=…` and `#page=…`:
+  * another site goes through the Portal, which carries the page;
+  * `#page` stays in the address, so a reload keeps the page.
+* The other modules of the site are groups of the dark menu, each with its pages read from `<its address>/menu.json`.
+  * A module whose menu cannot be read shows one line, "Open …", through the Portal.
