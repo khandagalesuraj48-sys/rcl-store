@@ -128,6 +128,13 @@
     .grid .wide { grid-column: auto; }
     .bar .field { flex: 1 1 100%; }
   }
+  /* INSIDE ANOTHER MODULE'S SCREEN (13-10-2026: "Store open kel tri Mechanical sarkha view – fkt tab change"): Mechanical shows
+   * this page in its middle part – its own dark menu, top bar and Logout stay hidden here, Mechanical's are on the screen */
+  html.embed, html.embed body { background: transparent; }
+  html.embed .side, html.embed .topbar { display: none !important; }
+  html.embed .app { min-height: 0; }
+  html.embed main { max-width: none; padding: 2px 2px 24px; }
+  html.embed .start { min-height: 50vh; }
 </style>
 </head>
 <body>
@@ -230,6 +237,9 @@
   /* ONE ADDRESS (13-10-2026: "Store or Mechanical – no big change of view; nothing opens somewhere else"): the Store is also
    * served under the main address (<main>/store/), so every address of this page is RELATIVE to where the page is. */
   const BASE = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
+  // shown inside another module's screen (Mechanical: <main>/store/?embed=1#site=…&page=…&u=…) – the same address only
+  const EMBED = /[?&]embed=1(&|$)/.test(location.search) && (() => { try { return window.parent !== window && !!window.parent.document; } catch (e) { return false; /* a page of another address cannot be read: not "inside" */ } })();
+  if (EMBED) document.documentElement.classList.add('embed');
   async function api(path, body) {
     const r = await fetch(BASE + path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-RCL': '1' }, body: JSON.stringify(body) });
     let j = {}; try { j = await r.json(); } catch (e) { j = { error: 'The Store did not answer properly (' + r.status + ').' }; }
@@ -271,9 +281,35 @@
   const goSignIn = (site, page) => { site = site || lastSite(); toPortal(site ? '/api/go?module=store&site=' + encodeURIComponent(site) + (page ? '&page=' + encodeURIComponent(page) : '') : '/', true); };
   function startMsg(en, mr, link) {
     $('v_app').hidden = true; $('v_start').hidden = false; $('st_msg').textContent = en; $('st_mr').textContent = mr || '';
-    $('st_go').hidden = !(link && PORTAL); $('st_link').href = PORTAL ? PORTAL + '/' : '#';
+    $('st_go').hidden = !(link && PORTAL); $('st_link').href = PORTAL ? PORTAL + '/' : '#'; if (EMBED) $('st_link').target = '_top';
+  }
+  /* INSIDE: no page change ever – the Store's sign-in comes by itself: the person is signed in on the Portal already (that is how
+   * he is in Mechanical), so the Portal gives the Store's ticket as an answer (json=1). A Store sign-in of another person or
+   * another site on this browser is ended first. */
+  async function embedStart() {
+    const site = hashArg('site').toUpperCase(), page = PAGES[hashArg('page')] ? hashArg('page') : '', who = hashArg('u').toLowerCase();
+    let me; try { me = await api('api/me'); } catch (e) { return startMsg(e.message, '', false); }
+    PORTAL = me.portal || '';
+    if (me.signedIn && (!site || site === me.site) && (!who || who === String(me.user.email).toLowerCase())) return show(me, page);
+    if (me.signedIn) { try { await api('api/logout', {}); } catch (e) { /* it ends anyway */ } }
+    return embedTicket(site || (me.signedIn ? me.site : ''), page, who);
+  }
+  async function embedTicket(site, page, who) {
+    if (!PORTAL || !site) return startMsg('The Store could not be opened here.', 'Store इथे उघडता आले नाही.', !!PORTAL);
+    let j = {}, ok = false;
+    try { const r = await fetch(PORTAL + '/api/go?module=store&site=' + encodeURIComponent(site) + '&json=1', { credentials: 'same-origin', headers: { 'X-RCL': '1' } }); ok = r.ok; j = await r.json(); }
+    catch (e) { return startMsg('No connection – check the internet and open the page again.', 'Internet तपासा आणि पान पुन्हा उघडा.', false); }
+    if (!ok || !j.ticket) {
+      if (j.code === 'signin') return startMsg('Your sign-in on the Portal has ended – sign in again.', 'Portal चा login संपला आहे – पुन्हा sign in करा.', true);
+      if (j.code === 'noaccess') return startMsg('You do not have the Store on this site – ask the Super Admin.', 'या site वर तुम्हाला Store दिलेले नाही – Super Admin ला विचारा.', false);
+      return startMsg(j.error || 'The Store could not be opened here.', 'Store इथे उघडता आले नाही.', true);
+    }
+    let r; try { r = await api('api/sso', { ticket: j.ticket }); } catch (e) { return startMsg(e.message, 'Store उघडता आले नाही.', true); }
+    if (who && String(r.user.email).toLowerCase() !== who) { try { await api('api/logout', {}); } catch (e) {} return startMsg('The Portal is signed in as another person on this computer – sign out and sign in again.', 'या computer वर Portal मध्ये दुसरी व्यक्ती आहे – sign out करून पुन्हा sign in करा.', true); }
+    PORTAL = r.portal || PORTAL; show(r, page);
   }
   async function start() {
+    if (EMBED) return embedStart();
     const tk = hashArg('sso'), wantSite = hashArg('site').toUpperCase(), wantPage = PAGES[hashArg('page')] ? hashArg('page') : '';
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     if (tk) {
@@ -299,6 +335,18 @@
   const PG_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>';
   const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
   function show(me, page) {
+    /* opened on its own (the Portal's card, a bookmark) while the person also has Mechanical at this same address: the Store is
+     * shown inside Mechanical's screen – one view for every module (at most once in 30 s: never a circle) */
+    const mech = !EMBED && (me.mods || []).find(x => x.key === 'mechanical' && x.url);
+    let same = false; try { same = !!mech && new URL(mech.url).origin === location.origin; } catch (e) { same = false; }
+    if (same) {
+      let last = 0; try { last = Number(sessionStorage.getItem('rcl_store_inmech') || 0); } catch (e) { last = 0; }
+      if (Date.now() - last > 30000) {
+        try { sessionStorage.setItem('rcl_store_inmech', String(Date.now())); } catch (e) { /* no guard: the 30 s rule needs storage */ }
+        location.replace(mech.url.replace(/\/+$/, '') + '/#site=' + encodeURIComponent(me.site) + '&page=store__' + (page || 'dashboard'));
+        return;
+      }
+    }
     S.me = me; try { localStorage.setItem('rcl_store_site', me.site); } catch (e) { /* this tab only */ }
     $('v_start').hidden = true; $('v_app').hidden = false;
     $('site_name').textContent = me.siteName || me.site;
@@ -306,7 +354,7 @@
     document.querySelectorAll('[data-admin]').forEach(b => { b.hidden = !me.user.admin; });
     /* the OTHER modules of this site – each a group of the menu, like Store's: its pages are read from the module itself
      * (<its address>/menu.json); a page opens that module on that page, in this same window (one address for all). */
-    const others = (me.mods || []).filter(x => x.key !== 'store');
+    const others = EMBED ? [] : (me.mods || []).filter(x => x.key !== 'store');
     $('mods').innerHTML = others.map(x => '<div class="grp" data-mod="' + esc(x.key) + '"><button type="button" class="grphead" aria-expanded="false">' + MOD_IC + esc(x.name) + CHEV + '</button><div class="items"><div class="note">…</div></div></div>').join('');
     others.forEach(modPages);
     go(page || 'dashboard');
@@ -345,6 +393,7 @@
   }
   // a sign-in that ended while working: back through the Portal (what was typed in an open form is lost – said first)
   function failed(e) {
+    if (e.status === 401 && e.code === 'session' && EMBED) { embedTicket(S.me && S.me.site, S.page, hashArg('u').toLowerCase()); return; }
     if (e.status === 401 && e.code === 'session') { toast('Your sign-in ended – signing in again through the Portal…', true); setTimeout(() => goSignIn(S.me && S.me.site, S.page), 1200); return; }
     toast(e.message, true);
   }
