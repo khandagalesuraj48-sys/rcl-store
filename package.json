@@ -1,0 +1,11 @@
+{
+  "name": "rcl-store",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RCL ERP – Store module: Item Master (Inward, Outward, Purchase Requisition later). Signs in through the Portal; each site's data stays in that site's database.",
+  "scripts": {
+    "dev": "node dev.js",
+    "test": "node --test test/unit.test.js"
+  },
+  "engines": { "node": ">=20" }
+}
