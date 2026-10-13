@@ -65,3 +65,12 @@ rewrites `/store/:path*` to this project, so the installed app never opens a sec
   * `#page` stays in the address, so a reload keeps the page.
 * The other modules of the site are groups of the dark menu, each with its pages read from `<its address>/menu.json`.
   * A module whose menu cannot be read shows one line, "Open …", through the Portal.
+
+## Search from Mechanical's screen (13-10-2026)
+Ctrl K in Mechanical also searches the modules shown inside it. Every module page gives:
+```js
+window.rclModule = { key, search(q) /* → [{ group, kind, title, sub, page, find }] */, open(page, find) };
+```
+The Store searches its Item Master: code, name, category, HSN, unit and status. All words must be found; when nothing is
+found, a spelling mistake is allowed. `open('items', code)` shows Item Master filtered to that item. A new module that gives
+these two is searched with no change in Mechanical.

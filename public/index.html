@@ -429,7 +429,7 @@
 
   /* ---------------- ITEM MASTER ---------------- */
   async function load() {
-    try { const r = await items({ action: 'list' }); S.items = r.items; S.units = r.units; S.cats = r.categories; draw(); dash(); }
+    try { const r = await items({ action: 'list' }); S.items = r.items; S.units = r.units; S.cats = r.categories; draw(); dash(); LOADED.ok(); }
     catch (e) { failed(e); $('i_rows').innerHTML = '<tr><td colspan="10" class="empty">' + esc(e.message) + '</td></tr>'; }
   }
   const num = v => v === null || v === undefined || v === '' ? '' : String(Number(v));
@@ -567,6 +567,45 @@
       toast(r.added + ' items imported' + (r.exists ? ', ' + r.exists + ' already there (left out)' : '') + '.'); $('p_imp').hidden = true; S.imp = null; load(); }
     catch (er) { if (er.data && er.data.report) { try { await impCheck(); } catch (e2) { /* shown below */ } } failed(er); b.disabled = false; }
   });
+
+  /* ---------------- SEARCH FROM THE SCREEN AROUND IT (13-10-2026) ----------------
+   * "Ctrl K search … new modual la search krt nahi … new task add zal tr search proper full in built asel": the screen this page
+   * is shown in (Mechanical) asks every module inside it through window.rclModule – search(q) gives the module's own results,
+   * open(page, find) shows one. Every module gives the same two, so a new one is found by the search without a change there.
+   * The Store: its Item Master (code, name, category, HSN, unit, status) – all words found; with nothing found, one spelling
+   * mistake per word is allowed (4 letters or more). */
+  const LOADED = (() => { let ok; const p = new Promise(res => { ok = res; }); return { p: p, ok: () => ok() }; })();
+  const sNorm = v => String(v === null || v === undefined ? '' : v).toLowerCase().replace(/\s+/g, ' ').trim();
+  function sDist(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    // (two letters the other way round – "pmup" for "pump" – count as one mistake, as in Mechanical's search)
+    let prev2 = null, prev = Array.from({ length: b.length + 1 }, (x, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i]; let low = i;
+      for (let j = 1; j <= b.length; j++) {
+        let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (prev2 && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, prev2[j - 2] + 1);
+        cur.push(v); if (v < low) low = v;
+      }
+      if (low > max) return max + 1; prev2 = prev; prev = cur;
+    }
+    return prev[b.length];
+  }
+  function sFind(q) {
+    const words = sNorm(q).split(' ').filter(Boolean).slice(0, 8); if (!words.length) return [];
+    const rows = S.items.map(i => ({ i: i, text: sNorm([i.code, i.name, i.category, i.hsn, i.unit, i.status].join(' ')) }));
+    const hit = (t, w, fz) => t.text.indexOf(w) > -1 || (fz && w.length >= 4 && t.text.split(/[^a-z0-9]+/).some(x => x.length >= 3 && sDist(w, x, w.length >= 7 ? 2 : 1) <= (w.length >= 7 ? 2 : 1)));
+    let found = rows.filter(t => words.every(w => hit(t, w, false)));
+    if (!found.length) found = rows.filter(t => words.every(w => hit(t, w, true)));
+    const score = t => (sNorm(t.i.code) === words.join(' ') ? 10 : 0) + (sNorm(t.i.name).indexOf(words[0]) === 0 ? 3 : 0) + (t.i.status === 'Active' ? 1 : 0);
+    return found.sort((a, b) => score(b) - score(a)).slice(0, 8).map(t => ({ group: 'Items', kind: 'item', title: t.i.code + '  –  ' + t.i.name,
+      sub: [t.i.unit, t.i.category, t.i.hsn ? 'HSN ' + t.i.hsn : '', t.i.status === 'Inactive' ? 'Inactive' : ''].filter(Boolean).join('  |  '), page: 'items', find: t.i.code }));
+  }
+  window.rclModule = {
+    key: 'store',
+    async search(q) { await Promise.race([LOADED.p, new Promise(res => setTimeout(res, 8000))]); return S.me ? sFind(q) : []; },
+    open(page, find) { go(PAGES[page] ? page : 'items'); if (find) { $('f_q').value = find; $('f_cat').value = ''; $('f_st').value = ''; if (S.items.length) draw(); } },
+  };
 
   start();
 })();
