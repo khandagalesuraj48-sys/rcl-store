@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Store – RCL ERP</title>
-<link rel="icon" href="/favicon.png">
+<link rel="icon" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -31,10 +31,12 @@
   .app { display: flex; min-height: 100vh; }
   .side { position: sticky; top: 0; height: 100vh; flex: 0 0 236px; width: 236px; background: var(--steel); color: #C9D3D9; display: flex; flex-direction: column; z-index: 20; }
   .brandbox { padding: 12px 12px 10px; border-bottom: 1px solid rgba(255,255,255,.08); display: flex; flex-direction: column; gap: 6px; }
-  .brandtile { background: #fff; border-radius: 8px; padding: 8px 10px; display: grid; place-items: center; min-height: 56px; }
-  .brandtile img { max-width: 100%; max-height: 48px; }
-  .brandtile .fb { display: none; font: 700 26px var(--display); color: #B3261E; }
-  .brandtile.noimg img { display: none; } .brandtile.noimg .fb { display: block; }
+  .brandtile { background: #fff; border-radius: 8px; padding: 8px 10px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  /* the company logo cut out of its big white image – the same as Mechanical's menu */
+  .rlogo { position: relative; overflow: hidden; display: block; aspect-ratio: 3.724; width: 100%; }
+  .rlogo img { position: absolute; max-width: none; width: 209.2%; left: -54.8%; top: -227.8%; height: auto; }
+  .rlogo .fb { display: none; } .rlogo.noimg img { display: none; }
+  .rlogo.noimg .fb { display: grid; place-content: center; position: absolute; inset: 0; font: 700 26px var(--display); color: #B3261E; }
   .brandsub { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #93A3AE; text-align: center; }
   .brandsub small { display: block; letter-spacing: .06em; font-weight: 500; color: #6E808C; text-transform: none; font-size: 11px; }
   .sitebox { padding: 10px 8px 2px; }
@@ -47,7 +49,16 @@
   .side nav { flex: 1; overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
   .grp { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.07); }
   .grp:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
-  .grp h3 { margin: 2px 12px 4px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #93A3AE; }
+  .grphead { appearance: none; border: 0; background: transparent; color: #E6ECEF; cursor: pointer; width: 100%; display: flex; align-items: center; gap: 12px; height: 38px; padding: 0 12px; border-radius: 6px; font: 600 13px var(--ui); letter-spacing: .04em; text-align: left; }
+  .grphead svg { flex: 0 0 18px; width: 18px; height: 18px; }
+  .grphead .chev { margin-left: auto; width: 16px; height: 16px; flex-basis: 16px; transition: transform .2s; opacity: .7; }
+  .grp:not(.open) .chev { transform: rotate(-90deg); }
+  .grp:not(.open) .items { display: none; }
+  .grphead:hover { background: var(--steel-2); }
+  .items { padding-left: 8px; }
+  .items .navbtn { height: 36px; font-size: 14px; }
+  .items .note { color: #93A3AE; font-size: 12.5px; padding: 6px 12px; }
+  .items .note.cap { color: #F2B705; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 8px 12px 2px; }
   .navbtn { appearance: none; border: 0; background: transparent; color: #C9D3D9; cursor: pointer; width: 100%; display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 6px; text-align: left; font-weight: 500; }
   .navbtn svg { flex: 0 0 18px; width: 18px; height: 18px; }
   .navbtn:hover { background: var(--steel-2); color: #fff; }
@@ -86,6 +97,14 @@
   .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #E8F5E9; color: var(--good); }
   .tag.off { background: #EEF0F2; color: var(--muted); } .tag.warn { background: #FFF3CD; color: #8A6100; } .tag.bad { background: #FDECEA; color: var(--bad); } .tag.skip { background: #EEF0F2; color: var(--muted); }
   .count { font-size: 13px; color: var(--muted); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 16px; }
+  .tile { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .tile small { display: block; color: var(--muted); font-weight: 600; font-size: 13px; }
+  .tile b { display: block; font: 700 32px var(--display); margin-top: 2px; }
+  .tile span { color: var(--muted); font-size: 12.5px; }
+  .tile.a { border-top: 4px solid var(--hivis); } .tile.g { border-top: 4px solid var(--good); } .tile.m { border-top: 4px solid #8D99A3; } .tile.b { border-top: 4px solid var(--blue); }
+  .two { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+  @media (max-width: 1000px) { .two { grid-template-columns: 1fr; } }
   .empty { text-align: center; color: var(--muted); padding: 22px; }
   /* dialog, toast, the start */
   .dlg-back { position: fixed; inset: 0; background: rgba(20,30,38,.45); display: grid; place-items: center; z-index: 50; padding: 16px; }
@@ -119,27 +138,40 @@
 <div class="app" id="v_app" hidden>
   <aside class="side" id="side">
     <div class="brandbox">
-      <div class="brandtile" id="brandtile"><img src="https://i.ibb.co/CpSfBqXX/RCL-LOGO-PDF.png" alt="Rachana Construction Limited" onerror="this.parentNode.classList.add('noimg')"><span class="fb">Rachana</span></div>
+      <div class="brandtile"><span class="rlogo"><img src="https://i.ibb.co/CpSfBqXX/RCL-LOGO-PDF.png" alt="Rachana Construction Limited" onerror="this.parentNode.classList.add('noimg')"><span class="fb">Rachana</span></span></div>
       <div class="brandsub">Store<small>by One Click Solution</small></div>
     </div>
     <div class="sitebox"><button type="button" class="site-chg" id="site_chg" title="Change site – open another of your sites" aria-haspopup="dialog">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/></svg>
       <span><small>Change site</small><b id="site_name"></b></span></button></div>
-    <nav aria-label="Store">
-      <div class="grp"><h3>Store</h3>
-        <button type="button" class="navbtn" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/></svg>Item Master</button>
+    <nav aria-label="Modules" id="nav">
+      <div class="grp open" id="grp_store">
+        <button type="button" class="grphead" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/></svg>Store<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <div class="items">
+          <button type="button" class="navbtn" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>Dashboard</button>
+          <button type="button" class="navbtn" data-page="items"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h10M7 17h6"/></svg>Item Master</button>
+        </div>
       </div>
-      <div class="grp" id="mods" hidden></div>
+      <div id="mods"></div>
     </nav>
   </aside>
   <div class="main">
     <header class="topbar">
       <button type="button" class="btn small menu-btn" id="menu_btn" aria-label="Open menu">☰</button>
-      <div><div class="crumb">Store /</div><h1>Item Master</h1></div>
+      <div><div class="crumb">Store /</div><h1 id="pg_title">Item Master</h1></div>
       <div class="who"><b id="u_name"></b><small id="u_role"></small></div>
       <button type="button" class="btn small" id="u_logout">Logout</button>
     </header>
     <main>
+      <!-- STORE DASHBOARD (13-10-2026: "as new work is added, it grows with it") – now: the Item Master at a glance -->
+      <div id="pg_dashboard" hidden>
+        <section class="tiles" id="db_tiles"></section>
+        <div class="two">
+          <section class="panel"><h2>Recently added items</h2><div class="tw" style="margin-top:10px"><table><thead><tr><th>Code</th><th>Item Name</th><th>Unit</th><th>Category</th><th>Added</th></tr></thead><tbody id="db_recent"></tbody></table></div></section>
+          <section class="panel"><h2>Items by category</h2><div class="tw" style="margin-top:10px"><table><thead><tr><th>Category</th><th class="n">Items</th><th class="n">Active</th></tr></thead><tbody id="db_cats"></tbody></table></div></section>
+        </div>
+      </div>
+      <div id="pg_items">
       <section class="panel">
         <h2>Item Master</h2>
         <p class="muted" style="margin:0">The items of this site – Mechanical and Store use the same list. A name is there once: a name that is nearly the same as one already there is asked about first.</p>
@@ -181,6 +213,7 @@
       <section class="panel">
         <div class="tw"><table><thead><tr><th>Code</th><th>Item Name</th><th>Unit</th><th>Category</th><th>HSN</th><th class="n">GST %</th><th class="n">Min Stock</th><th>Status</th><th>Added by</th><th></th></tr></thead><tbody id="i_rows"></tbody></table></div>
       </section>
+      </div>
     </main>
   </div>
 </div>
@@ -194,13 +227,16 @@
   const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const S = { me: null, items: [], units: [], cats: [], edit: null, imp: null };
   function toast(t, bad) { const e = $('toast'); e.textContent = t; e.className = bad ? 'bad' : ''; e.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { e.hidden = true; }, bad ? 7000 : 3500); }
+  /* ONE ADDRESS (13-10-2026: "Store or Mechanical – no big change of view; nothing opens somewhere else"): the Store is also
+   * served under the main address (<main>/store/), so every address of this page is RELATIVE to where the page is. */
+  const BASE = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
   async function api(path, body) {
-    const r = await fetch(path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-RCL': '1' }, body: JSON.stringify(body) });
+    const r = await fetch(BASE + path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-RCL': '1' }, body: JSON.stringify(body) });
     let j = {}; try { j = await r.json(); } catch (e) { j = { error: 'The Store did not answer properly (' + r.status + ').' }; }
     if (!r.ok || j.error) { const e = new Error(j.error || ('Error ' + r.status)); e.status = r.status; e.code = j.code; e.data = j; throw e; }
     return j;
   }
-  const items = body => api('/api/items', body);
+  const items = body => api('api/items', body);
   // a dialog with buttons; resolves with the value of the button pressed (null = closed)
   function ask(title, html, buttons) {
     return new Promise(res => {
@@ -216,10 +252,13 @@
   }
 
   /* ---------------- SIGN-IN THROUGH THE PORTAL ----------------
-   * The Portal opens the Store with a ticket (#sso=…). Without a sign-in here the browser goes to the Portal (which sends it
-   * back with a ticket at once while the Portal still knows the person). At most 3 automatic trips in 2 minutes – then a message. */
+   * The Portal opens the Store with a ticket (#sso=…). Without a sign-in here – or a sign-in on ANOTHER site than the one asked
+   * for (#site=…) – the browser goes to the Portal (which sends it back with a ticket at once while the Portal still knows the
+   * person). The page asked for (#page=…) goes along. At most 3 automatic trips in 2 minutes – then a message. */
   let PORTAL = '';
+  const PAGES = { dashboard: 'Dashboard', items: 'Item Master' };
   const lastSite = () => { try { return localStorage.getItem('rcl_store_site') || ''; } catch (e) { return ''; } };
+  const hashArg = k => { const m = new RegExp('[#&]' + k + '=([^&]*)').exec(location.hash || ''); return m ? decodeURIComponent(m[1]) : ''; };
   function toPortal(path, auto) {
     if (!PORTAL) { startMsg('The Store is not linked to the Portal yet (PORTAL_URL in Vercel).', 'Store अजून Portal ला जोडलेले नाही.'); return; }
     if (auto) {
@@ -229,64 +268,119 @@
     }
     location.href = PORTAL + path;
   }
-  const goSignIn = () => toPortal(lastSite() ? '/api/go?module=store&site=' + encodeURIComponent(lastSite()) : '/', true);
+  const goSignIn = (site, page) => { site = site || lastSite(); toPortal(site ? '/api/go?module=store&site=' + encodeURIComponent(site) + (page ? '&page=' + encodeURIComponent(page) : '') : '/', true); };
   function startMsg(en, mr, link) {
     $('v_app').hidden = true; $('v_start').hidden = false; $('st_msg').textContent = en; $('st_mr').textContent = mr || '';
     $('st_go').hidden = !(link && PORTAL); $('st_link').href = PORTAL ? PORTAL + '/' : '#';
   }
   async function start() {
-    const m = /[#&]sso=([A-Za-z0-9_.-]+)/.exec(location.hash || '');
-    if (m) {
-      history.replaceState(null, '', location.pathname + location.search);
-      try { const r = await api('/api/sso', { ticket: m[1] }); try { sessionStorage.removeItem('rcl_store_hops'); } catch (e) {} PORTAL = r.portal; return show(r); }
+    const tk = hashArg('sso'), wantSite = hashArg('site').toUpperCase(), wantPage = PAGES[hashArg('page')] ? hashArg('page') : '';
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    if (tk) {
+      try { const r = await api('api/sso', { ticket: tk }); try { sessionStorage.removeItem('rcl_store_hops'); } catch (e) {} PORTAL = r.portal; return show(r, wantPage); }
       catch (e) {
-        try { PORTAL = (await api('/api/me')).portal || ''; } catch (e2) { PORTAL = ''; }
-        if (e.code === 'ticket' && /ran out|already used/.test(e.message)) return goSignIn();
+        try { PORTAL = (await api('api/me')).portal || ''; } catch (e2) { PORTAL = ''; }
+        if (e.code === 'ticket' && /ran out|already used/.test(e.message)) return goSignIn(wantSite, wantPage);
         return startMsg(e.message, 'Store उघडता आले नाही. Portal मधून पुन्हा उघडा.', true);
       }
     }
-    let me; try { me = await api('/api/me'); } catch (e) { return startMsg(e.message, '', false); }
+    let me; try { me = await api('api/me'); } catch (e) { return startMsg(e.message, '', false); }
     PORTAL = me.portal || '';
-    if (!me.signedIn) return goSignIn();
-    show(me);
+    if (!me.signedIn || (wantSite && wantSite !== me.site)) return goSignIn(wantSite, wantPage);
+    show(me, wantPage);
   }
-  function show(me) {
+  // the address changed while the page is open (a link of another menu, or typed): the same rules as on opening
+  window.addEventListener('hashchange', () => {
+    const tk = hashArg('sso'), site = hashArg('site').toUpperCase(), page = hashArg('page');
+    if (tk || !S.me || (site && site !== S.me.site)) { start(); return; }
+    if (page) go(page);
+  });
+  const MOD_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
+  const PG_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>';
+  const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+  function show(me, page) {
     S.me = me; try { localStorage.setItem('rcl_store_site', me.site); } catch (e) { /* this tab only */ }
     $('v_start').hidden = true; $('v_app').hidden = false;
     $('site_name').textContent = me.siteName || me.site;
     $('u_name').textContent = me.user.name; $('u_role').textContent = (me.user.admin ? 'Store Admin' : 'Store User') + ' · ' + (me.siteName || me.site);
     document.querySelectorAll('[data-admin]').forEach(b => { b.hidden = !me.user.admin; });
+    /* the OTHER modules of this site – each a group of the menu, like Store's: its pages are read from the module itself
+     * (<its address>/menu.json); a page opens that module on that page, in this same window (one address for all). */
     const others = (me.mods || []).filter(x => x.key !== 'store');
-    $('mods').hidden = !others.length;
-    $('mods').innerHTML = '<h3>Other modules</h3>' + others.map(x => '<button type="button" class="navbtn" data-go="' + esc('/api/go?module=' + encodeURIComponent(x.key) + '&site=' + encodeURIComponent(me.site)) + '" title="Open ' + esc(x.name) + ' – no new sign-in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>' + esc(x.name) + '<span class="ext" aria-hidden="true">↗</span></button>').join('');
+    $('mods').innerHTML = others.map(x => '<div class="grp" data-mod="' + esc(x.key) + '"><button type="button" class="grphead" aria-expanded="false">' + MOD_IC + esc(x.name) + CHEV + '</button><div class="items"><div class="note">…</div></div></div>').join('');
+    others.forEach(modPages);
+    go(page || 'dashboard');
+  }
+  // a page of another module: straight to its own address (#site, #page), or – without one – through the Portal
+  const modLink = (x, page) => {
+    const pg = page ? '&page=' + encodeURIComponent(page) : '';
+    return x.url ? x.url.replace(/\/+$/, '') + '/#site=' + encodeURIComponent(S.me.site) + pg
+      : PORTAL + '/api/go?module=' + encodeURIComponent(x.key) + '&site=' + encodeURIComponent(S.me.site) + pg;
+  };
+  async function modPages(x) {
+    const box = document.querySelector('#mods .grp[data-mod="' + x.key + '"] .items'); if (!box) return;
+    let pages = [];
+    try { if (x.url) { const r = await fetch(x.url.replace(/\/+$/, '') + '/menu.json', { credentials: 'same-origin' }); if (r.ok) pages = ((await r.json()) || {}).pages || []; } } catch (e) { pages = []; }
+    let grp = '';      // a module's sections (Mechanical: Master, Diesel, Log Book …) as small captions, as in its own menu
+    box.innerHTML = (pages.length ? pages : [{ key: '', name: 'Open ' + x.name }]).slice(0, 60).map(p => {
+      const cap = p.group && p.group !== grp ? '<div class="note cap">' + esc(p.group) + '</div>' : ''; if (p.group) grp = p.group;
+      // (a module whose menu cannot be read: "Open …" through the Portal)
+      const go = pages.length ? modLink(x, /^[a-z0-9_-]{1,40}$/i.test(String(p.key)) ? p.key : '') : modLink({ key: x.key }, '');
+      return cap + '<button type="button" class="navbtn" data-go="' + esc(go) + '">' + PG_IC + '<span>' + esc(String(p.name).slice(0, 60)) + '</span></button>';
+    }).join('');
+  }
+  $('nav').addEventListener('click', e => {
+    const h = e.target.closest('.grphead'); if (h) { const g = h.closest('.grp'), open = !g.classList.contains('open'); g.classList.toggle('open', open); h.setAttribute('aria-expanded', String(open)); return; }
+    const b = e.target.closest('[data-go]'); if (b) { location.href = b.dataset.go; return; }
+    const p = e.target.closest('[data-page]'); if (p) { go(p.dataset.page); if (window.innerWidth <= 860) $('side').classList.remove('open'); }
+  });
+  // one page of the Store at a time (the menu marks it; the address keeps it for a reload)
+  function go(page) {
+    if (!PAGES[page]) page = 'dashboard';
+    S.page = page; $('pg_title').textContent = PAGES[page];
+    document.querySelectorAll('#grp_store [data-page]').forEach(b => { if (b.dataset.page === page) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+    $('pg_dashboard').hidden = page !== 'dashboard'; $('pg_items').hidden = page !== 'items';
+    try { history.replaceState(null, '', location.pathname + location.search + '#page=' + page); } catch (e) { /* the address stays */ }
     load();
   }
   // a sign-in that ended while working: back through the Portal (what was typed in an open form is lost – said first)
   function failed(e) {
-    if (e.status === 401 && e.code === 'session') { toast('Your sign-in ended – signing in again through the Portal…', true); setTimeout(goSignIn, 1200); return; }
+    if (e.status === 401 && e.code === 'session') { toast('Your sign-in ended – signing in again through the Portal…', true); setTimeout(() => goSignIn(S.me && S.me.site, S.page), 1200); return; }
     toast(e.message, true);
   }
-  $('mods').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) toPortal(b.dataset.go, false); });
   $('site_chg').addEventListener('click', async () => {
     const me = S.me; if (!me) return;
     const list = (me.sites || []).length ? me.sites : [{ code: me.site, name: me.siteName }];
     const v = await ask('Change site', '<p class="muted">Your sites with the Store</p>', list.map(x => ({ label: x.name + (x.code === me.site ? ' – open now' : ''), value: x.code === me.site ? null : x.code, primary: x.code === me.site }))
       .concat([{ label: 'All my modules (Portal)', value: '__portal' }, { label: 'Stay here', value: null }]));
-    if (v === '__portal') toPortal('/?menu=1', false); else if (v) toPortal('/api/go?module=store&site=' + encodeURIComponent(v), false);
+    if (v === '__portal') toPortal('/?menu=1', false); else if (v) toPortal('/api/go?module=store&site=' + encodeURIComponent(v) + '&page=' + encodeURIComponent(S.page || 'dashboard'), false);
   });
   $('u_logout').addEventListener('click', async () => {
     const v = await ask('Logout?', '<p>This signs you out of the Portal and every module.</p><p class="mr">यामुळे Portal आणि सर्व modules मधून sign out होईल.</p>', [{ label: 'Cancel', value: false }, { label: 'Logout', value: true, primary: true }]);
     if (!v) return;
-    try { await api('/api/logout', {}); } catch (e) { /* the cookie ends anyway */ }
+    try { await api('api/logout', {}); } catch (e) { /* the cookie ends anyway */ }
     try { localStorage.removeItem('rcl_store_site'); } catch (e) {}
     if (PORTAL) location.href = PORTAL + '/?signout=1'; else startMsg('Signed out.', 'Sign out झाले.', false);
   });
   $('menu_btn').addEventListener('click', () => $('side').classList.toggle('open'));
   document.addEventListener('click', e => { if (window.innerWidth <= 860 && $('side').classList.contains('open') && !e.target.closest('#side') && !e.target.closest('#menu_btn')) $('side').classList.remove('open'); });
 
+  /* ---------------- STORE DASHBOARD ---------------- */
+  function dash() {
+    const L = S.items, act = L.filter(i => i.status === 'Active').length, month = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 7);
+    const newM = L.filter(i => String(i.created_at || '').slice(0, 7) === month).length, cats = {};
+    L.forEach(i => { const c = cats[i.category] = cats[i.category] || { n: 0, a: 0 }; c.n++; if (i.status === 'Active') c.a++; });
+    const tile = (cls, label, n, sub, page) => '<div class="tile ' + cls + '"><small>' + esc(label) + '</small><b>' + n + '</b><span>' + esc(sub) + '</span></div>';
+    $('db_tiles').innerHTML = tile('a', 'Items', L.length, 'in the Item Master') + tile('g', 'Active', act, 'can be used') + tile('m', 'Inactive', L.length - act, 'switched off') + tile('b', 'Categories', Object.keys(cats).length, 'kinds of items') + tile('a', 'Added this month', newM, 'new items');
+    const recent = L.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 8);
+    const day = v => { const d = String(v || '').slice(0, 10); return d ? d.split('-').reverse().join('-') : ''; };
+    $('db_recent').innerHTML = recent.length ? recent.map(i => '<tr><td>' + esc(i.code) + '</td><td class="nm">' + esc(i.name) + '</td><td>' + esc(i.unit) + '</td><td>' + esc(i.category) + '</td><td>' + esc(day(i.created_at)) + '</td></tr>').join('') : '<tr><td colspan="5" class="empty">No item yet.</td></tr>';
+    $('db_cats').innerHTML = Object.keys(cats).length ? Object.keys(cats).sort().map(c => '<tr><td>' + esc(c) + '</td><td class="n">' + cats[c].n + '</td><td class="n">' + cats[c].a + '</td></tr>').join('') : '<tr><td colspan="3" class="empty">–</td></tr>';
+  }
+
   /* ---------------- ITEM MASTER ---------------- */
   async function load() {
-    try { const r = await items({ action: 'list' }); S.items = r.items; S.units = r.units; S.cats = r.categories; draw(); }
+    try { const r = await items({ action: 'list' }); S.items = r.items; S.units = r.units; S.cats = r.categories; draw(); dash(); }
     catch (e) { failed(e); $('i_rows').innerHTML = '<tr><td colspan="10" class="empty">' + esc(e.message) + '</td></tr>'; }
   }
   const num = v => v === null || v === undefined || v === '' ? '' : String(Number(v));
@@ -383,7 +477,7 @@
 
   /* ---------------- EXCEL ---------------- */
   const HEAD = ['Item Code', 'Item Name', 'Unit', 'Category', 'HSN Code', 'GST %', 'Min Stock', 'Status'];
-  function xlsx() { return window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const s = document.createElement('script'); s.src = '/vendor/xlsx-0.18.5.full.min.js'; s.onload = () => res(window.XLSX); s.onerror = () => rej(new Error('The Excel tool could not be loaded – check the internet and try again.')); document.head.appendChild(s); }); }
+  function xlsx() { return window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const s = document.createElement('script'); s.src = BASE + 'vendor/xlsx-0.18.5.full.min.js'; s.onload = () => res(window.XLSX); s.onerror = () => rej(new Error('The Excel tool could not be loaded – check the internet and try again.')); document.head.appendChild(s); }); }
   const day = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
   async function writeFile(rows, name) { const X = await xlsx(); const ws = X.utils.aoa_to_sheet([HEAD].concat(rows)); ws['!cols'] = [10, 40, 8, 22, 12, 8, 10, 10].map(w => ({ wch: w })); const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Items'); X.writeFile(wb, name); }
   $('b_export').addEventListener('click', async () => { try { await writeFile(S.items.map(i => [i.code, i.name, i.unit, i.category, i.hsn || '', i.gst_pct === null ? '' : Number(i.gst_pct), i.min_stock === null ? '' : Number(i.min_stock), i.status]), 'Items_' + S.me.site + '_' + day() + '.xlsx'); toast('Exported ' + S.items.length + ' items.'); } catch (e) { toast(e.message, true); } });

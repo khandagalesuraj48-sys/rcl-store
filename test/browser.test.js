@@ -37,8 +37,16 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
     await p.evaluate(() => [...document.querySelectorAll('#h_sites a.mod')].find(a => /module=store&site=S1/.test(a.getAttribute('href'))).click());
     const inStore = await until(() => p.url().startsWith(ST) && p.evaluate(() => !document.getElementById('v_app').hidden), 30000);
     ok('a click opens the Store, signed in (nothing typed here); the ticket is gone from the address', !!inStore && !/sso=/.test(p.url()), p.url());
-    let st = await p.evaluate(() => ({ site: document.getElementById('site_name').textContent, role: document.getElementById('u_role').textContent, mods: [...document.querySelectorAll('#mods .navbtn')].map(x => x.textContent.trim()), imp: !document.getElementById('b_import').hidden }));
+    let st = await p.evaluate(() => ({ site: document.getElementById('site_name').textContent, role: document.getElementById('u_role').textContent, mods: [...document.querySelectorAll('#mods .grphead')].map(x => x.textContent.trim()), imp: !document.getElementById('b_import').hidden }));
     ok('   the dark menu: Change site (S1) at the top, Mechanical under "Other modules"; Store Admin may import', /S1|VTR/.test(st.site) && /Store Admin/.test(st.role) && st.mods.some(x => /Mechanical/.test(x)) && st.imp, st);
+    st = await p.evaluate(() => ({ title: document.getElementById('pg_title').textContent, dash: !document.getElementById('pg_dashboard').hidden, pages: [...document.querySelectorAll('#grp_store .navbtn')].map(x => x.textContent.trim() + (x.getAttribute('aria-current') ? '*' : '')), url: location.hash }));
+    ok('   the Store opens on its Dashboard; the Store group (open) lists Dashboard and Item Master', st.title === 'Dashboard' && st.dash && st.pages.join() === 'Dashboard*,Item Master' && st.url === '#page=dashboard', st);
+    await p.click('#mods .grphead'); await wait(1500);
+    st = await p.evaluate(() => [...document.querySelectorAll('#mods .grp.open .navbtn')].map(x => x.textContent.trim() + ' ' + x.dataset.go));
+    ok('   a click on Mechanical opens its pages (a dropdown) in the dark menu', st.length >= 1 && st.every(x => /\S/.test(x)), st);
+    await p.click('#grp_store [data-page="items"]'); await wait(1200);
+    st = await p.evaluate(() => ({ title: document.getElementById('pg_title').textContent, items: !document.getElementById('pg_items').hidden, dash: !document.getElementById('pg_dashboard').hidden, url: location.href }));
+    ok('   Item Master opens in the same window (no new window, no new address – only #page)', st.title === 'Item Master' && st.items && !st.dash && st.url === ST + '/#page=items' && (await b.pages()).length === 2, st);
     // ---- add; the same; near; a proper name ----
     const addItem = async (name, unit, cat, extra) => { await p.click('#b_new'); await p.evaluate((n, u, c, x) => { const s = (id, v) => { document.getElementById(id).value = v; }; s('i_name', n); s('i_unit', u); s('i_cat', c); s('i_hsn', x.hsn || ''); s('i_gst', x.gst || ''); s('i_min', x.min || ''); }, name, unit, cat, extra || {}); await p.click('#b_save'); await wait(1200); };
     const dlg = () => p.evaluate(() => ({ open: !document.getElementById('dlg').hidden, title: document.getElementById('dlg_t').textContent, text: document.getElementById('dlg_b').innerText, btns: [...document.querySelectorAll('#dlg_btns button')].map(x => x.textContent) }));
@@ -77,14 +85,22 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
     ok('   Import without ticking the near name: nothing imported', sql('rcl', 'select count(*) from items') === '3');
     await p.evaluate(() => { const c = document.querySelector('.imp-ok'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); }); await p.click('#b_imp_go'); await wait(2000);
     ok('   ticked "different item": 3 imported, Sugar left out', sql('rcl', 'select count(*) from items') === '6' && (await rows()).length === 6, await rows());
+    // ---- the Store Dashboard ----
+    await p.click('#grp_store [data-page="dashboard"]'); await wait(1500);
+    st = await p.evaluate(() => ({ tiles: [...document.querySelectorAll('#db_tiles .tile')].map(t => t.querySelector('small').textContent + '=' + t.querySelector('b').textContent), recent: document.querySelectorAll('#db_recent tr').length, cats: [...document.querySelectorAll('#db_cats tr')].map(tr => tr.children[0].textContent + ':' + tr.children[1].textContent) }));
+    ok('Dashboard: 6 items, 6 active, 0 inactive, 3 categories, 6 added this month; recent items; items by category', st.tiles.join() === 'Items=6,Active=6,Inactive=0,Categories=3,Added this month=6' && st.recent === 6 && st.cats.join() === 'Grocery:2,Oil & Lubricants:1,Spare Parts:3', st);
+    await p.screenshot({ path: path.join(SHOTS, 'store_dashboard.png') });
+    await p.goto(ST + '/#page=items', { waitUntil: 'load' }); await wait(2000);
+    st = await p.evaluate(() => ({ title: document.getElementById('pg_title').textContent, n: document.querySelectorAll('#i_rows tr[data-code]').length }));
+    ok('   an address with #page=items (from another module\'s menu) opens Item Master straight away', st.title === 'Item Master' && st.n === 6, st);
     // ---- Change site → T2: its own items only ----
     await p.click('#site_chg'); await wait(400); d = await dlg();
     ok('Change site: his Store sites (S1 open now), and "All my modules"', d.btns.some(x => /S1|VTR.*open now/.test(x)) && d.btns.some(x => /T2/.test(x)) && d.btns.some(x => /All my modules/.test(x)), d.btns);
     await p.evaluate(() => [...document.querySelectorAll('#dlg_btns button')].find(x => /T2/.test(x.textContent)).click());
     const onT2 = await until(() => p.url().startsWith(ST) && p.evaluate(() => !document.getElementById('v_app').hidden && /T2/.test(document.getElementById('site_name').textContent)), 30000);
     await wait(1500);
-    st = await p.evaluate(() => ({ count: document.getElementById('i_count').textContent, imp: !document.getElementById('b_import').hidden, role: document.getElementById('u_role').textContent }));
-    ok('   T2 opens through the Portal, no sign-in: NONE of S1\'s items; he is a Store User there (no import)', !!onT2 && /^0 of 0/.test(st.count) && !st.imp && /Store User/.test(st.role), st);
+    st = await p.evaluate(() => ({ page: document.getElementById('pg_title').textContent, count: document.getElementById('i_count').textContent, imp: !document.getElementById('b_import').hidden, role: document.getElementById('u_role').textContent }));
+    ok('   T2 opens through the Portal, no sign-in, on the same page (Item Master): NONE of S1\'s items; he is a Store User there (no import)', !!onT2 && /^0 of 0/.test(st.count) && !st.imp && /Store User/.test(st.role) && st.page === 'Item Master', st);
     // ---- Mechanical's dark menu shows the Store ----
     await p.goto(P + '/api/go?module=mechanical&site=S1', { waitUntil: 'load' });
     const mm = await until(async () => { const f = p.frames().find(x => x !== p.mainFrame()); return f && await f.evaluate(() => { const g = document.getElementById('grp_mods'); return g && !g.hidden && [...g.querySelectorAll('button')].map(x => x.textContent.replace('↗', '').trim()).join(','); }); }, 40000);

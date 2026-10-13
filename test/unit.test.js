@@ -37,12 +37,24 @@ test('the fields: unit from the list, category needed, HSN 4/6/8 digits, GST 0â€
     [{ name: 'Grease', unit: 'Kg', category: 'Oil', hsn: '12345' }, /HSN/], [{ name: 'Grease', unit: 'Kg', category: 'Oil', gst: '41' }, /GST/], [{ name: 'Grease', unit: 'Kg', category: 'Oil', gst: '5.555' }, /GST/],
     [{ name: 'Grease', unit: 'Kg', category: 'Oil', minStock: '-1' }, /Min stock/]]) assert.throws(() => I.check(x), e => e.user && re.test(e.message), JSON.stringify(x));
 });
-test('the page: its script parses; it signs in only through the Portal; Change site at the top of the dark menu; nothing else in the menu but Item Master', () => {
-  const h = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-  [...h.matchAll(/<script>([\s\S]*?)<\/script>/g)].forEach(m => new Function(m[1]));
+test('the page: its script parses; it signs in only through the Portal; Change site at the top of the dark menu; the Store group = the pages of menu.json; every address relative (one address)', () => {
+  const h = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8'), js = [...h.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n');
+  js.split('\n</script>').forEach(t => new Function(t));
   assert.ok(h.indexOf('id="site_chg"') > -1 && h.indexOf('id="site_chg"') < h.indexOf('<nav'), 'Change site above the pages');
-  assert.strictEqual((h.slice(0, h.indexOf('<script>')).match(/class="navbtn"/g) || []).length, 1, 'one page now: Item Master'); assert.ok(!/type="password"/.test(h), 'no password box anywhere');
+  const menu = JSON.parse(fs.readFileSync(path.join(root, 'public', 'menu.json'), 'utf8')), mk = h.slice(0, h.indexOf('<script'));
+  assert.strictEqual(menu.module, 'store');
+  assert.deepStrictEqual([...mk.matchAll(/data-page="([a-z]+)"/g)].map(m => m[1]), menu.pages.map(p => p.key), 'the menu of the page = menu.json (what other modules show)');
+  assert.ok(!/type="password"/.test(h), 'no password box anywhere');
   assert.match(h, /\/api\/go\?module=store&site=/); assert.match(h, /'\/?signout=1'|\/\?signout=1/);
+  assert.ok(!/(fetch|api)\(\s*'\/(api|vendor)|src="\/|href="\/(?!\/)|'\/vendor\//.test(h), 'no address from the root: the page works at /store/ too');
+  assert.match(js, /const BASE = location\.pathname/);
+});
+test('a Portal ticket: a module address may carry a path (/store, /portal) â€“ nothing else', () => {
+  const P = require('../lib/portal'), old = process.env.PORTAL_URL;
+  try {
+    for (const [v, want] of [['https://a.example.app/portal/', 'https://a.example.app/portal'], ['https://a.example.app', 'https://a.example.app'], ['http://127.0.0.1:3030/portal', 'http://127.0.0.1:3030/portal'],
+      ['https://a.example.app/x/y', ''], ['https://a.example.app/portal?x=1', ''], ['javascript:alert(1)', ''], ['ftp://a.example.app', '']]) { process.env.PORTAL_URL = v; assert.strictEqual(P.url(), want, v); }
+  } finally { if (old === undefined) delete process.env.PORTAL_URL; else process.env.PORTAL_URL = old; }
 });
 test('the SQL only ADDS (nothing dropped, deleted or emptied outside its rollback note); every table closed to the public', () => {
   const q = fs.readFileSync(path.join(root, 'sql', 'store_step1_items.sql'), 'utf8'), code = q.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
