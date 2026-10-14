@@ -61,11 +61,16 @@ async function codeOnce(site, it) {
   return it;
 }
 
+// (14-10-2026) the pages the Super Admin gave a Store User in the Portal: no access to the Item Master – not even its list
+// (the Dashboard counts the same items, so a User with only the Dashboard still gets them)
+function seeing(s) { if (s.pages.items === 'None' && s.pages.dashboard === 'None') throw fail(403, 'You have no access to the Item Master on this site.', 'page'); }
+
 const ACTIONS = {
-  async list(s) { const list = await all(s.site); return { items: list, units: I.UNITS, categories: cats(list), admin: s.admin, site: s.site, missing: list.missing }; },
-  async check(s, x) { return look(x, await all(s.site), x.code ? String(x.code) : null); },
+  async list(s) { seeing(s); const list = await all(s.site); return { items: list, units: I.UNITS, categories: cats(list), admin: s.admin, site: s.site, missing: list.missing }; },
+  async check(s, x) { seeing(s); return look(x, await all(s.site), x.code ? String(x.code) : null); },
   async save(s, x) {
     const edit = !!x.code;
+    if (!edit && s.pages.items !== 'Edit') throw fail(403, s.pages.items === 'None' ? 'You have no access to the Item Master on this site.' : 'You may see the Item Master on this site, not add to it (View). Ask the Super Admin for Edit.', 'page');
     const list = await all(s.site), cur = edit ? (list.find(i => i.code === x.code && i.site === s.site) || null) : null;
     if (edit && !cur) { const there = list.find(i => i.code === x.code); if (there) throw notHere(there); throw fail(404, 'This item is not in the list (it may have been deleted). Refresh the list.', 'gone'); }
     if (edit && !s.admin) throw fail(403, 'Only the Store Admin can change an item.', 'admin');

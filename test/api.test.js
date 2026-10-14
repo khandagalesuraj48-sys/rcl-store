@@ -115,6 +115,21 @@ const PW = 'Nashik#Road848!', VPW = 'Audit#PassView9!x';
   ok('   at T2, S1\'s item: "made at site S1" (not changed)', r.status === 403 && r.j.code === 'othersite' && sql('rcl', "select status from items where code = 'ITM-0001'") === 'Active', r.j);
   r = await T.req('/api/items', { action: 'remove', code: jag });
   ok('   the same person is a User on T2: no delete of T2\'s own item there', r.status === 403 && r.j.code === 'admin', r.j);
+  // ---- (14-10-2026) the pages the Super Admin gives a Store User in the Portal (access.pages, the Portal's step 3) ----
+  sql('rcl_portal', "alter table public.access add column if not exists pages jsonb; notify pgrst, 'reload schema'; update access set pages = '{\"dashboard\": \"None\", \"items\": \"View\"}' where email = 'sujit@rcl.test' and site = 'T2' and module = 'store';");
+  await new Promise(z => setTimeout(z, 800));
+  const TV = client(ST); r = await TV.req('/api/sso', { ticket: await ticketFor(A.p, 'store', 'T2') });
+  ok('his Store pages at T2 (Dashboard: No access, Item Master: View) come with the sign-in', r.status === 200 && r.j.pages && r.j.pages.dashboard === 'None' && r.j.pages.items === 'View', r.j);
+  r = await TV.req('/api/me');
+  ok('   and stay with it (/api/me)', r.j.pages && r.j.pages.items === 'View', r.j);
+  r = await TV.req('/api/items', { action: 'list' });
+  ok('   View: he sees the list', r.status === 200 && r.j.items.length > 0, r.status);
+  r = await save(TV, { name: 'Molasses', unit: 'Kg', category: 'Grocery' });
+  ok('   but cannot add (View) – said why', r.status === 403 && r.j.code === 'page' && /View/.test(r.j.error) && sql('rcl_s2', "select count(*) from items where name = 'Molasses'") === '0', r.j);
+  sql('rcl_portal', "update access set pages = '{\"dashboard\": \"None\", \"items\": \"None\"}' where email = 'sujit@rcl.test' and site = 'T2' and module = 'store';");
+  r = await TV.req('/api/sso', { ticket: await ticketFor(A.p, 'store', 'T2') }); r = await TV.req('/api/items', { action: 'list' });
+  ok('   No access to both pages: not even the list', r.status === 403 && r.j.code === 'page', r.j);
+  sql('rcl_portal', "update access set pages = null where email = 'sujit@rcl.test' and site = 'T2' and module = 'store';");
   // ---- import from Excel (Admin): checked row by row; all or nothing ----
   const rows = [{ line: 2, name: 'Sugar', unit: 'Kg', category: 'Grocery' }, { line: 3, name: 'Air Filter', unit: 'Nos', category: 'Spare Parts', hsn: '84213100', gst: '18' }, { line: 4, name: 'Air Filters', unit: 'Nos', category: 'Spare Parts' },
     { line: 5, name: 'Coolant', unit: 'Litre', category: 'Oil & Lubricants' }, { line: 6, name: 'air filter', unit: 'Nos', category: 'Spare Parts' }];
