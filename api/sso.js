@@ -20,5 +20,5 @@ module.exports = handler(async (req, res) => {
   if (Math.random() < 0.05) { const old = new Date(Date.now() - 86400000).toISOString(); db(c.site, 'DELETE', 'store_tickets?expires_at=lt.' + old, undefined, 'return=minimal').catch(() => {}); db(c.site, 'DELETE', 'store_sessions?expires_at=lt.' + old, undefined, 'return=minimal').catch(() => {}); }
   const cookie = await ses.create(req, c);
   await activity(c.site, c.email, 'Sign-in', c.site, { admin: c.admin });
-  send(res, 200, { ok: true, user: { email: c.email, name: c.name, admin: c.admin }, site: c.site, siteName: c.siteName, mods: c.mods, sites: c.sites, portal: portal.url() }, { 'Set-Cookie': cookie });
+  send(res, 200, { ok: true, user: { email: c.email, name: c.name, admin: c.admin }, pages: ses.pagesOf(c.admin, c.pages), site: c.site, siteName: c.siteName, mods: c.mods, sites: c.sites, portal: portal.url() }, { 'Set-Cookie': cookie });
 });

@@ -353,6 +353,10 @@
     $('site_name').textContent = me.siteName || me.site;
     $('u_name').textContent = me.user.name; $('u_role').textContent = (me.user.admin ? 'Store Admin' : 'Store User') + ' · ' + (me.siteName || me.site);
     document.querySelectorAll('[data-admin]').forEach(b => { b.hidden = !me.user.admin; });
+    // (14-10-2026) the pages the Super Admin gave in the Portal: a page with No access is not in the menu; View = no "+ Add item"
+    const pg = S.pg = me.pages || { dashboard: 'View', items: 'Edit' };
+    document.querySelectorAll('#grp_store [data-page]').forEach(b => { b.hidden = pg[b.dataset.page] === 'None'; });
+    $('b_new').hidden = pg.items !== 'Edit';
     /* the OTHER modules of this site – each a group of the menu, like Store's: its pages are read from the module itself
      * (<its address>/menu.json); a page opens that module on that page, in this same window (one address for all). */
     const others = EMBED ? [] : (me.mods || []).filter(x => x.key !== 'store');
@@ -386,6 +390,9 @@
   // one page of the Store at a time (the menu marks it; the address keeps it for a reload)
   function go(page) {
     if (!PAGES[page]) page = 'dashboard';
+    const pg = S.pg || {};
+    if (pg[page] === 'None') page = Object.keys(PAGES).find(k => pg[k] !== 'None') || '';
+    if (!page) { $('pg_title').textContent = 'Store'; $('pg_dashboard').hidden = true; $('pg_items').hidden = true; toast('You have no page of the Store on this site – ask the Super Admin.', true); return; }
     S.page = page; $('pg_title').textContent = PAGES[page];
     document.querySelectorAll('#grp_store [data-page]').forEach(b => { if (b.dataset.page === page) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     $('pg_dashboard').hidden = page !== 'dashboard'; $('pg_items').hidden = page !== 'items';
