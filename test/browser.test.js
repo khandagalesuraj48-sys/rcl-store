@@ -100,7 +100,13 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
     const onT2 = await until(() => p.url().startsWith(ST) && p.evaluate(() => !document.getElementById('v_app').hidden && /T2/.test(document.getElementById('site_name').textContent)), 30000);
     await wait(1500);
     st = await p.evaluate(() => ({ page: document.getElementById('pg_title').textContent, count: document.getElementById('i_count').textContent, imp: !document.getElementById('b_import').hidden, role: document.getElementById('u_role').textContent }));
-    ok('   T2 opens through the Portal, no sign-in, on the same page (Item Master): NONE of S1\'s items; he is a Store User there (no import)', !!onT2 && /^0 of 0/.test(st.count) && !st.imp && /Store User/.test(st.role) && st.page === 'Item Master', st);
+    ok('   T2 opens through the Portal, no sign-in, on the same page (Item Master): S1\'s 6 items are there too (one list for all sites); he is a Store User there (no import)', !!onT2 && /^6 of 6/.test(st.count) && !st.imp && /Store User/.test(st.role) && st.page === 'Item Master', st);
+    // (14-10-2026) an item of S1, at T2: "Made at" S1 and by whom – it is changed only there
+    const by = await p.evaluate(() => document.querySelector('#i_rows tr[data-site="S1"] td:nth-child(9)').textContent);
+    await p.evaluate(() => document.querySelector('#i_rows tr[data-site="S1"] .i-edit').click()); await wait(400); d = await dlg();
+    ok('   its Edit at T2: a box – made at site S1 by sujit, changed only there; the form does not open', /sujit@rcl\.test/.test(by) && /made at site/.test(d.text) && /only at/.test(d.text) && await p.evaluate(() => document.getElementById('p_form').hidden), { by, d });
+    await p.screenshot({ path: path.join(SHOTS, 'store_other_site.png') });
+    await p.evaluate(() => document.querySelector('#dlg_btns button').click()); await wait(200);
     // ---- Mechanical's dark menu shows the Store ----
     await p.goto(P + '/api/go?module=mechanical&site=S1', { waitUntil: 'load' });
     const mm = await until(async () => { const f = p.frames().find(x => x !== p.mainFrame()); return f && await f.evaluate(() => { const g = document.getElementById('grp_mods'); return g && !g.hidden && [...g.querySelectorAll('button')].map(x => x.textContent.replace('↗', '').trim()).join(','); }); }, 40000);

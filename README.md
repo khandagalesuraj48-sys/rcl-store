@@ -4,9 +4,15 @@ The Store module of RCL ERP. **Now:** the Item Master. **Later (each its own ste
 
 * **Sign-in only through the Portal.** The Portal sends the person here with a one-minute signed ticket. Nobody signs in here.
   The Portal gives Store access per site, as Admin or User.
-* **One site = one database.** The Store reads and writes the database of the site the person opened, the same Supabase
-  project as Mechanical. VTR's items are never seen at 18B, nor 18B's at VTR. **Change site** at the top of the dark menu
-  goes to another of his sites through the Portal.
+* **One site = one database.** The Store writes to the database of the site the person opened, the same Supabase project
+  as Mechanical. **Change site** at the top of the dark menu goes to another of his sites through the Portal.
+* **The Item Master is common to every site (14-10-2026, asked by the owner).** An item is kept in the database of the
+  site that made it; the list shows every site's items together, each with its site ("Made at · by").
+  * One numbering for all sites (ITM-0001 …: the next after the highest of every site), and a name is there once at any site.
+  * An item is changed or deleted **only at the site that made it**, by its Store Admin there. At another site, Edit /
+    Delete show a box: which site and who made it, and that it is changed only there.
+  * A site whose items cannot be read just then (not set up, not reachable) is named on the page; the others are shown.
+  * No SQL step for this: nothing new is stored.
 * **Item Master** fields: Item Code (given by the database: ITM-0001 …), Item Name, Unit, Category, HSN Code, GST %, Min Stock, Status.
   * **Add:** Admin and User. **Change, delete, import:** Store Admin. **List and export:** everybody signed in.
   * **Duplicates:**
