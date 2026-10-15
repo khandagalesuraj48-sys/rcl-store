@@ -1,10 +1,9 @@
-/* POST /api/items { action, … } – the Item Master, COMMON TO EVERY SITE (asked 14-10-2026: "iteam master and vendor master he
- * common asel – ekde add kel ki tikde pn distil … edit / delete tyach site la"). An item is kept in the database of the site that
- * made it (its owner site); the list is every site's items together, each with its site. So:
- *   – the same name is never made twice, at any site (near names asked first, as before);
- *   – the Item Code is one numbering for all sites (ITM-0001 …): the next after the highest of every site;
- *   – an item is changed or deleted ONLY at its own site, by its Store Admin there; at another site the person is told which
- *     site (and who) made it.
+/* POST /api/items { action, … } – the Item Master of THIS SITE (15-10-2026: "vtr che item vtr la rahude, 18 b che 18 b la – mix
+ * nko"; this replaces the one Item Master for every site of 14-10-2026). Each site sees, checks and uses only its own items:
+ *   – the same name is never made twice at a site (near names asked first, as before) – another site may have the same name;
+ *   – the Item Code stays one numbering for all sites (ITM-0001 …: the next after the highest of every site), so no code is
+ *     ever given twice and the codes already given never change;
+ *   – an item of another site is not shown, changed or deleted here.
  * Add: Admin and User. Change, delete, import from Excel: the Store Admin. Everybody signed in sees the list and can export it.
  * Every save is checked again here, whatever the page did. */
 'use strict';
@@ -17,24 +16,18 @@ const enc = encodeURIComponent;
 
 const { registry } = require('../lib/sites');
 const own = site => db(site, 'GET', 'items?select=code,name,name_key,unit,category,hsn,gst_pct,min_stock,status,similar_note,created_by,updated_by,created_at,updated_at&order=code.asc&limit=100000').then(r => r || []);
-/* every site's items together: each with its site (code, name). A site whose Store is not set up yet (its SQL not run) or that
- * cannot be reached is left out and named in `missing` – the list of the others is still shown. Own site: always read (an error there
- * is the person's own and is said). */
-async function all(site) {
-  const sites = (await registry()).filter(x => x.status === 'ready'), missing = [];
-  const parts = await Promise.all(sites.map(x => (x.code === site ? own(x.code) : own(x.code).catch(e => { missing.push(x.code); return []; }))
-    .then(list => list.map(i => Object.assign(i, { site: x.code, siteName: x.name || x.code })))));
-  const list = [].concat(...parts).sort((a, b) => codeNo(a.code) - codeNo(b.code) || (a.site < b.site ? -1 : 1));
-  list.missing = missing;
-  return list;
+// this site's items (the list, the checks, every save)
+const all = async site => (await own(site)).sort((a, b) => codeNo(a.code) - codeNo(b.code));
+/* the codes given at every site – only for the next Item Code (one numbering for all sites). A site whose Store is not set up
+ * or cannot be reached is passed over: a code it gave meanwhile is caught by codeOnce() at the save. */
+async function codesAll(site) {
+  const sites = (await registry()).filter(x => x.status === 'ready');
+  const parts = await Promise.all(sites.map(x => db(x.code, 'GET', 'items?select=code,created_at&limit=100000').then(r => (r || []).map(i => Object.assign(i, { site: x.code })))
+    .catch(e => { if (x.code === site) throw e; return []; })));
+  return [].concat(...parts);
 }
 const codeNo = c => { const m = /^ITM-(\d+)$/.exec(String(c || '')); return m ? Number(m[1]) : 0; };
 const nextCode = (list, k) => 'ITM-' + String(list.reduce((n, i) => Math.max(n, codeNo(i.code)), 0) + 1 + (k || 0)).padStart(4, '0');
-// an item of another site cannot be changed here: who and where to ask
-function notHere(it) {
-  return fail(403, '"' + it.name + '" (' + it.code + ') was made at site ' + (it.siteName || it.site) + (it.created_by ? ' by ' + it.created_by : '') +
-    '. It can be changed or deleted only there – by the Store Admin of ' + (it.siteName || it.site) + '. Ask them, or open that site (you need its Store access).', 'othersite', { site: it.site, siteName: it.siteName, by: it.created_by || '' });
-}
 const cats = list => [...new Set(list.map(x => x.category).filter(Boolean))].sort();
 const brief = x => ({ code: x.code, name: x.name, unit: x.unit, category: x.category });
 const userErr = e => { if (e && e.user) throw fail(400, e.message, 'field'); throw e; };
@@ -54,9 +47,9 @@ function look(x, list, skip) {
  * takes the next free one (it is seconds old; nothing refers to it yet) */
 async function codeOnce(site, it) {
   for (let k = 0; k < 3; k++) {
-    const list = await all(site), twin = list.find(i => i.code === it.code && i.site !== site && String(i.created_at) <= String(it.created_at));
+    const codes = await codesAll(site), twin = codes.find(i => i.code === it.code && i.site !== site && String(i.created_at) <= String(it.created_at));
     if (!twin) return it;
-    try { it = ((await db(site, 'PATCH', 'items?code=eq.' + enc(it.code), { code: nextCode(list) }, 'return=representation')) || [])[0] || it; } catch (e) { if (!(e && e.code === 'duplicate')) throw e; }
+    try { it = ((await db(site, 'PATCH', 'items?code=eq.' + enc(it.code), { code: nextCode(codes) }, 'return=representation')) || [])[0] || it; } catch (e) { if (!(e && e.code === 'duplicate')) throw e; }
   }
   return it;
 }
@@ -66,13 +59,13 @@ async function codeOnce(site, it) {
 function seeing(s) { if (s.pages.items === 'None' && s.pages.dashboard === 'None') throw fail(403, 'You have no access to the Item Master on this site.', 'page'); }
 
 const ACTIONS = {
-  async list(s) { seeing(s); const list = await all(s.site); return { items: list, units: I.UNITS, categories: cats(list), admin: s.admin, site: s.site, missing: list.missing }; },
+  async list(s) { seeing(s); const list = await all(s.site); return { items: list, units: I.UNITS, categories: cats(list), admin: s.admin, site: s.site }; },
   async check(s, x) { seeing(s); return look(x, await all(s.site), x.code ? String(x.code) : null); },
   async save(s, x) {
     const edit = !!x.code;
     if (!edit && s.pages.items !== 'Edit') throw fail(403, s.pages.items === 'None' ? 'You have no access to the Item Master on this site.' : 'You may see the Item Master on this site, not add to it (View). Ask the Super Admin for Edit.', 'page');
-    const list = await all(s.site), cur = edit ? (list.find(i => i.code === x.code && i.site === s.site) || null) : null;
-    if (edit && !cur) { const there = list.find(i => i.code === x.code); if (there) throw notHere(there); throw fail(404, 'This item is not in the list (it may have been deleted). Refresh the list.', 'gone'); }
+    const list = await all(s.site), cur = edit ? (list.find(i => i.code === x.code) || null) : null;
+    if (edit && !cur) throw fail(404, 'This item is not in the list (it may have been deleted). Refresh the list.', 'gone');
     if (edit && !s.admin) throw fail(403, 'Only the Store Admin can change an item.', 'admin');
     let it; try { it = I.check(x.item, { edit: edit }); } catch (e) { userErr(e); }
     const L = look(it, list, edit ? cur.code : null);
@@ -87,7 +80,7 @@ const ACTIONS = {
     let out;
     try {
       if (edit) { it.updated_by = s.email; out = ((await db(s.site, 'PATCH', 'items?code=eq.' + enc(cur.code), it, 'return=representation')) || [])[0]; }
-      else { it.created_by = s.email; it.code = nextCode(list); out = ((await db(s.site, 'POST', 'items', [it], 'return=representation')) || [])[0]; }
+      else { it.created_by = s.email; it.code = nextCode(await codesAll(s.site)); out = ((await db(s.site, 'POST', 'items', [it], 'return=representation')) || [])[0]; }
     } catch (e) { if (e && e.code === 'duplicate') throw fail(409, 'DUPLICATE – an item with this name (or code) was just saved by someone else. Not saved – try again.', 'exact'); throw e; }
     if (!edit) out = await codeOnce(s.site, out);
     const what = edit ? ['name', 'unit', 'category', 'hsn', 'gst_pct', 'min_stock', 'status'].filter(k => String(cur[k] === null ? '' : cur[k]) !== String(it[k] === null ? '' : it[k])).map(k => k + ': ' + (cur[k] === null ? '' : cur[k]) + ' → ' + (it[k] === null ? '' : it[k])) : null;
@@ -96,7 +89,7 @@ const ACTIONS = {
   },
   async remove(s, x) {
     const cur = ((await db(s.site, 'GET', 'items?select=code,name,unit,category&code=eq.' + enc(String(x.code || '')))) || [])[0];
-    if (!cur) { const there = (await all(s.site)).find(i => i.code === String(x.code || '')); if (there) throw notHere(there); throw fail(404, 'This item is not in the list (it may have been deleted). Refresh the list.', 'gone'); }
+    if (!cur) throw fail(404, 'This item is not in the list (it may have been deleted). Refresh the list.', 'gone');
     if (!s.admin) throw fail(403, 'Only the Store Admin can delete an item.', 'admin');
     await db(s.site, 'DELETE', 'items?code=eq.' + enc(cur.code), undefined, 'return=minimal');
     await activity(s.site, s.email, 'Item deleted', cur.code + ' ' + cur.name, { item: cur });
@@ -146,7 +139,8 @@ const ACTIONS = {
     if (!take.length) return Object.assign(report, { ok: true, added: 0 });
     const day = new Date().toISOString().slice(0, 10);
     // (every row with the same fields – one write for all of them)
-    const ins = take.map((r, k) => Object.assign({}, r.item, { code: nextCode(list, k), created_by: s.email, similar_note: r.status === 'similar' ? (r.item.name + ': not the same as ' + r.similar.map(y => y.code + ' ' + y.name).join(', ') + ' – said by ' + s.email + ' on ' + day + ' (import)').slice(0, 500) : null }));
+    const codes = await codesAll(s.site);
+    const ins = take.map((r, k) => Object.assign({}, r.item, { code: nextCode(codes, k), created_by: s.email, similar_note: r.status === 'similar' ? (r.item.name + ': not the same as ' + r.similar.map(y => y.code + ' ' + y.name).join(', ') + ' – said by ' + s.email + ' on ' + day + ' (import)').slice(0, 500) : null }));
     let added;
     try { added = (await db(s.site, 'POST', 'items', ins, 'return=representation')) || []; added = await Promise.all(added.map(i => codeOnce(s.site, i))); }
     catch (e) { if (e && e.code === 'duplicate') throw fail(409, 'DUPLICATE – an item of the file was saved by someone else meanwhile. Nothing was imported – check the file again.', 'exact'); throw e; }

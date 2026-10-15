@@ -93,26 +93,29 @@ const PW = 'Nashik#Road848!', VPW = 'Audit#PassView9!x';
   ok('the Admin renames an item to a name that is there: DUPLICATE', r.status === 409 && r.j.code === 'exact', r.j);
   r = await S.req('/api/items', { action: 'save', code: teaCode, item: { name: 'Tea', unit: 'Pkt', category: 'Grocery', status: 'Inactive' } });
   ok('   the Admin changes the unit and switches it off (its own name is no duplicate of itself)', r.status === 200 && r.j.item.unit === 'Pkt' && r.j.item.status === 'Inactive', r.j);
-  // ---- ONE Item Master for every site (14-10-2026): seen at all sites, changed only at the site that made it ----
+  // ---- (15-10-2026) every site its OWN Item Master: VTR's items at VTR, 18B's at 18B – one code numbering stays ----
   const T = client(ST); r = await T.req('/api/sso', { ticket: await ticketFor(A.p, 'store', 'T2') });
   ok('sujit opens the Store on T2 (User there)', r.status === 200 && r.j.site === 'T2' && r.j.user.admin === false, r.j);
   r = await T.req('/api/items', { action: 'list' });
-  const s1n = Number(sql('rcl', 'select count(*) from items'));
-  ok('   T2 sees S1\'s items too, each with its site (S1)', r.status === 200 && r.j.items.length === s1n && s1n > 0 && r.j.items.every(i => i.site === 'S1') && r.j.site === 'T2', r.j);
+  ok('   T2 sees only its own items – none of S1\'s', r.status === 200 && r.j.items.length === Number(sql('rcl_s2', 'select count(*) from items')) && !r.j.items.some(i => i.code === 'ITM-0001') && r.j.site === 'T2', r.j);
   r = await save(T, { name: 'Sugar', unit: 'Kg', category: 'Grocery' });
-  ok('   "Sugar" at T2: DUPLICATE of S1\'s (one list for all sites)', r.status === 409 && r.j.code === 'exact' && sql('rcl_s2', 'select count(*) from items') === '0', r.j);
+  const sug2 = r.j.item && r.j.item.code;
+  ok('   "Sugar" at T2: saved – a name of S1 is no duplicate at T2', r.status === 200 && sql('rcl_s2', "select count(*) from items where name = 'Sugar'") === '1', r.j);
   const top = sql('rcl', "select max(substring(code from 5)::int) from items");
+  ok('   its code: the next of the ONE numbering (after S1\'s highest) – no code is given twice', sug2 === 'ITM-' + String(Number(top) + 1).padStart(4, '0'), { sug2, top });
   r = await save(T, { name: 'Jaggery', unit: 'Kg', category: 'Grocery' });
   const jag = r.j.item && r.j.item.code;
-  ok('   a new item at T2: kept in T2\'s database, its code the next of the one numbering (after S1\'s highest)', r.status === 200 && jag === 'ITM-' + String(Number(top) + 1).padStart(4, '0') && sql('rcl_s2', "select count(*) from items where name = 'Jaggery'") === '1' && sql('rcl', "select count(*) from items where name = 'Jaggery'") === '0', r.j);
+  ok('   a second item at T2: kept in T2\'s database', r.status === 200 && sql('rcl_s2', "select count(*) from items where name = 'Jaggery'") === '1' && sql('rcl', "select count(*) from items where name = 'Jaggery'") === '0', r.j);
+  r = await save(T, { name: 'Jaggery', unit: 'Kg', category: 'Grocery' });
+  ok('   the same name twice at T2: DUPLICATE (a name is there once at a site)', r.status === 409 && r.j.code === 'exact', r.j);
   r = await S.req('/api/items', { action: 'list' });
-  ok('   S1 sees it, made at T2', r.j.items.some(i => i.code === jag && i.site === 'T2' && i.created_by === 'sujit@rcl.test'), r.j);
+  ok('   S1 does not see T2\'s items', r.status === 200 && !r.j.items.some(i => i.code === jag || i.code === sug2), r.j.items.map(i => i.code));
   r = await S.req('/api/items', { action: 'save', code: jag, item: { name: 'Jaggery Cubes', unit: 'Kg', category: 'Grocery', status: 'Active' } });
-  ok('   S1\'s Store Admin cannot change T2\'s item: told where and who', r.status === 403 && r.j.code === 'othersite' && /made at site .*by sujit@rcl\.test.*only there/.test(r.j.error) && sql('rcl_s2', "select name from items where code = '" + jag + "'") === 'Jaggery', r.j);
+  ok('   S1\'s Store Admin cannot change T2\'s item (not in S1\'s list)', r.status === 404 && r.j.code === 'gone' && sql('rcl_s2', "select name from items where code = '" + jag + "'") === 'Jaggery', r.j);
   r = await S.req('/api/items', { action: 'remove', code: jag });
-  ok('   nor delete it', r.status === 403 && r.j.code === 'othersite' && sql('rcl_s2', 'select count(*) from items') === '1', r.j);
+  ok('   nor delete it', r.status === 404 && sql('rcl_s2', "select count(*) from items where code = '" + jag + "'") === '1', r.j);
   r = await T.req('/api/items', { action: 'save', code: 'ITM-0001', item: { name: 'Sugar', unit: 'Kg', category: 'Grocery', status: 'Inactive' } });
-  ok('   at T2, S1\'s item: "made at site S1" (not changed)', r.status === 403 && r.j.code === 'othersite' && sql('rcl', "select status from items where code = 'ITM-0001'") === 'Active', r.j);
+  ok('   at T2, S1\'s item code: not there (S1\'s item not changed)', r.status === 404 && sql('rcl', "select status from items where code = 'ITM-0001'") === 'Active', r.j);
   r = await T.req('/api/items', { action: 'remove', code: jag });
   ok('   the same person is a User on T2: no delete of T2\'s own item there', r.status === 403 && r.j.code === 'admin', r.j);
   // ---- (14-10-2026) the pages the Super Admin gives a Store User in the Portal (access.pages, the Portal's step 3) ----

@@ -1,6 +1,6 @@
 /* The Store in the browser, on the local rig (never live): the Portal :3010 → the Store :3020 (and Mechanical :3000).
  *   sign-in through the Portal; Item Master: add, the same name refused, a near name asked ("Sugaar" – Sugar is there),
- *   a proper name suggested; Change site → T2 (its own items only); Mechanical's menu shows the Store; Excel export and
+ *   a proper name suggested; Change site → T2 (its own items only – every site its own, 15-10-2026); Mechanical's menu shows the Store; Excel export and
  *   import (checked row by row); a phone.       node test/browser.test.js      (pictures in test/shots/)
  * Uses the Chromium of the rig (/home/claude/test/node_modules). */
 'use strict';
@@ -100,13 +100,12 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
     const onT2 = await until(() => p.url().startsWith(ST) && p.evaluate(() => !document.getElementById('v_app').hidden && /T2/.test(document.getElementById('site_name').textContent)), 30000);
     await wait(1500);
     st = await p.evaluate(() => ({ page: document.getElementById('pg_title').textContent, count: document.getElementById('i_count').textContent, imp: !document.getElementById('b_import').hidden, role: document.getElementById('u_role').textContent }));
-    ok('   T2 opens through the Portal, no sign-in, on the same page (Item Master): S1\'s 6 items are there too (one list for all sites); he is a Store User there (no import)', !!onT2 && /^6 of 6/.test(st.count) && !st.imp && /Store User/.test(st.role) && st.page === 'Item Master', st);
-    // (14-10-2026) an item of S1, at T2: "Made at" S1 and by whom – it is changed only there
-    const by = await p.evaluate(() => document.querySelector('#i_rows tr[data-site="S1"] td:nth-child(9)').textContent);
-    await p.evaluate(() => document.querySelector('#i_rows tr[data-site="S1"] .i-edit').click()); await wait(400); d = await dlg();
-    ok('   its Edit at T2: a box – made at site S1 by sujit, changed only there; the form does not open', /sujit@rcl\.test/.test(by) && /made at site/.test(d.text) && /only at/.test(d.text) && await p.evaluate(() => document.getElementById('p_form').hidden), { by, d });
-    await p.screenshot({ path: path.join(SHOTS, 'store_other_site.png') });
-    await p.evaluate(() => document.querySelector('#dlg_btns button').click()); await wait(200);
+    const t2n = Number(execSync('timeout 30 su postgres -c "psql -d rcl_s2 -tA -c \'select count(*) from items\'"').toString().trim());
+    ok('   T2 opens through the Portal, no sign-in, on the same page (Item Master): only T2\'s own items (' + t2n + '), none of S1\'s 6; he is a Store User there (no import)', !!onT2 && new RegExp('^' + t2n + ' of ' + t2n + ' ').test(st.count + ' ') && !st.imp && /Store User/.test(st.role) && st.page === 'Item Master', st);
+    // (15-10-2026) every site its own items: S1's are not in T2's list at all
+    const s1There = await p.evaluate(() => [...document.querySelectorAll('#i_rows tr[data-code]')].some(tr => /Sugar|Hydraulic/.test(tr.textContent)));
+    ok('   none of S1\'s items in T2\'s list', !s1There);
+    await p.screenshot({ path: path.join(SHOTS, 'store_t2_own.png') });
     // ---- Mechanical's dark menu shows the Store ----
     await p.goto(P + '/api/go?module=mechanical&site=S1', { waitUntil: 'load' });
     const mm = await until(async () => { const f = p.frames().find(x => x !== p.mainFrame()); return f && await f.evaluate(() => { const g = document.getElementById('grp_mods'); return g && !g.hidden && [...g.querySelectorAll('button')].map(x => x.textContent.replace('↗', '').trim()).join(','); }); }, 40000);

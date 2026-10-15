@@ -181,8 +181,7 @@
       <div id="pg_items">
       <section class="panel">
         <h2>Item Master</h2>
-        <p class="muted" style="margin:0">One Item Master for every site – an item made at one site is seen at all of them (Mechanical and Store use the same list). It is changed or deleted only at the site that made it. A name is there once: a name that is nearly the same as one already there is asked about first.</p>
-        <p class="muted" id="i_missing" hidden></p>
+        <p class="muted" style="margin:0">The items of this site. A name is there once: a name that is nearly the same as one already there is asked about first.</p>
         <div class="bar">
           <div class="field grow"><label for="f_q">Search</label><input id="f_q" placeholder="Item name, code, category, HSN" autocomplete="off"></div>
           <div class="field"><label for="f_cat">Category</label><select id="f_cat"></select></div>
@@ -219,7 +218,7 @@
         <div class="bar"><button type="button" class="btn primary" id="b_imp_go">Import</button><button type="button" class="btn" id="b_imp_x">Cancel</button></div>
       </section>
       <section class="panel">
-        <div class="tw"><table><thead><tr><th>Code</th><th>Item Name</th><th>Unit</th><th>Category</th><th>HSN</th><th class="n">GST %</th><th class="n">Min Stock</th><th>Status</th><th>Made at · by</th><th></th></tr></thead><tbody id="i_rows"></tbody></table></div>
+        <div class="tw"><table><thead><tr><th>Code</th><th>Item Name</th><th>Unit</th><th>Category</th><th>HSN</th><th class="n">GST %</th><th class="n">Min Stock</th><th>Status</th><th>Added by</th><th></th></tr></thead><tbody id="i_rows"></tbody></table></div>
       </section>
       </div>
     </main>
@@ -438,8 +437,6 @@
   /* ---------------- ITEM MASTER ---------------- */
   async function load() {
     try { const r = await items({ action: 'list' }); S.items = r.items; S.units = r.units; S.cats = r.categories;
-      // (every site's items: a site whose list could not be read now is said – the others are shown)
-      $('i_missing').hidden = !(r.missing || []).length; $('i_missing').textContent = (r.missing || []).length ? 'The items of site ' + r.missing.join(', ') + ' could not be read just now – they are not in this list. Refresh in a moment.' : '';
       draw(); dash(); LOADED.ok(); }
     catch (e) { failed(e); $('i_rows').innerHTML = '<tr><td colspan="10" class="empty">' + esc(e.message) + '</td></tr>'; }
   }
@@ -452,11 +449,9 @@
     const q = $('f_q').value.trim().toLowerCase(), cat = $('f_cat').value, st = $('f_st').value, adm = S.me.user.admin;
     const list = S.items.filter(i => (!cat || i.category === cat) && (!st || i.status === st) && (!q || [i.code, i.name, i.category, i.hsn].join(' ').toLowerCase().indexOf(q) > -1));
     $('i_count').textContent = list.length + ' of ' + S.items.length + ' items';
-    const mine = i => !i.site || i.site === S.me.site;
-    $('i_rows').innerHTML = list.length ? list.map(i => '<tr' + (i.status === 'Inactive' ? ' class="off"' : '') + ' data-code="' + esc(i.code) + '" data-site="' + esc(i.site || '') + '"><td>' + esc(i.code) + '</td><td class="nm">' + esc(i.name) + (i.similar_note ? '<small title="' + esc(i.similar_note) + '">near another name – confirmed different</small>' : '') + '</td><td>' + esc(i.unit) + '</td><td>' + esc(i.category) + '</td><td>' + esc(i.hsn || '') + '</td>' +
-      '<td class="n">' + num(i.gst_pct) + '</td><td class="n">' + num(i.min_stock) + '</td><td><span class="tag' + (i.status === 'Inactive' ? ' off' : '') + '">' + esc(i.status) + '</span></td><td><small>' + (mine(i) ? '<b>this site</b>' : esc(i.siteName || i.site)) + (i.created_by ? ' · ' + esc(i.created_by) : '') + '</small></td>' +
-      // an item of another site: Edit / Delete say where (and who) it is changed – it is not changed here
-      '<td>' + (adm || !mine(i) ? '<div class="acts' + (mine(i) ? '' : ' other') + '"><button type="button" class="link i-edit">Edit</button><button type="button" class="link del i-del">Delete</button></div>' : '') + '</td></tr>').join('')
+    $('i_rows').innerHTML = list.length ? list.map(i => '<tr' + (i.status === 'Inactive' ? ' class="off"' : '') + ' data-code="' + esc(i.code) + '"><td>' + esc(i.code) + '</td><td class="nm">' + esc(i.name) + (i.similar_note ? '<small title="' + esc(i.similar_note) + '">near another name – confirmed different</small>' : '') + '</td><td>' + esc(i.unit) + '</td><td>' + esc(i.category) + '</td><td>' + esc(i.hsn || '') + '</td>' +
+      '<td class="n">' + num(i.gst_pct) + '</td><td class="n">' + num(i.min_stock) + '</td><td><span class="tag' + (i.status === 'Inactive' ? ' off' : '') + '">' + esc(i.status) + '</span></td><td><small>' + esc(i.created_by || '') + '</small></td>' +
+      '<td>' + (adm ? '<div class="acts"><button type="button" class="link i-edit">Edit</button><button type="button" class="link del i-del">Delete</button></div>' : '') + '</td></tr>').join('')
       : '<tr><td colspan="10" class="empty">' + (S.items.length ? 'No item for this search.' : 'No item yet – press "+ Add item".') + '</td></tr>';
   }
   ['f_q', 'f_cat', 'f_st'].forEach(id => $(id).addEventListener(id === 'f_q' ? 'input' : 'change', draw));
@@ -471,9 +466,8 @@
   $('b_new').addEventListener('click', () => openForm(null));
   $('b_cancel').addEventListener('click', () => { $('p_form').hidden = true; S.edit = null; });
   $('i_rows').addEventListener('click', async e => {
-    const tr = e.target.closest('tr[data-code]'); if (!tr) return; const it = S.items.find(i => i.code === tr.dataset.code && (i.site || '') === tr.dataset.site); if (!it) return;
+    const tr = e.target.closest('tr[data-code]'); if (!tr) return; const it = S.items.find(i => i.code === tr.dataset.code); if (!it) return;
     if (!e.target.classList.contains('i-edit') && !e.target.classList.contains('i-del')) return;
-    if (it.site && it.site !== S.me.site) { otherSite(it); return; }
     if (e.target.classList.contains('i-edit')) openForm(it);
     if (e.target.classList.contains('i-del')) {
       const v = await ask('Delete ' + it.code + '?', '<p><b>' + esc(it.name) + '</b> (' + esc(it.unit) + ', ' + esc(it.category) + ') is taken out of the Item Master.</p><p class="mr">हा item Item Master मधून काढला जाईल.</p>', [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, bad: true }]);
@@ -481,14 +475,6 @@
       try { await items({ action: 'remove', code: it.code }); toast(it.code + ' deleted.'); load(); } catch (er) { failed(er); }
     }
   });
-  // an item made at another site: it is changed or deleted only there – who made it, and what to do
-  function otherSite(it) {
-    const at = esc(it.siteName || it.site);
-    return ask('Made at ' + (it.siteName || it.site), '<p><b>' + esc(it.name) + '</b> (' + esc(it.code) + ') was made at site <b>' + at + '</b>' + (it.created_by ? ' by <b>' + esc(it.created_by) + '</b>' : '') + '.</p>' +
-      '<p>You cannot change or delete it here. It is changed or deleted only at ' + at + ', by its Store Admin there (who needs ' + at + '\'s Store access). Ask them – or, if you have that access, open ' + at + ' with "Change site".</p>' +
-      '<p class="mr">हा item ' + at + ' site ने बनवला आहे' + (it.created_by ? ' (' + esc(it.created_by) + ')' : '') + '. तो इथे बदलता / delete करता येणार नाही – फक्त ' + at + ' site वरून, तिथल्या Store Admin कडून. त्यांना सांगा.</p>',
-      [{ label: 'OK', value: true, primary: true }]);
-  }
   // while typing a name: the names already there that are near it (said at once; the save asks again)
   let hintT = null;
   $('i_name').addEventListener('input', () => { clearTimeout(hintT); hintT = setTimeout(async () => {
@@ -548,12 +534,12 @@
   });
 
   /* ---------------- EXCEL ---------------- */
-  const HEAD = ['Item Code', 'Item Name', 'Unit', 'Category', 'HSN Code', 'GST %', 'Min Stock', 'Status', 'Made at'];
+  const HEAD = ['Item Code', 'Item Name', 'Unit', 'Category', 'HSN Code', 'GST %', 'Min Stock', 'Status'];
   function xlsx() { return window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const s = document.createElement('script'); s.src = BASE + 'vendor/xlsx-0.18.5.full.min.js'; s.onload = () => res(window.XLSX); s.onerror = () => rej(new Error('The Excel tool could not be loaded – check the internet and try again.')); document.head.appendChild(s); }); }
   const day = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
-  async function writeFile(rows, name) { const X = await xlsx(); const ws = X.utils.aoa_to_sheet([HEAD].concat(rows)); ws['!cols'] = [10, 40, 8, 22, 12, 8, 10, 10, 16].map(w => ({ wch: w })); const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Items'); X.writeFile(wb, name); }
-  $('b_export').addEventListener('click', async () => { try { await writeFile(S.items.map(i => [i.code, i.name, i.unit, i.category, i.hsn || '', i.gst_pct === null ? '' : Number(i.gst_pct), i.min_stock === null ? '' : Number(i.min_stock), i.status, i.siteName || i.site || '']), 'Items_all_sites_' + day() + '.xlsx'); toast('Exported ' + S.items.length + ' items.'); } catch (e) { toast(e.message, true); } });
-  $('b_tpl').addEventListener('click', async () => { try { await writeFile([['', 'Hydraulic Hose 1/2 inch', 'Mtr', 'Spare Parts', '40092100', 18, 10, '']], 'Items_template.xlsx'); } catch (e) { toast(e.message, true); } });
+  async function writeFile(rows, name) { const X = await xlsx(); const ws = X.utils.aoa_to_sheet([HEAD].concat(rows)); ws['!cols'] = [10, 40, 8, 22, 12, 8, 10, 10].map(w => ({ wch: w })); const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Items'); X.writeFile(wb, name); }
+  $('b_export').addEventListener('click', async () => { try { await writeFile(S.items.map(i => [i.code, i.name, i.unit, i.category, i.hsn || '', i.gst_pct === null ? '' : Number(i.gst_pct), i.min_stock === null ? '' : Number(i.min_stock), i.status]), 'Items_' + day() + '.xlsx'); toast('Exported ' + S.items.length + ' items.'); } catch (e) { toast(e.message, true); } });
+  $('b_tpl').addEventListener('click', async () => { try { await writeFile([['', 'Hydraulic Hose 1/2 inch', 'Mtr', 'Spare Parts', '40092100', 18, 10]], 'Items_template.xlsx'); } catch (e) { toast(e.message, true); } });
   $('b_import').addEventListener('click', () => { $('f_file').value = ''; $('f_file').click(); });
   // a file: its rows (the heading row is found by its names; "Item Code" in the file is not used – the next codes of the one numbering of all sites are given)
   $('f_file').addEventListener('change', async () => {
