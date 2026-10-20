@@ -243,8 +243,16 @@
   async function api(path, body) {
     const r = await fetch(BASE + path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-RCL': '1' }, body: JSON.stringify(body) });
     let j = {}; try { j = await r.json(); } catch (e) { j = { error: 'The Store did not answer properly (' + r.status + ').' }; }
+    if (j.preview || /^This is a Preview/.test(String(j.error || ''))) previewBand();
     if (!r.ok || j.error) { const e = new Error(j.error || ('Error ' + r.status)); e.status = r.status; e.code = j.code; e.data = j; throw e; }
     return j;
+  }
+  // (20-10-2026) a Preview (a test copy on the staging database): a band on top, so nobody takes it for the live Store
+  function previewBand() {
+    if (document.getElementById('rcl_preview_band') || EMBED) return;      // inside Mechanical's screen: Mechanical shows it
+    const b = document.createElement('div'); b.id = 'rcl_preview_band'; b.textContent = 'TEST copy (Preview) – the staging database · nothing here is live';
+    b.style.cssText = 'display:block;height:22px;line-height:22px;padding:0 8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:#F59E0B;color:#111;font:700 12px/22px system-ui,sans-serif;text-align:center';
+    document.body.insertBefore(b, document.body.firstChild);      // in the page's flow, above its top bar – it hides nothing
   }
   const items = body => api('api/items', body);
   // a dialog with buttons; resolves with the value of the button pressed (null = closed)

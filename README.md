@@ -71,6 +71,15 @@ rewrites `/store/:path*` to this project, so the installed app never opens a sec
 * The other modules of the site are groups of the dark menu, each with its pages read from `<its address>/menu.json`.
   * A module whose menu cannot be read shows one line, "Open …", through the Portal.
 
+## A Preview = the staging (TEST) copy (20-10-2026)
+* On a Vercel **Preview** (`VERCEL_ENV=preview`), `lib/preview.js` asks the database first: it must have the row
+  `app_settings.THIS_IS_A_TEST_DATABASE = 'yes'`. Only the staging database `rcl-staging` has it.
+* A database without it (any live one) is refused with 503, "This is a Preview …". Nothing is read or written.
+* The page shows an orange TEST band on a Preview.
+* Live (`production`) asks nothing.
+* The staging copy is the Preview of the branch `staging`. Its set-up (one SQL for Mechanical + Portal + Store, the Vercel
+  Preview settings): `rclerp/staging/STAGING_SETUP.md`.
+
 ## Search from Mechanical's screen (13-10-2026)
 Ctrl K in Mechanical also searches the modules shown inside it. Every module page gives:
 ```js
