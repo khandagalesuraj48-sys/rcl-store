@@ -16,8 +16,12 @@ const enc = encodeURIComponent;
 
 const { registry } = require('../lib/sites');
 const own = site => db(site, 'GET', 'items?select=code,name,name_key,unit,category,hsn,gst_pct,min_stock,status,similar_note,created_by,updated_by,created_at,updated_at&order=code.asc&limit=100000').then(r => r || []);
-// this site's items (the list, the checks, every save)
+// this site's items (the list, every save)
 const all = async site => (await own(site)).sort((a, b) => codeNo(a.code) - codeNo(b.code));
+/* (21-10-2026, less data out of the database) the check while a name is typed – asked after every pause of typing – needs only
+ * what it compares and shows: code, name, its key, unit and category (about a third of a whole row). The save checks again with
+ * every row whole, as before. */
+const forCheck = site => db(site, 'GET', 'items?select=code,name,name_key,unit,category&order=code.asc&limit=100000').then(r => (r || []).sort((a, b) => codeNo(a.code) - codeNo(b.code)));
 /* the codes given at every site – only for the next Item Code (one numbering for all sites). A site whose Store is not set up
  * or cannot be reached is passed over: a code it gave meanwhile is caught by codeOnce() at the save. */
 async function codesAll(site) {
@@ -60,7 +64,7 @@ function seeing(s) { if (s.pages.items === 'None' && s.pages.dashboard === 'None
 
 const ACTIONS = {
   async list(s) { seeing(s); const list = await all(s.site); return { items: list, units: I.UNITS, categories: cats(list), admin: s.admin, site: s.site }; },
-  async check(s, x) { seeing(s); return look(x, await all(s.site), x.code ? String(x.code) : null); },
+  async check(s, x) { seeing(s); return look(x, await forCheck(s.site), x.code ? String(x.code) : null); },
   async save(s, x) {
     const edit = !!x.code;
     if (!edit && s.pages.items !== 'Edit') throw fail(403, s.pages.items === 'None' ? 'You have no access to the Item Master on this site.' : 'You may see the Item Master on this site, not add to it (View). Ask the Super Admin for Edit.', 'page');
