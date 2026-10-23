@@ -316,6 +316,33 @@
     if (who && String(r.user.email).toLowerCase() !== who) { try { await api('api/logout', {}); } catch (e) {} return startMsg('The Portal is signed in as another person on this computer – sign out and sign in again.', 'या computer वर Portal मध्ये दुसरी व्यक्ती आहे – sign out करून पुन्हा sign in करा.', true); }
     PORTAL = r.portal || PORTAL; show(r, page);
   }
+  /* THE SIGN-IN IS KEPT FRESH (23-10-2026, his yes): a Store sign-in lasts 15 minutes. Every 10 minutes – and when the page comes
+   * back after a pause – the page asks the Portal for a fresh ticket and signs in again with it. Whom the Super Admin removed gets
+   * none: the Store's sign-in ends and the page says so. A new role (Admin / User, pages) shows at once. No answer: tried again in
+   * 2 minutes (a sign-in that ended meanwhile is signed in again when the next action meets it, as before). */
+  const RENEW_MS = 10 * 60000; let renewAt = 0, renewT = 0, renewing = false;
+  function renewStart() { renewAt = Date.now(); clearInterval(renewT); renewT = setInterval(() => { if (Date.now() - renewAt >= RENEW_MS) renew(); }, 30000); }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me && renewT && Date.now() - renewAt >= RENEW_MS) renew(); });
+  async function renew() {
+    if (renewing || !S.me || !PORTAL) return; renewing = true;
+    const later = () => { renewAt = Date.now() - RENEW_MS + 2 * 60000; };
+    try {
+      let j = {}; const r = await fetch(PORTAL + '/api/go?module=store&site=' + encodeURIComponent(S.me.site) + '&json=1&renew=1', { credentials: 'same-origin', headers: { 'X-RCL': '1' } });
+      try { j = await r.json(); } catch (e) { j = {}; }
+      if (!r.ok || !j.ticket) {
+        if (j.code !== 'noaccess' && j.code !== 'signin') return later();
+        clearInterval(renewT); renewT = 0; S.me = null; try { await api('api/logout', {}); } catch (e) { /* it ends by itself in 15 minutes */ }
+        return j.code === 'noaccess' ? startMsg('You no longer have the Store on this site – ask the Super Admin.', 'या site वर तुम्हाला आता Store दिलेले नाही – Super Admin ला विचारा.', false)
+          : startMsg('Your sign-in on the Portal has ended – sign in again.', 'Portal चा login संपला आहे – पुन्हा sign in करा.', true);
+      }
+      const x = await api('api/sso', { ticket: j.ticket, renew: 1 }); renewAt = Date.now();
+      if (!S.me) return;
+      if (String(x.user.email).toLowerCase() !== String(S.me.user.email).toLowerCase()) { location.reload(); return; }
+      if (!!x.user.admin === !!S.me.user.admin && JSON.stringify(x.pages || {}) === JSON.stringify(S.me.pages || {})) S.me = Object.assign({}, S.me, x);
+      else show(x, S.page);      // (the Super Admin changed his role or pages: the menu and the buttons follow)
+    } catch (e) { later(); }
+    finally { renewing = false; }
+  }
   async function start() {
     if (EMBED) return embedStart();
     const tk = hashArg('sso'), wantSite = hashArg('site').toUpperCase(), wantPage = PAGES[hashArg('page')] ? hashArg('page') : '';
@@ -356,6 +383,7 @@
       }
     }
     S.me = me; try { localStorage.setItem('rcl_store_site', me.site); } catch (e) { /* this tab only */ }
+    renewStart();      // (the sign-in is kept fresh – see renew)
     $('v_start').hidden = true; $('v_app').hidden = false;
     $('site_name').textContent = me.siteName || me.site;
     $('u_name').textContent = me.user.name; $('u_role').textContent = (me.user.admin ? 'Store Admin' : 'Store User') + ' · ' + (me.siteName || me.site);
