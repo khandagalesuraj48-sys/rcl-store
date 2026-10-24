@@ -58,7 +58,21 @@ The Store module of RCL ERP. **Now:** the Item Master. **Later (each its own ste
 timeout 120 node --test test/unit.test.js     # no database
 timeout 300 node test/api.test.js             # rig: Portal :3010, Store :3020, site databases :3100 / :3102
 timeout 400 node test/browser.test.js         # rig + Chromium; pictures in test/shots/
+timeout 300 node test/paging155.test.js       # rig: 2,500 items, an import, lost answers (starts its own Store on :3021; SRC=<tree>)
 ```
+
+## Fewer reads, every item, no second copy (24-10-2026, with Mechanical's update-155)
+* **Every item, page by page** (`lib/sites.js` `dbAll`): the database gives at most 1,000 rows to one question, so the list, the
+  name check and the next Item Code stopped at 1,000 items without a word. Now pages of 1,000 in the order of the code.
+* **An import** reads the codes of every site once (was: once for every row added).
+* **The name check while typing** takes this server's copy of the site's short list when it is under 15 seconds old (emptied by its
+  own saves). It only suggests: the save checks again with every row read afresh.
+* **The list and the name check answer "the same" / only what changed** to the page (`lib/delta.js` – the same file as
+  Mechanical's; `lib/http.js` `sendKept`; the page's `look`): kept in the page's memory only, checked against the server's
+  fingerprint, emptied at every sign-in and sign-out.
+* **A new item is not sent twice:** after no answer at all from the database it may have been saved – the person is told to look at
+  the list (no false "DUPLICATE"); a change or a delete is asked again as before (done twice, they leave the same).
+* **A tab in the background does not renew the sign-in** (it is renewed the moment it is looked at again).
 
 ## One address (13-10-2026)
 The Store is also served under the main address, `https://oneclicksolution-erp.vercel.app/store/`. Mechanical's `vercel.json`

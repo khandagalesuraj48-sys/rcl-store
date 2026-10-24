@@ -7,26 +7,37 @@
  * Add: Admin and User. Change, delete, import from Excel: the Store Admin. Everybody signed in sees the list and can export it.
  * Every save is checked again here, whatever the page did. */
 'use strict';
-const { handler, readBody, send, sameSite, fail } = require('../lib/http');
+const { handler, readBody, send, sameSite, fail, sendKept } = require('../lib/http');
 const ses = require('../lib/session');
-const { db } = require('../lib/sites');
+const { db, dbAll } = require('../lib/sites');
 const { activity } = require('../lib/activity');
 const I = require('../lib/items');
 const enc = encodeURIComponent;
 
 const { registry } = require('../lib/sites');
-const own = site => db(site, 'GET', 'items?select=code,name,name_key,unit,category,hsn,gst_pct,min_stock,status,similar_note,created_by,updated_by,created_at,updated_at&order=code.asc&limit=100000').then(r => r || []);
+// (24-10-2026) every item, page by page (lib/sites.js dbAll – the database gives at most 1,000 rows to one question)
+const own = site => dbAll(site, 'items?select=code,name,name_key,unit,category,hsn,gst_pct,min_stock,status,similar_note,created_by,updated_by,created_at,updated_at', 'code');
 // this site's items (the list, every save)
 const all = async site => (await own(site)).sort((a, b) => codeNo(a.code) - codeNo(b.code));
 /* (21-10-2026, less data out of the database) the check while a name is typed – asked after every pause of typing – needs only
  * what it compares and shows: code, name, its key, unit and category (about a third of a whole row). The save checks again with
  * every row whole, as before. */
-const forCheck = site => db(site, 'GET', 'items?select=code,name,name_key,unit,category&order=code.asc&limit=100000').then(r => (r || []).sort((a, b) => codeNo(a.code) - codeNo(b.code)));
+/* (24-10-2026, Mechanical's update-155) the check while a name is typed is asked after every pause of typing: this server keeps the
+ * site's short list for 15 seconds (emptied by its own saves). It only SUGGESTS – the save checks again with every row read afresh,
+ * so an item saved meanwhile on another server is never missed. */
+const CHECK = new Map();      // site → { at, list }
+const forCheck = async site => {
+  const k = CHECK.get(site); if (k && Date.now() - k.at < 15000) return k.list;
+  const list = (await dbAll(site, 'items?select=code,name,name_key,unit,category', 'code')).sort((a, b) => codeNo(a.code) - codeNo(b.code));
+  CHECK.set(site, { at: Date.now(), list: list }); if (CHECK.size > 50) CHECK.clear();
+  return list;
+};
+const changed = site => CHECK.delete(site);
 /* the codes given at every site – only for the next Item Code (one numbering for all sites). A site whose Store is not set up
  * or cannot be reached is passed over: a code it gave meanwhile is caught by codeOnce() at the save. */
 async function codesAll(site) {
   const sites = (await registry()).filter(x => x.status === 'ready');
-  const parts = await Promise.all(sites.map(x => db(x.code, 'GET', 'items?select=code,created_at&limit=100000').then(r => (r || []).map(i => Object.assign(i, { site: x.code })))
+  const parts = await Promise.all(sites.map(x => dbAll(x.code, 'items?select=code,created_at', 'code').then(r => (r || []).map(i => Object.assign(i, { site: x.code })))
     .catch(e => { if (x.code === site) throw e; return []; })));
   return [].concat(...parts);
 }
@@ -49,9 +60,9 @@ function look(x, list, skip) {
 
 /* one numbering for all sites: two sites saving at the same moment could give the same next code – the item just made here then
  * takes the next free one (it is seconds old; nothing refers to it yet) */
-async function codeOnce(site, it) {
+async function codeOnce(site, it, have) {
   for (let k = 0; k < 3; k++) {
-    const codes = await codesAll(site), twin = codes.find(i => i.code === it.code && i.site !== site && String(i.created_at) <= String(it.created_at));
+    const codes = k === 0 && have ? have : await codesAll(site), twin = codes.find(i => i.code === it.code && i.site !== site && String(i.created_at) <= String(it.created_at));
     if (!twin) return it;
     try { it = ((await db(site, 'PATCH', 'items?code=eq.' + enc(it.code), { code: nextCode(codes) }, 'return=representation')) || [])[0] || it; } catch (e) { if (!(e && e.code === 'duplicate')) throw e; }
   }
@@ -86,6 +97,7 @@ const ACTIONS = {
       if (edit) { it.updated_by = s.email; out = ((await db(s.site, 'PATCH', 'items?code=eq.' + enc(cur.code), it, 'return=representation')) || [])[0]; }
       else { it.created_by = s.email; it.code = nextCode(await codesAll(s.site)); out = ((await db(s.site, 'POST', 'items', [it], 'return=representation')) || [])[0]; }
     } catch (e) { if (e && e.code === 'duplicate') throw fail(409, 'DUPLICATE – an item with this name (or code) was just saved by someone else. Not saved – try again.', 'exact'); throw e; }
+    changed(s.site);
     if (!edit) out = await codeOnce(s.site, out);
     const what = edit ? ['name', 'unit', 'category', 'hsn', 'gst_pct', 'min_stock', 'status'].filter(k => String(cur[k] === null ? '' : cur[k]) !== String(it[k] === null ? '' : it[k])).map(k => k + ': ' + (cur[k] === null ? '' : cur[k]) + ' → ' + (it[k] === null ? '' : it[k])) : null;
     await activity(s.site, s.email, edit ? 'Item changed' : 'Item added', out.code + ' ' + out.name, edit ? { changes: what } : { item: it, similarConfirmed: sure.length ? sure : undefined });
@@ -95,7 +107,7 @@ const ACTIONS = {
     const cur = ((await db(s.site, 'GET', 'items?select=code,name,unit,category&code=eq.' + enc(String(x.code || '')))) || [])[0];
     if (!cur) throw fail(404, 'This item is not in the list (it may have been deleted). Refresh the list.', 'gone');
     if (!s.admin) throw fail(403, 'Only the Store Admin can delete an item.', 'admin');
-    await db(s.site, 'DELETE', 'items?code=eq.' + enc(cur.code), undefined, 'return=minimal');
+    await db(s.site, 'DELETE', 'items?code=eq.' + enc(cur.code), undefined, 'return=minimal'); changed(s.site);
     await activity(s.site, s.email, 'Item deleted', cur.code + ' ' + cur.name, { item: cur });
     return { ok: true };
   },
@@ -146,7 +158,9 @@ const ACTIONS = {
     const codes = await codesAll(s.site);
     const ins = take.map((r, k) => Object.assign({}, r.item, { code: nextCode(codes, k), created_by: s.email, similar_note: r.status === 'similar' ? (r.item.name + ': not the same as ' + r.similar.map(y => y.code + ' ' + y.name).join(', ') + ' – said by ' + s.email + ' on ' + day + ' (import)').slice(0, 500) : null }));
     let added;
-    try { added = (await db(s.site, 'POST', 'items', ins, 'return=representation')) || []; added = await Promise.all(added.map(i => codeOnce(s.site, i))); }
+    // (24-10-2026) the codes of every site read ONCE for the whole import (was: once for every row added, all at the same time)
+    try { added = (await db(s.site, 'POST', 'items', ins, 'return=representation')) || []; changed(s.site);
+      const after = await codesAll(s.site), fixed = []; for (const i of added) fixed.push(await codeOnce(s.site, i, after)); added = fixed; }
     catch (e) { if (e && e.code === 'duplicate') throw fail(409, 'DUPLICATE – an item of the file was saved by someone else meanwhile. Nothing was imported – check the file again.', 'exact'); throw e; }
     await activity(s.site, s.email, 'Items imported', added.length + ' items', { added: added.map(i => i.code + ' ' + i.name).slice(0, 300), leftOut: report.exists });
     return Object.assign(report, { ok: true, added: added.length });
@@ -158,6 +172,7 @@ module.exports = handler(async (req, res) => {
   sameSite(req);
   const s = await ses.need(req), x = await readBody(req), a = String(x.action || '');
   if (!Object.prototype.hasOwnProperty.call(ACTIONS, a)) return send(res, 404, { error: 'Unknown action.' });
-  try { send(res, 200, await ACTIONS[a](s, x)); }
+  // (update-155) a look (the list, the name check) from a page that keeps its answers: "the same" / only what changed / whole
+  try { const out = await ACTIONS[a](s, x); if ((a === 'list' || a === 'check') && x.m === 1) sendKept(res, s, x, out); else send(res, 200, out); }
   catch (e) { if (e && e.code === 'notinstalled') throw fail(500, 'The Store is not set up in the database of site ' + s.site + ' yet: run sql/store_step1_items.sql once in that site\'s Supabase → SQL Editor.', 'notinstalled'); throw e; }
 });
