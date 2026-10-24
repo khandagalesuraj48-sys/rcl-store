@@ -34,12 +34,16 @@ const fault = b => fetch(DOOR + '/__fault', { method: 'POST', body: JSON.stringi
     sql('rcl_portal', "insert into modules (key, name, url, status, sort) values ('store', 'Store', 'http://127.0.0.1:3021', 'live', 2) on conflict (key) do update set url = excluded.url, status = 'live'; " +
       "delete from access where module = 'store'; insert into access (email, site, module, role, granted_by) values ('sujit@rcl.test', 'S1', 'store', 'admin', 'test'), ('sujit@rcl.test', 'T2', 'store', 'admin', 'test');");
     for (const db of ['rcl', 'rcl_s2']) sql(db, 'truncate public.items, public.store_sessions, public.store_tickets, public.store_activity; alter sequence public.items_code_seq restart;');
-    sql('rcl', "insert into public.items (code, name, name_key, unit, category) select 'ITM-' || lpad(g::text, 4, '0'), 'Rig Part ' || g, 'RIG PART ' || g, 'Nos', 'Spare Parts' from generate_series(1, 2500) g; select setval('public.items_code_seq', 2500);");
+    sql('rcl', "insert into public.items (code, name, name_key, unit, category) select 'ITM-' || lpad(g::text, 4, '0'), 'Rig Part ' || g, 'rigpart' || g, 'Nos', 'Spare Parts' from generate_series(1, 2500) g; select setval('public.items_code_seq', 2500);");
     const p = client(P), l = await p.req('/api/auth', { action: 'login', email: 'sujit@rcl.test', password: 'Nashik#Road848!' });
     const S = client(ST), t = ((await p.req('/api/go?module=store&site=S1')).loc.split('#sso=')[1] || ''), r = await S.req('/api/sso', { ticket: t });
     ok('signed in on the Store of S1 (through the Portal)', l.status === 200 && r.status === 200 && r.j.site === 'S1', r.j);
+    await fetch(DOOR + '/__meter', { method: 'POST' });
     const L = await S.req('/api/items', { action: 'list' });
+    const lm = await (await fetch(DOOR + '/__meter')).json(), pages = lm.rows.filter(x => /^GET other items /.test(x.kind)).reduce((s, x) => s + x.calls, 0);
     ok('the list has every item of the site: 2,500 (not the first 1,000)', L.status === 200 && (L.j.items || []).length === 2500 && L.j.items[2499].code === 'ITM-2500', { status: L.status, n: (L.j.items || []).length, last: ((L.j.items || []).slice(-1)[0] || {}).code });
+    // (this rig's database layer gives any number of rows; Supabase gives at most 1,000 – "Max rows": so the list is asked in pages)
+    ok('   asked page by page – 3 pages of at most 1,000 (Supabase gives at most 1,000 rows to one question)', pages === 3, { reads: pages, kinds: lm.rows.filter(x => /items/.test(x.kind)).map(x => x.kind + ' ' + x.calls) });
     const C = await S.req('/api/items', { action: 'check', name: 'rig part 2400', category: 'Spare Parts' });
     ok('the name check finds an item past the first 1,000 ("Rig Part 2400" is there)', C.j.exact && C.j.exact.code === 'ITM-2400', C.j);
     const N = await S.req('/api/items', { action: 'save', item: { name: 'Hydraulic Hose 155', unit: 'Nos', category: 'Spare Parts' } });
@@ -63,7 +67,7 @@ const fault = b => fetch(DOOR + '/__fault', { method: 'POST', body: JSON.stringi
     // a read whose answer is lost: asked again by itself
     await fault({ match: '^GET /rest/v1/items', drop: true, n: 1 });
     const L2 = await S.req('/api/items', { action: 'list' }); await fault({});
-    ok('a list whose first answer was lost: asked again by itself, complete', L2.status === 200 && (L2.j.items || []).length === 2543, { status: L2.status, n: (L2.j.items || []).length });
+    ok('a list whose first answer was lost: asked again by itself, complete', L2.status === 200 && (L2.j.items || []).length === 2542, { status: L2.status, n: (L2.j.items || []).length });
   } catch (e) { ok('no crash', false, String(e && e.stack || e)); }
   finally { try { srv.kill(); } catch (e) {} try { await fault({}); } catch (e) {} }
   for (const db of ['rcl', 'rcl_s2']) { try { sql(db, 'truncate public.items, public.store_sessions, public.store_tickets, public.store_activity; alter sequence public.items_code_seq restart;'); } catch (e) {} }

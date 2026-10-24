@@ -25,12 +25,13 @@ const all = async site => (await own(site)).sort((a, b) => codeNo(a.code) - code
 /* (24-10-2026, Mechanical's update-155) the check while a name is typed is asked after every pause of typing: this server keeps the
  * site's short list for 15 seconds (emptied by its own saves). It only SUGGESTS – the save checks again with every row read afresh,
  * so an item saved meanwhile on another server is never missed. */
-const CHECK = new Map();      // site → { at, list }
+const CHECK = new Map();      // site → { at, p: the read (a promise) } – kept from its START, so a save that ends meanwhile drops it
 const forCheck = async site => {
-  const k = CHECK.get(site); if (k && Date.now() - k.at < 15000) return k.list;
-  const list = (await dbAll(site, 'items?select=code,name,name_key,unit,category', 'code')).sort((a, b) => codeNo(a.code) - codeNo(b.code));
-  CHECK.set(site, { at: Date.now(), list: list }); if (CHECK.size > 50) CHECK.clear();
-  return list;
+  const k = CHECK.get(site); if (k && Date.now() - k.at < 15000) return k.p;
+  if (CHECK.size > 50) CHECK.clear();
+  const e = { at: Date.now(), p: dbAll(site, 'items?select=code,name,name_key,unit,category', 'code').then(list => list.sort((a, b) => codeNo(a.code) - codeNo(b.code))) };
+  CHECK.set(site, e); e.p.catch(() => { if (CHECK.get(site) === e) CHECK.delete(site); });      // a read that failed is not kept
+  return e.p;
 };
 const changed = site => CHECK.delete(site);
 /* the codes given at every site – only for the next Item Code (one numbering for all sites). A site whose Store is not set up

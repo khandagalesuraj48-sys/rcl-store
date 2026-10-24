@@ -71,7 +71,8 @@ timeout 300 node test/paging155.test.js       # rig: 2,500 items, an import, los
   Mechanical's; `lib/http.js` `sendKept`; the page's `look`): kept in the page's memory only, checked against the server's
   fingerprint, emptied at every sign-in and sign-out.
 * **A new item is not sent twice:** after no answer at all from the database it may have been saved – the person is told to look at
-  the list (no false "DUPLICATE"); a change or a delete is asked again as before (done twice, they leave the same).
+  the list (no false "DUPLICATE"); a change or a delete is asked again as before (done twice, they leave the same), and so is a
+  new item that never left this server (no connection at all).
 * **A tab in the background does not renew the sign-in** (it is renewed the moment it is looked at again).
 
 ## One address (13-10-2026)
