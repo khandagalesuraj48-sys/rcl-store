@@ -60,8 +60,8 @@ Reports, Opening stock & Numbers. The phone app has the same as its own screens 
 * **The stock never goes below zero on any date** (checked inside the database – one save at a time on a site).
 * **Reports:** stock (on a date), stock statement (a day / month / period), item ledger, GRN register, issue register, consumption
   (by party / machinery / use / location / item), returnable out, requirements, purchase orders – shown, Excel, print.
-* **Excel import (Store Admin):** his INWARD (GRN) and OUTWORD (Issue) registers in his columns – every row checked first, then all
-  or nothing; the opening stock (Item, Qty, Rate, Date).
+* **Excel import (Store Admin):** his OUTWORD (Issue) register in his columns – every row checked first, then all or nothing; the
+  opening stock (Item, Qty, Rate, Date). His INWARD (GRN) register: the register's import (step 3, below).
 * **Numbers:** where the GRN and Outward numbers go on from (only higher than the last one used).
 * Files: `api/work.js` (every action and its check), `lib/work.js` (the rules), `lib/sreport.js` (the reports),
   `public/work.js` (the pages), `api/portal.js` (who approves – from the Portal), `sql/store_step2_work.sql`.

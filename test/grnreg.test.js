@@ -127,8 +127,8 @@ function readBook(buf) {
     ok('   the next GRN goes on after the file\'s highest GRN No and those without a number: ' + p.next, nx === p.next, [nx, p.next]);
     const ven = sql('rcl', "select count(*) || '|' || count(*) filter (where gst_registered = 'No' and pan_number is null and aadhaar_number is null and remark like 'Material supplier%' and owner_site = 'S1') from vendors where vendor_type = 'Material Supplier'");
     ok('   the suppliers in the site\'s Vendor Master (Mechanical\'s): "Material Supplier", GST / PAN / Aadhaar to be filled', ven === (supBefore + p.newSup.length) + '|' + (supBefore + p.newSup.length), ven);
-    const it = sql('rcl', "select count(*) || '|' || count(*) filter (where similar_note like 'From the old inward register%') from items");
-    ok('   the items in the Item Master (codes ITM-…): ' + p.newItems.length + ' new (and the one made before by the same door)', it === (p.newItems.length + 1) + '|' + (p.newItems.length + 1), it);
+    const it = sql('rcl', "select count(*) || '|' || count(*) filter (where similar_note is null and code ~ '^ITM-[0-9]{4,}$' and created_by = 'sujit@rcl.test') from items");
+    ok('   the items in the Item Master (codes ITM-…): ' + p.newItems.length + ' new (and the one made before by the same door); no "near another name" note on them', it === (p.newItems.length + 1) + '|' + (p.newItems.length + 1), it);
     // the stock: an item's GRN quantities in the file = its stock
     const big = p.newItems.slice().sort((a, b) => b.rows - a.rows)[0], want = p.docs.reduce((a, d) => a + d.lines.filter(l => RG.keyOf(l.item) === RG.keyOf(big.name)).reduce((s, l) => s + Number(l.qty), 0), 0);
     const code = sql('rcl', "select code from items where name_key = '" + RG.keyOf(big.name) + "'"), stock = Number(sql('rcl', "select coalesce(sum(q), 0) from store_moves where code = '" + code + "'"));

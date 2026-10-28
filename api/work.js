@@ -552,7 +552,7 @@ const ACTIONS = {
       let it; try { it = I.check({ name: r && r.name, unit: r && r.unit, category: (r && r.category) || 'General', gst: r && r.gst !== undefined && r.gst !== null ? String(r.gst) : '' }); }
       catch (e) { if (!(e && e.user)) throw e; bad.push({ name: String((r && r.name) || '').slice(0, 120), msg: e.message }); return; }
       if (have.has(it.name_key)) return; have.add(it.name_key);
-      ins.push(Object.assign(it, { created_by: s.email, similar_note: 'From the old inward register (' + new Date().toISOString().slice(0, 10) + ')' }));
+      ins.push(Object.assign(it, { created_by: s.email }));      // (its "similar_note" stays empty: that note says "near another name – confirmed different")
     });
     let added = [];
     if (ins.length) {
