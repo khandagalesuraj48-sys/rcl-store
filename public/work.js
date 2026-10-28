@@ -308,17 +308,20 @@
   async function grnPage() {
     const el = $('pg_grn');
     el.innerHTML = '<div class="pghead"><span class="pgico">' + ico('box') + '</span><div><h2>Inward (GRN)</h2><p>Material received against a purchase order or direct (a bill). Its basic rate makes the item\'s average rate.</p></div></div>' +
-      '<section class="panel"><div class="bar" style="margin:0">' + field('gr_from', 'From', inp('gr_from', monthStart(), ' type="date"')) + field('gr_to', 'To', inp('gr_to', today(), ' type="date"')) + '<button type="button" class="btn" id="gr_show">Show</button>' +
+      '<section class="panel"><div class="bar" style="margin:0">' + field('gr_from', 'From', inp('gr_from', monthStart(), ' type="date"')) + field('gr_to', 'To', inp('gr_to', today(), ' type="date"')) + '<button type="button" class="btn" id="gr_show">Show</button><button type="button" class="btn" id="gr_hide" hidden>Hide list</button>' +
       (canEdit('grn') ? '<button type="button" class="btn primary" id="gr_new">+ New GRN</button>' : '') + '<button type="button" class="btn" id="gr_xl">GRN register (Excel)</button>' +
       (admin() ? '<button type="button" class="btn" id="gr_imp">Import from Excel</button><button type="button" class="btn small" id="gr_tpl">Import format</button><input type="file" id="gr_file" accept=".xlsx,.xls,.csv" hidden>' : '') + '</div></section>' +
       '<section id="gr_form" hidden></section><section class="panel formbox" id="gr_impbox" hidden></section><section class="panel" id="gr_list"></section>';
-    $('gr_show').onclick = () => { GR.shown = true; grnLoad(); };
+    // (28-10-2026, "show dable ki distey but prt hide pn krta yaw") Show – the list of the dates; Hide list – it goes away again
+    const hint = '<p class="empty" id="gr_hint">Choose the dates and press <b>Show</b> – the GRNs of those dates come here.<br><span class="mr">तारखा निवडा आणि Show दाबा – त्या तारखांचे GRN इथे दिसतील.</span></p>';
+    $('gr_show').onclick = () => { GR.shown = true; $('gr_hide').hidden = false; grnLoad(); };
+    $('gr_hide').onclick = () => { GR.shown = false; $('gr_hide').hidden = true; $('gr_list').innerHTML = hint; };
     if ($('gr_new')) $('gr_new').onclick = () => grnForm(null);
     $('gr_xl').onclick = () => busy($('gr_xl'), async () => toExcel(await W('report', { kind: 'grn', from: val('gr_from'), to: val('gr_to') }), 'GRN_register'));
     // (28-10-2026) the Import of the GRNs: the register's (his inward register – any size, its own GRN No; the check first)
     if ($('gr_imp')) { $('gr_imp').onclick = () => { $('gr_file').value = ''; $('gr_file').click(); }; $('gr_file').onchange = () => regFile($('gr_file').files[0], $('gr_impbox')); $('gr_tpl').onclick = () => importTemplate('grn'); }
     $('gr_list').onclick = e => grnClick(e);
-    GR.shown = false; $('gr_list').innerHTML = '<p class="empty" id="gr_hint">Choose the dates and press <b>Show</b> – the GRNs of those dates come here.<br><span class="mr">तारखा निवडा आणि Show दाबा – त्या तारखांचे GRN इथे दिसतील.</span></p>';
+    GR.shown = false; $('gr_list').innerHTML = hint;
     await boot();
   }
   // (28-10-2026, "ji excel diley tech column mala GRN / inward madhe de") his inward register's columns; (the same day, "show kel nantr

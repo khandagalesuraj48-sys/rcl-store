@@ -61,7 +61,7 @@ Reports, Opening stock & Numbers. The phone app has the same as its own screens 
   counted in it –, Basic Rate, GST %, Taxable / GST / Gross worked out, the line's Remark, a bin on each row; the Total, the TCS on its
   own row); Save GRN · Cancel. Clear asks first: a new GRN empty again, a GRN being changed back as it is saved. **The GRN No**
   (28-10-2026, step 4 below) at the top right: the next number by itself, it can be changed by hand. **The list** comes when
-  **Show** is pressed: each GRN a card – its GRN No, date, supplier, invoice, challan, vehicle, PO, TCS and gross at the top, its
+  **Show** is pressed (**Hide list** takes it away again): each GRN a card – its GRN No, date, supplier, invoice, challan, vehicle, PO, TCS and gross at the top, its
   materials under it (Sr No, Material Description, Received Qty, UOM, Basic Rate, Taxable / GST / Gross Amount, Remark); the GRN
   register (Excel) has every column on each row.
 * **Issue (Outward):** to site work, a sub-contractor, a machinery (its reading – on the site on that date; it joins the machinery's

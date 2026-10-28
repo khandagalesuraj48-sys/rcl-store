@@ -109,6 +109,11 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
       r.n === 412 && /412 GRN\(s\)/.test(r.count) && r.rows > 412 && r.keys && r.keys.slice(0, 3).join('|') === 'GRN No|GRN Date|Supplier Name' && r.keys.indexOf('Gross Amount') > -1 &&
       JSON.stringify(r.heads) === JSON.stringify(['Sr No', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'Taxable Amount', 'GST Amount', 'Gross Amount', 'Remark']) && /^\d+$/.test(r.line[0]) && /\.\d\d$/.test(r.line[7]), r);
     await p.evaluate(() => window.scrollTo(0, document.getElementById('gr_list').offsetTop - 80)); await shot('grnreg_list');
+    r = await p.evaluate(() => ({ hide: !document.getElementById('gr_hide').hidden }));
+    await p.click('#gr_hide'); await wait(300);
+    const r2 = await p.evaluate(() => ({ hint: !!document.getElementById('gr_hint'), cards: document.querySelectorAll('#gr_list .grnc').length, hide: !document.getElementById('gr_hide').hidden }));
+    ok('   "Hide list" (shown with the list): the list goes away – the hint again', r.hide && r2.hint && r2.cards === 0 && !r2.hide, [r, r2]);
+    await p.click('#gr_show'); await wait(2500);
     // (28-10-2026, his picture) a GRN changed: the form of his picture with that GRN in it; Clear – back as it is saved
     await p.evaluate(() => [...document.querySelectorAll('#gr_list .grnc')].find(c => c.querySelector('.gno span').textContent === '342-A').querySelector('.gr-edit').click()); await wait(1500);
     const chg = () => p.evaluate(() => ({ sub: (document.querySelector('#gr_form .gsub') || {}).textContent, sup: document.getElementById('gr_sup').value, rows: document.querySelectorAll('#gr_lines tbody tr[data-i]').length, qty: (document.querySelector('#gr_lines tr[data-i="0"] [data-k="qty"]') || {}).value }));
