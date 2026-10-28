@@ -53,7 +53,11 @@ Reports, Opening stock & Numbers. The phone app has the same as its own screens 
 * **Purchase Order:** vendor (a name nearly one written before is asked), GST no., delivery by, terms; its lines (from the
   requirements – never more than asked – or any item), rate, GST %. A PO's paper with its site's company on top.
 * **Inward (GRN):** against a PO (its lines still to come; more than the PO still has is asked first) or direct (a bill); supplier,
-  challan, invoice, vehicle, TCS. Its basic rate makes the item's average rate.
+  challan, invoice, vehicle, TCS. Its basic rate makes the item's average rate. **The form (28-10-2026, his picture):** two cards –
+  *GRN Details* (Clear and the GRN Date at its top right; Against PO · Supplier · Challan No; Invoice No · Invoice Date · Vehicle No ·
+  TCS ₹; the Remark box) and *Items* (+ Add Row; the item's search box, Received Qty, the Unit – the Item Master's, as the stock is
+  counted in it –, Basic Rate, GST %, Taxable / GST / Gross worked out, the line's Remark, a bin on each row; the Total, the TCS on its
+  own row); Save GRN · Cancel. Clear asks first: a new GRN empty again, a GRN being changed back as it is saved.
 * **Issue (Outward):** to site work, a sub-contractor, a machinery (its reading – on the site on that date; it joins the machinery's
   maintenance log book in Mechanical, Party "RCL Store") or the office; location (chainage), side, use for, receiver; returnable and
   serial no; on debit (charged with GST). **Return:** what is still out comes back.

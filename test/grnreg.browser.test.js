@@ -105,6 +105,18 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
     r = await p.evaluate(() => { const rows = [...document.querySelectorAll('#gr_list tbody tr')]; const a = rows.find(tr => /342-A/.test(tr.innerText)); return { n: rows.length, a: a ? [...a.children].map(td => td.textContent) : null, count: document.querySelector('#gr_list .count').textContent }; });
     ok('   the GRN list: a row for each material, GRN 342-A as in the file', r.a && r.a[1] === '342-A' && /412 GRN\(s\)/.test(r.count) && r.n > 412, r);
     await p.evaluate(() => window.scrollTo(0, document.getElementById('gr_list').offsetTop - 80)); await shot('grnreg_list');
+    // (28-10-2026, his picture) a GRN changed: the form of his picture with that GRN in it; Clear – back as it is saved
+    await p.evaluate(() => [...document.querySelectorAll('#gr_list tbody tr')].find(tr => /342-A/.test(tr.innerText)).querySelector('.gr-edit').click()); await wait(1500);
+    const chg = () => p.evaluate(() => ({ sub: (document.querySelector('#gr_form .gsub') || {}).textContent, sup: document.getElementById('gr_sup').value, rows: document.querySelectorAll('#gr_lines tbody tr[data-i]').length, qty: (document.querySelector('#gr_lines tr[data-i="0"] [data-k="qty"]') || {}).value }));
+    const c0 = await chg();
+    ok('Change on GRN 342-A: the form of his picture, "Change GRN 342-A", its supplier and rows', c0.sub === 'Change GRN 342-A' && !!c0.sup && c0.rows >= 1 && !!c0.qty, c0);
+    await p.evaluate(() => { const e = document.querySelector('#gr_lines tr[data-i="0"] [data-k="qty"]'); e.value = '999'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await p.click('#gr_clr'); await wait(400);
+    await p.evaluate(() => [...document.querySelectorAll('#dlg_btns button')].find(b => b.textContent === 'Clear').click()); await wait(1500);
+    const c1 = await chg();
+    ok('   a quantity typed, then Clear: the GRN back as it is saved (nothing saved changed)', JSON.stringify(c1) === JSON.stringify(c0), [c0, c1]);
+    await p.evaluate(() => document.getElementById('gr_form').scrollIntoView({ block: 'start' })); await shot('grn_change_form');
+    await p.click('#gr_x'); await wait(300);
     // a phone
     await p.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });      // (a phone: the page is loaded again)
     await until(() => p.evaluate(() => !document.getElementById('v_app').hidden && !!window.RS), 30000); await wait(1500);

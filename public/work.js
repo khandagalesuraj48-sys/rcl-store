@@ -38,24 +38,37 @@
   const inp = (id, v, more) => '<input id="' + id + '" value="' + esc(v === undefined || v === null ? '' : v) + '"' + (more || '') + '>';
   const sel = (id, opts, v, more) => '<select id="' + id + '"' + (more || '') + '>' + opts.map(o => { const val = Array.isArray(o) ? o[0] : o, t = Array.isArray(o) ? o[1] : o; return '<option value="' + esc(val) + '"' + (String(val) === String(v === undefined || v === null ? '' : v) ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select>';
   const val = id => { const e = $(id); return e ? e.value : ''; };
+  // (28-10-2026) small line signs (the GRN form of his picture)
+  const ICO = { box: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+    clear: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>', plus: '<path d="M5 12h14"/><path d="M12 5v14"/>', search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/>',
+    down: '<path d="m6 9 6 6 6-6"/>', bin: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+    save: '<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>', x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>' };
+  const ico = (k, cls) => '<svg' + (cls ? ' class="' + cls + '"' : '') + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICO[k] + '</svg>';
   const busy = async (btn, f) => { if (btn.disabled) return; btn.disabled = true; try { await f(); } catch (e) { failed(e); } finally { btn.disabled = false; } };
 
   /* ---------- the LINES of a paper: a row each, an empty row always there to type into ----------
-   * cols: [{ k, h, type: 'item' | 'num' | 'text' | 'check' | 'ro', w, calc(row) }] */
+   * cols: [{ k, h, type: 'item' | 'num' | 'text' | 'check' | 'ro', w, calc(row) }]
+   * (28-10-2026) opt.boxes – the GRN's look: the item's search box, the worked-out values in grey boxes, a bin on each row, the last
+   * column "Action"; opt.addRow – a row added by "+ Add Row" (L.add), not by itself (one row when there is none) */
   function Lines(box, cols, rows, opt) {
     opt = opt || {};
     { const nb = box.cloneNode(false); box.replaceWith(nb); box = nb; }      // (drawn again – e.g. another PO picked: the listeners of before go with the old box)
     const L = { rows: (rows || []).map(r => Object.assign({}, r)) };
     const blank = () => { const o = {}; cols.forEach(c => { o[c.k] = c.type === 'check' ? false : ''; }); return o; };
     L.draw = () => {
-      if (!opt.fixed && !L.rows.some(r => !r.item && !r.code)) L.rows.push(blank());
-      box.innerHTML = '<div class="tw"><table class="lines"><thead><tr><th>#</th>' + cols.map(c => '<th' + (c.type === 'num' || c.type === 'ro' && c.n ? ' class="n"' : '') + '>' + esc(c.h) + '</th>').join('') + (opt.fixed ? '' : '<th></th>') + '</tr></thead><tbody>' +
+      if (!opt.fixed && (opt.addRow ? !L.rows.length : !L.rows.some(r => !r.item && !r.code))) L.rows.push(blank());
+      const bx = !!opt.boxes;
+      box.innerHTML = '<div class="tw"><table class="lines' + (bx ? ' boxes' : '') + '"><thead><tr><th>#</th>' + cols.map(c => '<th' + (c.type === 'num' && !bx || c.type === 'ro' && c.n ? ' class="n"' : '') + '>' + esc(c.h) + '</th>').join('') + (opt.fixed ? '' : '<th class="x">' + esc(bx ? 'Action' : '') + '</th>') + '</tr></thead><tbody>' +
         L.rows.map((r, i) => '<tr data-i="' + i + '"><td>' + (i + 1) + '</td>' + cols.map(c => {
           const v = r[c.k];
-          if (c.type === 'ro' || (c.type === 'item' && r.fixedItem)) return '<td class="' + (c.n ? 'n' : '') + '">' + (c.calc ? c.calc(r) : esc(c.type === 'item' ? (r.code ? label(itemOf(r.code) || { code: r.code, name: r.name, unit: r.unit }) : '') : v)) + '</td>';
+          if (c.type === 'ro' || (c.type === 'item' && r.fixedItem)) { const t = c.calc ? c.calc(r) : esc(c.type === 'item' ? (r.code ? label(itemOf(r.code) || { code: r.code, name: r.name, unit: r.unit }) : '') : v);
+            return bx ? '<td><div class="rob' + (c.n ? ' n' : '') + '">' + (t === '' ? '–' : t) + '</div></td>' : '<td class="' + (c.n ? 'n' : '') + '">' + t + '</td>'; }
           if (c.type === 'check') return '<td style="text-align:center"><input type="checkbox" data-k="' + c.k + '"' + (v ? ' checked' : '') + ' style="width:auto;min-height:0"></td>';
-          return '<td><input data-k="' + c.k + '" class="' + (c.type === 'item' ? 'it' : c.type === 'num' ? 'q' : 's') + '"' + (c.type === 'item' ? ' list="dl_witems" placeholder="Type the item…"' : c.type === 'num' ? ' inputmode="decimal"' : '') + ' value="' + esc(c.type === 'item' ? (r.item || (r.code ? label(itemOf(r.code) || { code: r.code, name: r.name, unit: r.unit }) : '')) : v === undefined || v === null ? '' : v) + '"' + (c.w ? ' style="width:' + c.w + 'px"' : '') + '></td>';
-        }).join('') + (opt.fixed ? '' : '<td class="x">' + (r.item || r.code ? '<button type="button" class="link del" data-x="' + i + '" title="Take this line out">✕</button>' : '') + '</td>') + '</tr>').join('') +
+          const vv = c.type === 'item' ? (r.item || (r.code ? label(itemOf(r.code) || { code: r.code, name: r.name, unit: r.unit }) : '')) : v === undefined || v === null ? '' : v;
+          const box1 = '<input data-k="' + c.k + '" class="' + (c.type === 'item' ? 'it' : c.type === 'num' ? 'q' : 's') + '"' + (c.type === 'item' ? ' list="dl_witems" placeholder="' + (bx ? 'Search item…' : 'Type the item…') + '"' + (bx && vv ? ' title="' + esc(vv) + '"' : '') : c.type === 'num' ? ' inputmode="decimal"' + (c.ph ? ' placeholder="' + esc(c.ph) + '"' : '') : '') + ' value="' + esc(vv) + '"' + (c.w ? ' style="width:' + c.w + 'px"' : '') + '>';
+          return '<td>' + (bx && c.type === 'item' ? '<div class="ib">' + box1 + ico('search') + '</div>' : box1) + '</td>';
+        }).join('') + (opt.fixed ? '' : '<td class="x">' + (bx ? '<button type="button" class="binb" data-x="' + i + '" title="Take this row out" aria-label="Take row ' + (i + 1) + ' out">' + ico('bin') + '</button>'
+          : r.item || r.code ? '<button type="button" class="link del" data-x="' + i + '" title="Take this line out">✕</button>' : '') + '</td>') + '</tr>').join('') +
         (opt.total ? '<tr class="tot"><td></td>' + opt.total(L.rows) + '</tr>' : '') + '</tbody></table></div>';
     };
     box.addEventListener('input', e => {
@@ -68,6 +81,7 @@
     box.addEventListener('change', e => { const tr = e.target.closest('tr[data-i]'); if (!tr) return; const k = e.target.dataset.k; if (k === 'item' || e.target.type === 'checkbox') { const r = L.rows[Number(tr.dataset.i)]; if (k === 'item') { r.code = codeOf(e.target.value); if (r.code) r.item = label(itemOf(r.code)); } else r[k] = e.target.checked; L.draw(); } });
     box.addEventListener('click', e => { const x = e.target.closest('[data-x]'); if (!x) return; L.rows.splice(Number(x.dataset.x), 1); L.draw(); });
     L.get = () => L.rows.filter(r => r.code || String(r.item || '').trim());
+    L.add = () => { L.rows.push(blank()); L.draw(); const e = box.querySelector('tr[data-i="' + (L.rows.length - 1) + '"] [data-k]'); if (e) e.focus(); };
     L.draw();
     return L;
   }
@@ -289,11 +303,11 @@
   const GR = { list: [] };
   async function grnPage() {
     const el = $('pg_grn');
-    el.innerHTML = '<section class="panel"><h2>Inward (GRN)</h2><p class="muted" style="margin:0">Material received: against a purchase order or direct (a bill). Its basic rate makes the item\'s average rate.</p>' +
-      '<div class="bar">' + field('gr_from', 'From', inp('gr_from', monthStart(), ' type="date"')) + field('gr_to', 'To', inp('gr_to', today(), ' type="date"')) + '<button type="button" class="btn" id="gr_show">Show</button>' +
+    el.innerHTML = '<div class="pghead"><span class="pgico">' + ico('box') + '</span><div><h2>Inward (GRN)</h2><p>Material received against a purchase order or direct (a bill). Its basic rate makes the item\'s average rate.</p></div></div>' +
+      '<section class="panel"><div class="bar" style="margin:0">' + field('gr_from', 'From', inp('gr_from', monthStart(), ' type="date"')) + field('gr_to', 'To', inp('gr_to', today(), ' type="date"')) + '<button type="button" class="btn" id="gr_show">Show</button>' +
       (canEdit('grn') ? '<button type="button" class="btn primary" id="gr_new">+ New GRN</button>' : '') + '<button type="button" class="btn" id="gr_xl">GRN register (Excel)</button>' +
       (admin() ? '<button type="button" class="btn" id="gr_imp">Import from Excel</button><button type="button" class="btn small" id="gr_tpl">Import format</button><input type="file" id="gr_file" accept=".xlsx,.xls,.csv" hidden>' : '') + '</div></section>' +
-      '<section class="panel formbox" id="gr_form" hidden></section><section class="panel formbox" id="gr_impbox" hidden></section><section class="panel" id="gr_list"></section>';
+      '<section id="gr_form" hidden></section><section class="panel formbox" id="gr_impbox" hidden></section><section class="panel" id="gr_list"></section>';
     $('gr_show').onclick = () => grnLoad();
     if ($('gr_new')) $('gr_new').onclick = () => grnForm(null);
     $('gr_xl').onclick = () => busy($('gr_xl'), async () => toExcel(await W('report', { kind: 'grn', from: val('gr_from'), to: val('gr_to') }), 'GRN_register'));
@@ -333,16 +347,23 @@
     try { await boot(); } catch (e) { failed(e); f.hidden = true; return; }      // (pressed before the page had its lists)
     let pos = []; try { pos = (await W('poOpen')).pos; } catch (e) { pos = []; }
     if (g && g.po_no && !pos.some(p => p.no === Number(g.po_no))) pos.push({ no: Number(g.po_no), vendor: g.supplier, lines: [] });
-    f.innerHTML = '<h2>' + (g ? 'Change GRN ' + esc(refOf(g)) : 'New GRN') + '</h2><div class="grid" style="margin-top:10px">' +
-      field('gr_po', 'Against PO', sel('gr_po', [['', 'Direct (no PO)']].concat(pos.map(p => [p.no, 'PO ' + p.no + ' – ' + p.vendor + (p.lines.length ? ' (' + p.lines.filter(l => l.left > 0).map(l => l.name + ' ' + n2(l.left)).join(', ') + ')' : '')])), g ? g.po_no || '' : ''), 'wide') +
-      field('gr_date', 'GRN date *', inp('gr_date', g ? g.date : today(), ' type="date"')) + field('gr_sup', 'Supplier *', inp('gr_sup', g ? g.supplier : '', ' list="dl_wsuppliers" maxlength="80" autocomplete="off"'), 'wide') +
-      field('gr_ch', 'Challan No', inp('gr_ch', g ? g.challan_no : '', ' maxlength="40"')) + field('gr_inv', 'Invoice No', inp('gr_inv', g ? g.invoice_no : '', ' maxlength="40"')) + field('gr_invd', 'Invoice date', inp('gr_invd', g ? g.invoice_date : '', ' type="date"')) +
-      field('gr_veh', 'Vehicle No', inp('gr_veh', g ? g.vehicle_no : '', ' maxlength="20"')) + field('gr_tcs', 'TCS ₹', inp('gr_tcs', g ? g.tcs : '', ' inputmode="decimal"')) + field('gr_rem', 'Remark', inp('gr_rem', g ? g.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="gr_lines"></div>' +
-      '<div class="bar"><button type="button" class="btn primary" id="gr_save">Save GRN</button><button type="button" class="btn" id="gr_x">Cancel</button></div>';
-    const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }); return '<td colspan="5">Total' + (num(val('gr_tcs')) ? ' (+ TCS ' + money(num(val('gr_tcs'))) + ')' : '') + '</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all + num(val('gr_tcs'))) + '</td><td></td><td></td>'; };
-    const cols = [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'qty', h: 'Received Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') }, { k: 'rate', h: 'Basic Rate ₹', type: 'num' }, { k: 'gst_pct', h: 'GST %', type: 'num' },
-      { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).t) : '' }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).g) : '' }, { k: 'ax', h: 'Gross', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).all) : '' },
-      { k: 'remark', h: 'Remark', type: 'text', w: 160 }];
+    // (28-10-2026, his picture) two cards: GRN Details – Clear and the GRN date at its top right; Items – + Add Row
+    f.innerHTML = '<div class="gcard"><div class="ghead">' + ico('box', 'gico') + '<h3>GRN Details</h3>' + (g ? '<span class="gsub">Change GRN ' + esc(refOf(g)) + '</span>' : '') +
+        '<div class="gact"><button type="button" class="btn" id="gr_clr" title="' + (g ? 'Back to the GRN as it is saved' : 'Empty the form') + '">' + ico('clear') + 'Clear</button>' + field('gr_date', 'GRN Date *', inp('gr_date', g ? g.date : today(), ' type="date"')) + '</div></div>' +
+      '<div class="ggrid g3">' + field('gr_po', 'Against PO', sel('gr_po', [['', 'Direct (no PO)']].concat(pos.map(p => [p.no, 'PO ' + p.no + ' – ' + p.vendor + (p.lines.length ? ' (' + p.lines.filter(l => l.left > 0).map(l => l.name + ' ' + n2(l.left)).join(', ') + ')' : '')])), g ? g.po_no || '' : '')) +
+        field('gr_sup', 'Supplier *', '<div class="ib">' + inp('gr_sup', g ? g.supplier : '', ' list="dl_wsuppliers" maxlength="80" autocomplete="off" placeholder="Select or type the supplier"') + ico('down') + '</div>') +
+        field('gr_ch', 'Challan No', inp('gr_ch', g ? g.challan_no : '', ' maxlength="40"')) + '</div>' +
+      '<div class="ggrid g4">' + field('gr_inv', 'Invoice No', inp('gr_inv', g ? g.invoice_no : '', ' maxlength="40"')) + field('gr_invd', 'Invoice Date', inp('gr_invd', g ? g.invoice_date : '', ' type="date"')) +
+        field('gr_veh', 'Vehicle No', inp('gr_veh', g ? g.vehicle_no : '', ' maxlength="20"')) + field('gr_tcs', 'TCS ₹', inp('gr_tcs', g && Number(g.tcs) ? g.tcs : '', ' inputmode="decimal"')) + '</div>' +
+      field('gr_rem', 'Remark', '<textarea id="gr_rem" rows="3" maxlength="300" placeholder="Enter remark (optional)…">' + esc(g ? g.remark || '' : '') + '</textarea>') + '</div>' +
+      '<div class="gcard gitems"><div class="ghead">' + ico('box', 'gico blue') + '<h3>Items</h3><div class="gact"><button type="button" class="btn blue" id="gr_add">' + ico('plus') + 'Add Row</button></div></div><div id="gr_lines"></div></div>' +
+      '<div class="gbtns"><button type="button" class="btn primary big" id="gr_save">' + ico('save') + 'Save GRN</button><button type="button" class="btn big" id="gr_x">' + ico('x') + 'Cancel</button></div>';
+    const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }), tc = num(val('gr_tcs'));
+      return '<td colspan="5">Total</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all) + '</td><td></td><td></td>' +
+        (tc ? '</tr><tr class="tot"><td></td><td colspan="7">TCS ' + money(tc) + ' · Gross with TCS</td><td class="n">' + money(r2(s.all + tc)) + '</td><td></td><td></td>' : ''); };
+    const cols = [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'qty', h: 'Received Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') }, { k: 'rate', h: 'Basic Rate ₹', type: 'num' }, { k: 'gst_pct', h: 'GST %', type: 'num', ph: '0' },
+      { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: r => money(r.code ? lineMoney(r).t : 0) }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: r => money(r.code ? lineMoney(r).g : 0) }, { k: 'ax', h: 'Gross', type: 'ro', n: true, calc: r => money(r.code ? lineMoney(r).all : 0) },
+      { k: 'remark', h: 'Remark', type: 'text' }];
     const picked = (r, i) => { if (r.gst_pct === '' && i.gst_pct !== null && i.gst_pct !== undefined) r.gst_pct = i.gst_pct; };
     let L = null;
     const fromPo = () => {
@@ -350,9 +371,12 @@
       const rows = g && Number(g.po_no || 0) === Number(val('gr_po') || 0) ? g.lines.map(l => ({ code: l.code, name: l.name, unit: l.unit, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line, remark: l.remark || '', fixedItem: !!l.po_line }))
         : p ? p.lines.filter(l => l.left > 0).map(l => ({ code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: l.rate, gst_pct: l.gst_pct, po_line: l.line, fixedItem: true })) : [];
       if (p && !g && !val('gr_sup')) $('gr_sup').value = p.vendor;
-      L = Lines($('gr_lines'), cols, rows, { total: tot, picked: picked });
+      L = Lines($('gr_lines'), cols, rows, { total: tot, picked: picked, boxes: true, addRow: true });
     };
     fromPo(); $('gr_po').onchange = fromPo; $('gr_tcs').oninput = () => L.draw();
+    $('gr_add').onclick = () => L.add();
+    // Clear: a new GRN empty again; a GRN being changed back as it is saved (nothing saved is changed)
+    $('gr_clr').onclick = async () => { if ((L.get().length || val('gr_sup')) && !await ask('Clear the form?', '<p>' + (g ? 'The GRN comes back as it is saved – what is typed here goes.' : 'What is typed here goes.') + ' Nothing saved is changed.</p><p class="mr">फॉर्म मध्ये टाइप केलेले जाईल – save केलेले काहीही बदलत नाही.</p>', [{ label: 'Cancel', value: false }, { label: 'Clear', value: true, primary: true }])) return; grnForm(g); };
     $('gr_x').onclick = () => { f.hidden = true; };
     $('gr_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Pick each item from the list (as it is in the Item Master).');
