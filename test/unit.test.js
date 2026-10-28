@@ -335,3 +335,29 @@ test('register – the database step 3 only adds (a column, an index, a function
   assert.ok(/values \(v_no, v_no::text,/.test(sql), 'a new GRN: its GRN No is its number');
   assert.ok(/update public\.store_numbers set next_no = greatest\(next_no, v_max \+ 1\)/.test(sql), 'the next GRN goes on after the file\'s highest GRN No');
 });
+
+test('(28-10-2026) the assistant\'s Store look-ups: a report as the AI reads it (its columns by name, the words asked kept, short); the item named; only these look-ups, through the report (its access)', async () => {
+  const AL = require('../lib/ailook'), R = require('../lib/sreport');
+  assert.deepStrictEqual(AL.NAMES, ['store_stock', 'store_statement', 'store_item_ledger', 'store_inward', 'store_outward', 'store_consumption', 'store_returnable', 'store_requirements', 'store_purchase_orders']);
+  const items = [{ code: 'I-1', name: 'Hydraulic Hose 1/2 inch', category: 'Spare Parts', unit: 'Nos', min_stock: 5, status: 'Active' }, { code: 'I-2', name: 'Engine Oil 15W40', category: 'Oil', unit: 'Ltr', min_stock: null, status: 'Active' }, { code: 'I-3', name: 'Hydraulic Oil 68', category: 'Oil', unit: 'Ltr', min_stock: null, status: 'Active' }];
+  const st = R.stock(items, [{ code: 'I-1', qty: 2, in_qty: 10, in_value: 4500 }, { code: 'I-2', qty: 40, in_qty: 100, in_value: 30000 }], '2026-10-28', {});
+  const t = AL.table(st);
+  assert.deepStrictEqual([t.report, t.count, t.rows.find(r => r.Code === 'I-1'), t.total], ['Stock', 2, { Code: 'I-1', Item: 'Hydraulic Hose 1/2 inch', Category: 'Spare Parts', Unit: 'Nos', Stock: 2, 'Avg basic rate': 450, 'Value ₹': 900, 'Min stock': 5, Note: 'Below min' }, { Item: 'Total (2 items)', 'Value ₹': 12900 }]);
+  const q = AL.table(st, 'engine oil');
+  assert.deepStrictEqual([q.count, q.rows[0].Code, q.totalOfTheWholeReport['Value ₹'], q.total], [1, 'I-2', 12900, undefined], 'the words: only their rows – the total said to be of the whole report');
+  // the look-ups run the Store's report (with its access) – a person without it gets its refusal; the item by part of its name
+  const asked = [], h = { items: async () => Object.fromEntries(items.map(i => [i.code, i])), report: async (k, y) => { asked.push([k, y]); if (k === 'ledger') return R.stock(items, [], '2026-10-28', {}); return { title: 'T', sub: '', cols: [], rows: [] }; } };
+  await AL.look({ name: 'store_item_ledger', args: { item: 'hose' } }, h);
+  assert.deepStrictEqual(asked.pop(), ['ledger', { from: '', to: '', code: 'I-1' }]);
+  await assert.rejects(AL.look({ name: 'store_item_ledger', args: { item: 'hydraulic' } }, h), /^Error: "hydraulic" fits 2 items \(Hydraulic Hose 1\/2 inch, Hydraulic Oil 68\) – say which one\.$/);
+  await assert.rejects(AL.look({ name: 'store_item_ledger', args: { item: 'cement' } }, h), /is not an item of this site's Store\./);
+  await assert.rejects(AL.look({ name: 'store_stock', args: { date: '28-10-2026' } }, h), /Give the date as yyyy-mm-dd\./);
+  await assert.rejects(AL.look({ name: 'grnDelete', args: {} }, h), /There is no such look-up of the Store\./);
+  await AL.look({ name: 'store_requirements', args: { status: 'DROP' } }, h); assert.deepStrictEqual(asked.pop(), ['req', { status: '', from: '', to: '' }]);
+  await AL.look({ name: 'store_consumption', args: { by: 'machinery', from: '2026-10-01', to: '2026-10-28' } }, h); assert.deepStrictEqual(asked.pop(), ['consumption', { from: '2026-10-01', to: '2026-10-28', by: 'machinery' }]);
+  const big = AL.table({ title: 'B', sub: '', cols: [{ h: 'X' }], rows: Array.from({ length: 80 }, () => ['x'.repeat(400)]) });
+  assert.ok(JSON.stringify(big).length <= 14000 && big.count === 80 && /^Only the first \d+ of 80 rows/.test(big.note));
+  // the action: read only, through the report
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
+  assert.match(src, /async aiLook\(s, x\) \{\n    try \{ return await AL\.look\(x \|\| \{\}, \{ report: \(kind, y\) => ACTIONS\.report\(s, Object\.assign\(\{\}, y, \{ kind: kind \}\)\), items: \(\) => itemsOf\(s\.site\) \}\); \}/);
+});
