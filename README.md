@@ -116,6 +116,13 @@ function. Rollback: `drop function public.store_grn_new(jsonb, jsonb, text, text
 * Files: `public/grnreg.js` (the page's reading and check – pure), `lib/grnimport.js` (the server's check of each GRN – pure),
   `lib/ai.js`, `lib/itemcodes.js`, `api/work.js` (`regInfo`, `regNames`, `regVendors`, `regItems`, `regGrns`), `public/work.js`.
 
+## The assistant (Mechanical's Ask) reads the Store (28-10-2026, with Mechanical's update-185)
+* Mechanical's Ask (the robot, web and phone app) answers about this site's Store too: the stock (now / on a date / below min), the
+  stock statement, an item's ledger, the Inward (GRN) and Issue (Outward) registers, consumption, returnable items, requirements and
+  purchase orders. It asks the Store itself – action `aiLook` of `api/work.js` (`lib/ailook.js`) – with the person's own Store sign-in:
+  every look-up goes through the Store's own report (`ACTIONS.report`) and its access checks. It only reads. No database step, no new
+  setting.
+
 ## Parts
 | Part | File |
 |---|---|

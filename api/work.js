@@ -17,6 +17,7 @@ const R = require('../lib/sreport');
 const I = require('../lib/items');
 const G = require('../lib/grnimport');
 const AI = require('../lib/ai');
+const AL = require('../lib/ailook');
 const { codesAll, nextCode, codeOnce } = require('../lib/itemcodes');
 const { r2, r3, dmy } = W;
 const enc = encodeURIComponent;
@@ -671,6 +672,13 @@ const ACTIONS = {
       return sites.length === 1 ? t : Object.assign({}, t, { rows: rows, title: 'Purchase orders – every site' + (x.pending ? ' (to come)' : ''), total: null });
     }
     throw fail(400, 'No such report.', 'field');
+  },
+
+  /* ---------- (28-10-2026) THE ASSISTANT'S LOOK-UPS ("AI la app cha main brain": Mechanical's Ask answers about the Store too) –
+   * read only, each through the Store's own report with every check of the person's Store access (lib/ailook.js) ---------- */
+  async aiLook(s, x) {
+    try { return await AL.look(x || {}, { report: (kind, y) => ACTIONS.report(s, Object.assign({}, y, { kind: kind })), items: () => itemsOf(s.site) }); }
+    catch (e) { return userErr(e); }
   },
 
   /* ---------- SETTINGS (the Store Admin): where the GRN and Outward numbers go on from ---------- */

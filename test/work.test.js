@@ -253,6 +253,24 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
   r = await A.w('importDocs', { kind: 'issue', rows: irows });
   ok('Issue import: one paper short of stock – nothing imported (all or none)', r.status === 409 && r.j.code === 'short' && sql('rcl', 'select count(*) from store_issue') === '2', r.j);
 
+  // ---- (28-10-2026) the assistant's look-ups (Mechanical's Ask): through the Store's own reports, with the person's own access ----
+  const stockNow = (await A.w('boot')).j.stock;
+  r = await A.w('aiLook', { name: 'store_stock', args: { query: 'cement' } });
+  const crow = (r.j.rows || [])[0] || {};
+  ok('aiLook store_stock "cement" (the Store Admin): the Stock report made short – its row by column names (Cement OPC 53, its stock)', r.status === 200 && r.j.report === 'Stock' && r.j.count === 1 && crow.Item === 'Cement OPC 53' && crow.Code === CEM && crow.Stock === stockNow[CEM] && r.j.totalOfTheWholeReport, r.j);
+  r = await A.w('aiLook', { name: 'store_item_ledger', args: { item: 'engine oil', from: D10, to: today } });
+  ok('   store_item_ledger "engine oil": that item\'s ledger', r.status === 200 && r.j.report === 'Item ledger – ' + OIL + ' Engine Oil 15W40' && r.j.count >= 1, r.j);
+  r = await A.w('aiLook', { name: 'store_inward', args: { from: D10, to: today } });
+  ok('   store_inward: the GRN register of the dates', r.status === 200 && r.j.report === 'Inward (GRN) register' && r.j.count >= 1, r.j);
+  r = await A.w('aiLook', { name: 'store_outward', args: { from: D10, to: today } });
+  ok('   store_outward: the Issue (Outward) register', r.status === 200 && r.j.report === 'Issue (Outward) register' && r.j.count >= 1, r.j);
+  r = await V.w('aiLook', { name: 'store_requirements', args: {} });
+  ok('   a User with the reports (view): the requirements', r.status === 200 && /^Material requirements/.test(r.j.report) && r.j.count >= 1, r.j);
+  r = await B.w('aiLook', { name: 'store_stock', args: {} });
+  ok('   sujit at T2 (no Stock & Reports there): refused as the page is ("You have no access to Stock & Reports on this site …")', r.status === 403 && /^You have no access to Stock & Reports on this site/.test(r.j.error), r.j);
+  r = await A.w('aiLook', { name: 'grnDelete', args: { no: 1 } });
+  ok('   anything else: "There is no such look-up of the Store." (nothing deleted)', r.status === 400 && r.j.error === 'There is no such look-up of the Store.' && Number(sql('rcl', 'select count(*) from store_grn')) === 6, r.j);
+
   // ---- every site its own data: T2 ----
   r = await B.w('reqList');
   ok('sujit at T2 (Store Purchase): T2\'s requirements only – none of S1\'s', r.status === 200 && r.j.reqs.length === 0, r.j);
