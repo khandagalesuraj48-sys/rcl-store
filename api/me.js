@@ -7,5 +7,5 @@ const { isPreview } = require('../lib/preview');
 module.exports = handler(async (req, res) => {
   const s = await ses.read(req);
   if (!s) return send(res, 200, { signedIn: false, portal: portal.url(), preview: isPreview() || undefined });
-  send(res, 200, { signedIn: true, preview: isPreview() || undefined, user: { email: s.email, name: s.name, admin: s.admin }, pages: s.pages, site: s.site, siteName: s.info.siteName || s.site, mods: s.info.mods || [], sites: s.info.sites || [], portal: portal.url() });
+  send(res, 200, { signedIn: true, preview: isPreview() || undefined, user: { email: s.email, name: s.name, admin: s.admin, super: s.super || undefined }, pages: s.pages, site: s.site, siteName: s.info.siteName || s.site, mods: s.info.mods || [], sites: s.info.sites || [], portal: portal.url() });
 });

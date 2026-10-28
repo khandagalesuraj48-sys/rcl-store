@@ -154,3 +154,96 @@ test('update-155: a new row is not sent twice after no answer; one that never le
     }
   } finally { global.fetch = f0; Object.keys(env).forEach(k => { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; }); }
 });
+
+/* ---------------- step 2 (28-10-2026): the Store's work – the rules of every paper, the approvals, the stock and the reports ---------------- */
+const W = require('../lib/work'), R = require('../lib/sreport');
+const ITEMS = { 'ITM-0001': { code: 'ITM-0001', name: 'Cement', unit: 'Bag', category: 'Cement', gst_pct: 28, min_stock: 50, status: 'Active' },
+  'ITM-0002': { code: 'ITM-0002', name: 'Bamboo', unit: 'Nos', category: 'Shuttering', gst_pct: null, min_stock: null, status: 'Active' },
+  'ITM-0003': { code: 'ITM-0003', name: 'Old Hose', unit: 'Mtr', category: 'Spare Parts', gst_pct: 18, min_stock: null, status: 'Inactive' } };
+const day0 = W.today(), back = n => { const d = new Date(day0 + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+const throwsMsg = (f, re) => assert.throws(f, e => e.user && re.test(e.message), String(re));
+test('step 2 – a requirement: its items from the Item Master, once each; for a machinery: which one; an Inactive item only if it was there', () => {
+  const r = W.checkReq({ date: back(1), need_by: back(-3), for_kind: 'site work', for_text: 'Ch 540+450 toe wall', lines: [{ code: 'ITM-0001', qty: '100' }, { code: 'ITM-0002', qty: 40, note: 'for shuttering' }] }, ITEMS);
+  assert.strictEqual(r.for_kind, 'Site work'); assert.deepStrictEqual(r.lines.map(l => [l.line, l.code, l.qty, l.unit]), [[1, 'ITM-0001', 100, 'Bag'], [2, 'ITM-0002', 40, 'Nos']]);
+  throwsMsg(() => W.checkReq({ date: back(1), for_kind: 'Site work', lines: [{ code: 'ITM-0001', qty: 1 }, { code: 'ITM-0001', qty: 2 }] }, ITEMS), /twice in the list/);
+  throwsMsg(() => W.checkReq({ date: back(1), for_kind: 'Machinery', lines: [{ code: 'ITM-0001', qty: 1 }] }, ITEMS), /Pick the machinery/);
+  throwsMsg(() => W.checkReq({ date: back(1), for_kind: 'Machinery', for_text: 'X1', lines: [{ code: 'ITM-0001', qty: 1 }] }, ITEMS, { machinery: [{ no: 'MH12' }] }), /not in the Asset Master/);
+  throwsMsg(() => W.checkReq({ date: back(1), for_kind: 'Site work', lines: [{ code: 'ITM-0003', qty: 1 }] }, ITEMS), /Inactive/);
+  assert.ok(W.checkReq({ date: back(1), for_kind: 'Site work', lines: [{ code: 'ITM-0003', qty: 1 }] }, ITEMS, { had: new Set(['ITM-0003']) }));
+  throwsMsg(() => W.checkReq({ date: back(-1), for_kind: 'Site work', lines: [{ code: 'ITM-0001', qty: 1 }] }, ITEMS), /after today/);
+  throwsMsg(() => W.checkReq({ date: back(1), for_kind: 'Site work', lines: [{ code: 'ITM-0001', qty: 0 }] }, ITEMS), /more than 0/);
+  assert.strictEqual(W.dayOf('5/3/2026', 'date'), '2026-03-05');
+});
+test('step 2 – a GRN: taxable = qty × basic rate, GST on it (the item\'s GST % unless typed), gross; TCS on the bill; a PO line must be its item', () => {
+  const g = W.checkGrn({ date: back(0), supplier: ' Bedrok Chem Infra ', invoice_no: 'B/45', vehicle_no: 'mh 12 ab 1234', tcs: '12.5', lines: [{ code: 'ITM-0001', qty: 10, rate: '350.5' }, { code: 'ITM-0002', qty: 100, rate: 90, gst_pct: 0 }] }, ITEMS);
+  assert.deepStrictEqual(g.lines.map(l => [l.taxable, l.gst_pct, l.gst, l.gross]), [[3505, 28, 981.4, 4486.4], [9000, 0, 0, 9000]]);
+  assert.deepStrictEqual([g.head.taxable, g.head.gst, g.head.tcs, g.head.gross, g.head.vehicle_no, g.head.supplier], [12505, 981.4, 12.5, 13498.9, 'MH12AB1234', 'Bedrok Chem Infra']);
+  const po = { no: 7, lines: [{ line: 1, code: 'ITM-0001', name: 'Cement', qty: 100 }] };
+  assert.strictEqual(W.checkGrn({ date: back(0), supplier: 'AB Traders', lines: [{ code: 'ITM-0001', qty: 5, rate: 1, po_line: 1 }] }, ITEMS, { po: po }).head.po_no, 7);
+  throwsMsg(() => W.checkGrn({ date: back(0), supplier: 'AB Traders', lines: [{ code: 'ITM-0002', qty: 5, rate: 1, po_line: 1 }] }, ITEMS, { po: po }), /is for Cement, not Bamboo/);
+  throwsMsg(() => W.checkGrn({ date: back(0), supplier: '', lines: [{ code: 'ITM-0001', qty: 5 }] }, ITEMS), /supplier/);
+});
+test('step 2 – an issue: whom (site work / sub-contractor / machinery / office), what for; its value at the average basic rate; a debit with its rate and GST', () => {
+  const rateFor = (c, d) => (c === 'ITM-0001' ? 352.25 : 90);
+  const a = W.checkIssue({ date: back(0), to_kind: 'Sub-contractor', party: 'Tushar Mandal', location: '539+623', side: 'lhs', use_for: 'BC', receiver: 'Kishor', lines: [{ code: 'ITM-0001', qty: 4 }, { code: 'ITM-0002', qty: 50, returnable: true }] }, ITEMS, { rateFor: rateFor });
+  assert.deepStrictEqual(a.lines.map(l => [l.rate, l.amount, l.gst, l.returnable]), [[352.25, 1409, 0, false], [90, 4500, 0, true]]);
+  assert.deepStrictEqual([a.head.side, a.head.amount, a.head.debit, a.head.party], ['LHS', 5909, false, 'Tushar Mandal']);
+  throwsMsg(() => W.checkIssue({ date: back(0), to_kind: 'Site work', lines: [{ code: 'ITM-0001', qty: 1 }] }, ITEMS), /used for/);
+  throwsMsg(() => W.checkIssue({ date: back(0), to_kind: 'Sub-contractor', use_for: 'x', lines: [{ code: 'ITM-0001', qty: 1 }] }, ITEMS), /sub-contractor/);
+  throwsMsg(() => W.checkIssue({ date: back(0), to_kind: 'Machinery', machinery: 'MH25', lines: [{ code: 'ITM-0001', qty: 1 }] }, ITEMS, { machinery: [{ no: 'MH12' }] }), /not in the Asset Master/);
+  const m = W.checkIssue({ date: back(0), to_kind: 'Machinery', machinery: 'MH12', reading: '7857.1', debit: true, lines: [{ code: 'ITM-0001', qty: 2, rate: 400 }, { code: 'ITM-0002', qty: 1 }] }, ITEMS, { machinery: [{ no: 'MH12', owner: 'AK Roadways' }], rateFor: rateFor });
+  assert.deepStrictEqual([m.head.party, m.head.reading, m.lines[0].amount, m.lines[0].gst, m.lines[1].rate, m.head.amount], ['AK Roadways', 7857.1, 800, 224, 90, 1114]);
+  throwsMsg(() => W.checkIssue({ date: back(0), to_kind: 'Office', debit: true, lines: [{ code: 'ITM-0001', qty: 1 }] }, ITEMS), /debit is to a sub-contractor/);
+  throwsMsg(() => W.checkIssue({ date: back(0), to_kind: 'Office', side: 'up', lines: [{ code: 'ITM-0001', qty: 1 }] }, ITEMS), /LHS, RHS or Both/);
+});
+test('step 2 – a return: never more than is still out on the line; not before the issue', () => {
+  const iss = { no: 12, date: back(5), party: 'Tushar Mandal', lines: [{ id: 91, code: 'ITM-0002', name: 'Bamboo', unit: 'Nos', qty: 50 }] };
+  assert.deepStrictEqual(W.checkReturn({ date: back(1), lines: [{ issue_line: 91, qty: 20 }] }, iss, { back: { 91: 25 } }).lines, [{ line: 1, issue_line: 91, qty: 20, remark: null }]);
+  throwsMsg(() => W.checkReturn({ date: back(1), lines: [{ issue_line: 91, qty: 30 }] }, iss, { back: { 91: 25 } }), /more than is out \(25 Nos of 50\)/);
+  throwsMsg(() => W.checkReturn({ date: back(6), lines: [{ issue_line: 91, qty: 1 }] }, iss), /before the issue date/);
+  throwsMsg(() => W.checkReturn({ date: back(1), lines: [{ issue_line: 92, qty: 1 }] }, iss), /not a line of outward 12/);
+});
+test('step 2 – approvals: any one person of the level; the next level; nobody approves his own (a level of only him is passed); no level = approved at once', () => {
+  const lv = W.levelsOf({ levels: [{ level: 2, people: [{ email: 'PM@x.in', name: 'PM' }] }, { level: 1, people: [{ email: 'se@x.in', name: 'SE' }, { email: 'se2@x.in', name: 'SE2' }] }, { level: 3, people: [] }] });
+  assert.deepStrictEqual(lv.map(l => l.level), [1, 2]);
+  assert.strictEqual(W.nextLevel(lv, 0, 'store@x.in'), 1); assert.strictEqual(W.nextLevel(lv, 1, 'store@x.in'), 2); assert.strictEqual(W.nextLevel(lv, 2, 'store@x.in'), 0);
+  assert.strictEqual(W.nextLevel(lv, 1, 'pm@x.in'), 0, 'the PM\'s own requirement: level 2 has only him – passed');
+  assert.ok(W.canApprove(lv, 1, 'SE2@x.in', 'store@x.in')); assert.ok(!W.canApprove(lv, 2, 'se@x.in', 'store@x.in')); assert.ok(!W.canApprove(lv, 1, 'se@x.in', 'se@x.in'));
+  assert.strictEqual(W.nextLevel(W.levelsOf(null), 0, 'a@x.in'), 0);
+});
+test('step 2 – a party\'s name: the same name as written before (capitals, spaces); a near one asked; "a different one" saved as typed', () => {
+  assert.deepStrictEqual(W.partyOf('tushar  MANDAL', ['Tushar Mandal']), { name: 'Tushar Mandal', near: [] });
+  assert.deepStrictEqual(W.partyOf('Tushar Mandall', ['Tushar Mandal']).near, ['Tushar Mandal']);
+  assert.deepStrictEqual(W.partyOf('Tushar Mandall', ['Tushar Mandal'], true), { name: 'Tushar Mandall', near: [] });
+});
+test('step 2 – the stock: average basic rate (opening + GRNs up to the date); stock on a date', () => {
+  const mv = [{ code: 'A', date: '2026-10-01', q: 10, kind: 'OPN', rate: 100 }, { code: 'A', date: '2026-10-05', q: 30, kind: 'GRN', rate: 120 }, { code: 'A', date: '2026-10-06', q: -15, kind: 'OUT', rate: 115 }, { code: 'A', date: '2026-10-07', q: 5, kind: 'RET' }];
+  assert.strictEqual(W.avgRate(mv, 'A', '2026-10-04'), 100); assert.strictEqual(W.avgRate(mv, 'A', '2026-10-31'), 115); assert.strictEqual(W.rateFinder(mv)('A', '2026-10-31'), 115);
+  assert.deepStrictEqual(W.stockOn(mv, '2026-10-06'), { A: 25 }); assert.deepStrictEqual(W.stockOn(mv), { A: 30 });
+});
+test('step 2 – reports: the stock statement (his daily report), the item ledger, consumption without the returns, returnable still out', () => {
+  const items = Object.values(ITEMS);
+  const st = R.statement(items, [{ code: 'ITM-0001', opening: 10, inward: 30, returned: 0, issued: 15, closing: 25, in_qty: 40, in_value: 4600, buy_qty: 30, buy_value: 3600 }], '2026-10-01', '2026-10-31');
+  assert.deepStrictEqual(st.rows[0].slice(4), [10, 30, 0, 15, 15, 25, 115, 2875, 30, 3600]); assert.strictEqual(st.total[13], 3600);
+  const lg = R.ledger(ITEMS['ITM-0001'], [{ code: 'ITM-0001', date: '2026-09-30', q: 10, kind: 'OPN', no: 0, rate: 100, id: 'a' }, { code: 'ITM-0001', date: '2026-10-05', q: 30, kind: 'GRN', no: 3, rate: 120, id: 'b' }, { code: 'ITM-0001', date: '2026-10-06', q: -15, kind: 'OUT', no: 9, rate: 115, id: 'c' }], { 'GRN:3': 'Bedrok', 'OUT:9': 'Tushar Mandal' }, '2026-10-01', '2026-10-31');
+  assert.deepStrictEqual(lg.rows.map(r => [r[1], r[2], r[3], r[4], r[5]]), [['Opening', '', '', '', 10], ['GRN 3', 'Bedrok', 30, '', 40], ['Outward 9', 'Tushar Mandal', '', 15, 25]]);
+  const iss = [{ no: 9, date: '2026-10-06', to_kind: 'Sub-contractor', party: 'Tushar Mandal', lines: [{ id: 1, line: 1, code: 'ITM-0002', name: 'Bamboo', unit: 'Nos', qty: 50, rate: 90, amount: 4500, gst: 0, returnable: true }] }];
+  const c = R.consumption(iss, { 1: 20 }, '2026-10-01', '2026-10-31', 'party');
+  assert.deepStrictEqual(c.rows, [['Tushar Mandal', 'Bamboo', 'Nos', 30, 2700]]);
+  assert.deepStrictEqual(R.returnable(iss, { 1: 20 }).rows.map(r => r.slice(5, 8)), [[50, 20, 30]]);
+  assert.strictEqual(R.issueRegister(iss, { 1: 20 }, '2026-10-01', '2026-10-31', {}).rows[0][16], 20);
+});
+test('step 2 – pages: the new pages only when the Super Admin gives them (a Store Admin has them all); Store Purchase only when given – also to an Admin', () => {
+  const ses = require('../lib/session');
+  assert.deepStrictEqual(ses.pagesOf(false, null), { dashboard: 'View', items: 'Edit', req: 'None', grn: 'None', issue: 'None', reports: 'None', po: 'None', purchase: 'None' });
+  assert.deepStrictEqual(ses.pagesOf(true, {}), { dashboard: 'View', items: 'Edit', req: 'Edit', grn: 'Edit', issue: 'Edit', reports: 'View', po: 'View', purchase: 'None' });
+  assert.strictEqual(ses.pagesOf(false, { approve: 'L2' }).req, 'View', 'one who approves sees the requirements');
+  assert.strictEqual(ses.pagesOf(false, { approve: 'L1', req: 'Edit' }).req, 'Edit'); assert.strictEqual(ses.pagesOf(false, { approve: 'None' }).req, 'None');
+  assert.strictEqual(ses.pagesOf(true, { purchase: 'Edit' }).purchase, 'Edit'); assert.strictEqual(ses.pagesOf(false, { req: 'View', grn: 'Edit' }).grn, 'Edit');
+});
+test('step 2 – the database step: only adds; every table locked to the server; the saves check the stock', () => {
+  const sql = fs.readFileSync(path.join(root, 'sql', 'store_step2_work.sql'), 'utf8');
+  assert.ok(!/\b(drop\s+table|truncate|delete\s+from\s+public\.(items|master|vendors))\b/i.test(sql.replace(/^--.*$/gm, '')), 'no table dropped, nothing of Mechanical deleted');
+  for (const t of ['store_req', 'store_po', 'store_grn', 'store_issue', 'store_return', 'store_opening']) assert.ok(new RegExp("'" + t + "'").test(sql), t + ' locked to the server');
+  assert.ok(/perform public\.store_short\(v_old \|\| v_new\)/.test(sql) && /raise exception 'STORE_SHORT/.test(sql));
+});

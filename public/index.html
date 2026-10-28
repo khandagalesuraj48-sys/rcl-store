@@ -128,6 +128,20 @@
     .grid .wide { grid-column: auto; }
     .bar .field { flex: 1 1 100%; }
   }
+  /* (step 2) the Store's work – forms with lines, tags of a state, the menu's count */
+  .nbadge { margin-left: auto; background: var(--hivis); color: #1C1300; border-radius: 999px; font-size: 11.5px; font-weight: 700; padding: 1px 7px; }
+  .lines td { padding: 5px 6px; } .lines input, .lines select { min-height: 34px; padding: 4px 8px; }
+  .lines .it { min-width: 260px; } .lines .q { width: 110px; } .lines .s { width: 90px; } .lines td.x { width: 34px; text-align: center; }
+  .lines .tot td { font-weight: 700; background: #F6F8FB; }
+  .tag.blue { background: #E3ECFF; color: var(--blue); }
+  .wpg .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 12px; cursor: pointer; font-size: 13.5px; font-weight: 600; }
+  .chip[aria-pressed="true"] { background: var(--steel); color: #fff; border-color: var(--steel); }
+  .sub2 { font-size: 13px; color: var(--muted); }
+  tr.det td { background: #FAFBFC; white-space: normal; }
+  .formbox { border: 2px solid var(--hivis); }
+  .rpt th.n, .rpt td.n { text-align: right; }
+  .note2 { background: #F6F8FB; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; }
   /* INSIDE ANOTHER MODULE'S SCREEN (13-10-2026: "Store open kel tri Mechanical sarkha view – fkt tab change"): Mechanical shows
    * this page in its middle part – its own dark menu, top bar and Logout stay hidden here, Mechanical's are on the screen */
   html.embed, html.embed body { background: transparent; }
@@ -157,6 +171,14 @@
         <div class="items">
           <button type="button" class="navbtn" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>Dashboard</button>
           <button type="button" class="navbtn" data-page="items"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h10M7 17h6"/></svg>Item Master</button>
+          <!-- (step 2, 28-10-2026) the Store's work -->
+          <button type="button" class="navbtn" data-page="req"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m9 14 2 2 4-4"/></svg>Requirements<span class="nbadge" id="nb_req" hidden></span></button>
+          <button type="button" class="navbtn" data-page="purchase"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6"/></svg>Purchase (all sites)</button>
+          <button type="button" class="navbtn" data-page="po"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Purchase Orders</button>
+          <button type="button" class="navbtn" data-page="grn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Inward (GRN)</button>
+          <button type="button" class="navbtn" data-page="issue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 3h14"/></svg>Issue &amp; Return</button>
+          <button type="button" class="navbtn" data-page="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>Stock &amp; Reports</button>
+          <button type="button" class="navbtn" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Opening stock &amp; Numbers</button>
         </div>
       </div>
       <div id="mods"></div>
@@ -173,6 +195,8 @@
       <!-- STORE DASHBOARD (13-10-2026: "as new work is added, it grows with it") – now: the Item Master at a glance -->
       <div id="pg_dashboard" hidden>
         <section class="tiles" id="db_tiles"></section>
+        <section class="tiles" id="db_work" hidden></section>
+        <div class="two" id="db_work2" hidden></div>
         <div class="two">
           <section class="panel"><h2>Recently added items</h2><div class="tw" style="margin-top:10px"><table><thead><tr><th>Code</th><th>Item Name</th><th>Unit</th><th>Category</th><th>Added</th></tr></thead><tbody id="db_recent"></tbody></table></div></section>
           <section class="panel"><h2>Items by category</h2><div class="tw" style="margin-top:10px"><table><thead><tr><th>Category</th><th class="n">Items</th><th class="n">Active</th></tr></thead><tbody id="db_cats"></tbody></table></div></section>
@@ -221,12 +245,16 @@
         <div class="tw"><table><thead><tr><th>Code</th><th>Item Name</th><th>Unit</th><th>Category</th><th>HSN</th><th class="n">GST %</th><th class="n">Min Stock</th><th>Status</th><th>Added by</th><th></th></tr></thead><tbody id="i_rows"></tbody></table></div>
       </section>
       </div>
+      <!-- (step 2) the Store's work: each page drawn by work.js -->
+      <div id="pg_req" class="wpg" hidden></div><div id="pg_purchase" class="wpg" hidden></div><div id="pg_po" class="wpg" hidden></div>
+      <div id="pg_grn" class="wpg" hidden></div><div id="pg_issue" class="wpg" hidden></div><div id="pg_reports" class="wpg" hidden></div><div id="pg_settings" class="wpg" hidden></div>
     </main>
   </div>
 </div>
 <div class="dlg-back" id="dlg" hidden><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlg_t"><h3 id="dlg_t"></h3><div id="dlg_b"></div><div class="btns" id="dlg_btns"></div></div></div>
 <div id="toast" role="status" hidden></div>
 
+<script src="work.js"></script>
 <script>
 (function () {
   'use strict';
@@ -315,7 +343,10 @@
    * for (#site=…) – the browser goes to the Portal (which sends it back with a ticket at once while the Portal still knows the
    * person). The page asked for (#page=…) goes along. At most 3 automatic trips in 2 minutes – then a message. */
   let PORTAL = '';
-  const PAGES = { dashboard: 'Dashboard', items: 'Item Master' };
+  const PAGES = { dashboard: 'Dashboard', items: 'Item Master', req: 'Material Requirements', purchase: 'Purchase (all sites)', po: 'Purchase Orders', grn: 'Inward (GRN)', issue: 'Issue & Return', reports: 'Stock & Reports', settings: 'Opening stock & Numbers' };
+  const WORK = ['req', 'purchase', 'po', 'grn', 'issue', 'reports', 'settings'];      // (step 2) the pages drawn by work.js
+  // what a person may open: the Portal's pages; Purchase – Store Purchase (HO); Opening stock & Numbers – the Store Admin
+  const pageOf = (pg, k) => k === 'purchase' ? (pg.purchase === 'Edit' ? 'Edit' : 'None') : k === 'settings' ? (S.me && S.me.user.admin ? 'Edit' : 'None') : (pg[k] || 'None');
   const lastSite = () => { try { return localStorage.getItem('rcl_store_site') || ''; } catch (e) { return ''; } };
   const hashArg = k => { const m = new RegExp('[#&]' + k + '=([^&]*)').exec(location.hash || ''); return m ? decodeURIComponent(m[1]) : ''; };
   function toPortal(path, auto) {
@@ -433,7 +464,7 @@
     document.querySelectorAll('[data-admin]').forEach(b => { b.hidden = !me.user.admin; });
     // (14-10-2026) the pages the Super Admin gave in the Portal: a page with No access is not in the menu; View = no "+ Add item"
     const pg = S.pg = me.pages || { dashboard: 'View', items: 'Edit' };
-    document.querySelectorAll('#grp_store [data-page]').forEach(b => { b.hidden = pg[b.dataset.page] === 'None'; });
+    document.querySelectorAll('#grp_store [data-page]').forEach(b => { b.hidden = pageOf(pg, b.dataset.page) === 'None'; });
     $('b_new').hidden = pg.items !== 'Edit';
     /* the OTHER modules of this site – each a group of the menu, like Store's: its pages are read from the module itself
      * (<its address>/menu.json); a page opens that module on that page, in this same window (one address for all). */
@@ -469,12 +500,14 @@
   function go(page) {
     if (!PAGES[page]) page = 'dashboard';
     const pg = S.pg || {};
-    if (pg[page] === 'None') page = Object.keys(PAGES).find(k => pg[k] !== 'None') || '';
-    if (!page) { $('pg_title').textContent = 'Store'; $('pg_dashboard').hidden = true; $('pg_items').hidden = true; toast('You have no page of the Store on this site – ask the Super Admin.', true); return; }
+    if (pageOf(pg, page) === 'None') page = Object.keys(PAGES).find(k => pageOf(pg, k) !== 'None') || '';
+    const parts = ['dashboard', 'items'].concat(WORK);
+    if (!page) { $('pg_title').textContent = 'Store'; parts.forEach(k => { $('pg_' + k).hidden = true; }); toast('You have no page of the Store on this site – ask the Super Admin.', true); return; }
     S.page = page; $('pg_title').textContent = PAGES[page];
     document.querySelectorAll('#grp_store [data-page]').forEach(b => { if (b.dataset.page === page) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
-    $('pg_dashboard').hidden = page !== 'dashboard'; $('pg_items').hidden = page !== 'items';
+    parts.forEach(k => { $('pg_' + k).hidden = k !== page; });
     try { history.replaceState(null, '', location.pathname + location.search + '#page=' + page); } catch (e) { /* the address stays */ }
+    if (WORK.indexOf(page) > -1) { if (window.RSW) window.RSW.open(page); return; }
     load();
   }
   // a sign-in that ended while working: back through the Portal (what was typed in an open form is lost – said first)
@@ -516,7 +549,7 @@
   /* ---------------- ITEM MASTER ---------------- */
   async function load() {
     try { const r = await items({ action: 'list' }); S.items = r.items; S.units = r.units; S.cats = r.categories;
-      draw(); dash(); LOADED.ok(); }
+      draw(); dash(); LOADED.ok(); if (S.page === 'dashboard' && window.RSW) window.RSW.dash(); }
     catch (e) { failed(e); $('i_rows').innerHTML = '<tr><td colspan="10" class="empty">' + esc(e.message) + '</td></tr>'; }
   }
   const num = v => v === null || v === undefined || v === '' ? '' : String(Number(v));
@@ -655,6 +688,9 @@
       toast(r.added + ' items imported' + (r.exists ? ', ' + r.exists + ' already there (left out)' : '') + '.'); $('p_imp').hidden = true; S.imp = null; load(); }
     catch (er) { if (er.data && er.data.report) { try { await impCheck(); } catch (e2) { /* shown below */ } } failed(er); b.disabled = false; }
   });
+
+  /* (step 2) WHAT work.js USES OF THIS PAGE: the same calls, dialogs, messages, Excel tool and sign-in as the Item Master */
+  window.RS = { $: $, esc: esc, api: api, ask: ask, toast: toast, failed: failed, xlsx: xlsx, day: day, S: S, go: go };
 
   /* ---------------- SEARCH FROM THE SCREEN AROUND IT (13-10-2026) ----------------
    * "Ctrl K search … new modual la search krt nahi … new task add zal tr search proper full in built asel": the screen this page

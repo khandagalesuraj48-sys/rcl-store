@@ -39,8 +39,8 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
     ok('a click opens the Store, signed in (nothing typed here); the ticket is gone from the address', !!inStore && !/sso=/.test(p.url()), p.url());
     let st = await p.evaluate(() => ({ site: document.getElementById('site_name').textContent, role: document.getElementById('u_role').textContent, mods: [...document.querySelectorAll('#mods .grphead')].map(x => x.textContent.trim()), imp: !document.getElementById('b_import').hidden }));
     ok('   the dark menu: Change site (S1) at the top, Mechanical under "Other modules"; Store Admin may import', /S1|VTR/.test(st.site) && /Store Admin/.test(st.role) && st.mods.some(x => /Mechanical/.test(x)) && st.imp, st);
-    st = await p.evaluate(() => ({ title: document.getElementById('pg_title').textContent, dash: !document.getElementById('pg_dashboard').hidden, pages: [...document.querySelectorAll('#grp_store .navbtn')].map(x => x.textContent.trim() + (x.getAttribute('aria-current') ? '*' : '')), url: location.hash }));
-    ok('   the Store opens on its Dashboard; the Store group (open) lists Dashboard and Item Master', st.title === 'Dashboard' && st.dash && st.pages.join() === 'Dashboard*,Item Master' && st.url === '#page=dashboard', st);
+    st = await p.evaluate(() => ({ title: document.getElementById('pg_title').textContent, dash: !document.getElementById('pg_dashboard').hidden, pages: [...document.querySelectorAll('#grp_store .navbtn')].filter(x => !x.hidden).map(x => x.textContent.trim() + (x.getAttribute('aria-current') ? '*' : '')), url: location.hash }));
+    ok('   the Store opens on its Dashboard; the Store group (open) lists its pages – a Store Admin every page (step 2: Requirements … Opening stock & Numbers)', st.title === 'Dashboard' && st.dash && st.pages.join() === 'Dashboard*,Item Master,Requirements,Purchase Orders,Inward (GRN),Issue & Return,Stock & Reports,Opening stock & Numbers' && st.url === '#page=dashboard', st);
     await p.click('#mods .grphead'); await wait(1500);
     st = await p.evaluate(() => [...document.querySelectorAll('#mods .grp.open .navbtn')].map(x => x.textContent.trim() + ' ' + x.dataset.go));
     ok('   a click on Mechanical opens its pages (a dropdown) in the dark menu', st.length >= 1 && st.every(x => /\S/.test(x)), st);
@@ -74,7 +74,9 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
     ok('   used: saved as "Hydraulic Hose 10 mm"', (await rows()).some(r => /ITM-0003 Hydraulic Hose 10 mm/.test(r)), await rows());
     await p.screenshot({ path: path.join(SHOTS, 'store_items.png') });
     // ---- Excel: export, then import a file (checked row by row) ----
-    await p.click('#b_export'); const xf = await until(() => fs.readdirSync(DL).find(f => /^Items_S1_.*\.xlsx$/.test(f)), 15000);
+    // (the page names it Items_<date>.xlsx – it is the site's own list; the test said Items_S1_… and failed on main too)
+    const dayX = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10); try { fs.unlinkSync(path.join(DL, 'Items_' + dayX + '.xlsx')); } catch (e) { /* none yet */ }
+    await p.click('#b_export'); const xf = await until(() => fs.readdirSync(DL).find(f => f === 'Items_' + dayX + '.xlsx'), 15000);
     ok('Export to Excel: a file of this site\'s items', !!xf, fs.readdirSync(DL));
     const csv = path.join(DL, 'import.csv'); fs.writeFileSync(csv, 'Item Name,Unit,Category,HSN Code,GST %,Min Stock\nSugar,Kg,Grocery,,,\nAir Filter,Nos,Spare Parts,84213100,18,5\nAir Filters,Nos,Spare Parts,,,\nCoolant,Ltr,Oil & Lubricants,,,\n');
     const inp = await p.$('#f_file'); await inp.uploadFile(csv); await wait(2500);
