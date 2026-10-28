@@ -136,11 +136,58 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     await set(B, 'pu_ven', 'Bedrok Chem Infra');
     const nl = await B.evaluate(() => document.querySelectorAll('#pu_lines tr[data-i]').length);
     await line(B, 'pu_lines', 0, 'rate', '338'); await line(B, 'pu_lines', 1, 'rate', '305');
+    // (28-10-2026, his formats – the Store's step 5 run by test/work.test.js) the PO Details of his Diesel PO: Credit Period, Site
+    // Contact, Shipping Address (filled from Papers), Freight, Load / Unload; a line's Disc. % and HSN
+    st = await B.evaluate(() => ({ cr: !!document.getElementById('pu_cr'), sc: (document.getElementById('pu_sc') || {}).value, ship: (document.getElementById('pu_ship') || {}).value, fr: !!document.getElementById('pu_fr'), lu: !!document.getElementById('pu_lu'),
+      terms: (document.getElementById('pu_terms') || {}).value, cols: [...document.querySelectorAll('#pu_lines thead th')].map(x => x.textContent) }));
+    ok('   (28-10-2026) the PO form of his format: Credit Period, Site Contact and Shipping Address (from Papers), Freight, Load / Unload, Terms from Papers; each line Disc. % and HSN',
+      st.cr && st.fr && st.lu && st.sc === sql('rcl', "select value->>'site_contact' from store_settings where id = 'papers'") && st.ship === sql('rcl', "select value->>'ship_to' from store_settings where id = 'papers'") && !!st.terms &&
+      st.cols.indexOf('Disc. %') > -1 && st.cols.indexOf('HSN') > -1, st);
+    await set(B, 'pu_cr', '30'); await set(B, 'pu_fr', '500'); await set(B, 'pu_lu', '250'); await line(B, 'pu_lines', 0, 'disc_pct', '2'); await line(B, 'pu_lines', 0, 'hsn', '2523');
     await shot(B, 'work_po_form');
     const p0 = Number(sql('rcl', 'select count(*) from store_po'));
-    await B.click('#pu_save'); await wait(2000);
+    await B.click('#pu_save'); await wait(2000); const tSave = await toast(B);
     ok('   the ticked lines in the PO form (with their requirement); saved in S1\'s records', nl >= 2 && Number(sql('rcl', 'select count(*) from store_po')) === p0 + 1 && sql('rcl_s2', 'select count(*) from store_po') === '0', [nl, await toast(B)]);
+    const pn = Number(sql('rcl', 'select max(no) from store_po'));
+    ok('   saved with its Credit Period, Freight, Load / Unload, the line\'s Disc. % and HSN – and it waits for its approval (a person is ticked at S1)',
+      sql('rcl', 'select credit_days || \'|\' || freight || \'|\' || load_unload || \'|\' || (lines->0->>\'disc_pct\') || \'|\' || (lines->0->>\'hsn\') || \'|\' || appr from store_po where no = ' + pn) === '30|500|250|2|2523|Waiting', sql('rcl', 'select row_to_json(p) from store_po p where no = ' + pn));
+    st = await until(() => B.evaluate(n => { const tr = document.querySelector('#pu_pos tr[data-po="' + n + '"][data-site="S1"]'); return tr ? { text: tr.textContent, ok: !!tr.querySelector('.po-ok') } : null; }, pn), 15000);
+    ok('   in the list: "Waiting approval" – and no Approve for sujit (he made it)', st && /Waiting approval/.test(st.text) && !st.ok, st || [tSave, await toast(B), errs, await B.evaluate(() => [...document.querySelectorAll('#pu_pos tr')].map(t => (t.dataset.po || '') + '/' + (t.dataset.site || '')).join(' ') + ' | form hidden ' + document.getElementById('pu_form').hidden)]);
     await shot(B, 'work_purchase');
+    // its PRINT – the Diesel PO's format: the print's page is kept as a picture and a PDF (test/shots/work_po_print.png / .pdf)
+    const printed = async (pg, btn) => {
+      const n0 = await pg.evaluate(() => document.querySelectorAll('iframe').length);
+      await pg.evaluate(b => { window.__p = null; const x = document.querySelector(b); x.click(); }, btn);
+      return until(() => pg.evaluate(n => { const f = [...document.querySelectorAll('iframe')]; if (f.length <= n) return null; const d = f[f.length - 1].contentDocument; return d && d.body && d.body.innerHTML.length > 200 ? d.documentElement.outerHTML : null; }, n0), 15000);
+    };
+    const keep = async (html, name) => { const q = await B.browserContext().newPage(); await q.setViewport({ width: 794, height: 1123 }); await q.setContent(html, { waitUntil: 'load', timeout: 15000 }).catch(() => {});
+      await q.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: true }); try { await q.pdf({ path: path.join(SHOTS, name + '.pdf'), format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } }); } catch (e) { /* (no PDF in this browser) */ }
+      const t = await q.evaluate(() => document.body.innerText); await q.close(); return t; };
+    let html = await printed(B, 'tr[data-po="' + pn + '"][data-site="S1"] .po-print');
+    let txt = html ? await keep(html, 'work_po_print') : '';
+    const ref = sql('rcl', "select coalesce(value->>'prefix', '') from store_settings where id = 'papers'") || 'RCL/S1';
+    ok('   its Print – his Purchase Order: Supplier Details / PO Details, PO No. ' + ref + '/PO/<year>/' + String(pn).padStart(4, '0') + ', Credit Period 30 Days, Shipping Address, the columns (HSN, Disc. %), Freight, Load / Unload, TOTAL AMOUNT, Amount in word, Terms, Prepared / Approved By',
+      !!txt && /Supplier Details/.test(txt) && /PO Details/.test(txt) && txt.indexOf(ref + '/PO/' + today.slice(0, 4) + '/' + String(pn).padStart(4, '0')) > -1 && /30 Days/.test(txt) && /Shipping Address/.test(txt) && /HSN/.test(txt) && /Disc\. %/.test(txt) &&
+      /2523/.test(txt) && /Total Freight Charges\s*500\.00/.test(txt) && /Total Load \/ Unload Amount\s*250\.00/.test(txt) && /TOTAL AMOUNT \(Rs\.\)/.test(txt) && /Amount in word :\s*\S+.* Only/.test(txt) && /Terms And Conditions/.test(txt) && /Prepared By/.test(txt) && /\(waiting for approval\)\s*Approved By/.test(txt), txt.slice(0, 1500));
+    // view (ticked "Approves purchase orders" at S1 by test/work.test.js) approves it on his Purchase Orders page
+    const V2 = await as('view@rcl.test', 'Audit#PassView9!x', 'S1', 'po');
+    st = await until(() => V2.evaluate(n => { const tr = document.querySelector('#po_list tr[data-po="' + n + '"]'); return tr && { ok: !!tr.querySelector('.po-ok'), no: !!tr.querySelector('.po-no') }; }, pn), 15000);
+    ok('   the one ticked (view) sees it on his Purchase Orders page with Approve / Reject', st && st.ok && st.no, st);
+    await shot(V2, 'work_po_approve');
+    await V2.click('#po_list tr[data-po="' + pn + '"] .po-ok'); await wait(1500);
+    ok('   Approve: approved, by him', sql('rcl', 'select appr || \'|\' || appr_by from store_po where no = ' + pn) === 'Approved|view@rcl.test', [sql('rcl', 'select appr || \'|\' || coalesce(appr_by, \'\') from store_po where no = ' + pn), await toast(V2)]);
+    html = await printed(V2, '#po_list tr[data-po="' + pn + '"] .po-print'); txt = html ? await keep(html, 'work_po_print_approved') : '';
+    const vn = sql('rcl', "select coalesce(appr_name, '') from store_po where no = " + pn);
+    ok('   its Print now: Approved By – ' + vn, !!vn && txt.indexOf(vn) > -1 && !/waiting for approval/.test(txt), txt.slice(-500));
+    // the requirement's print – his Purchase Requisition Form
+    const R2 = await as('view@rcl.test', 'Audit#PassView9!x', 'S1', 'req');
+    await until(() => R2.evaluate(() => { const c = document.querySelector('#rq_chips [data-f="all"]'); if (c) c.click(); return !!c; }), 15000);      // (it is ordered in full: under All)
+    await until(() => R2.evaluate(n => !!document.querySelector('tr[data-rq="' + n + '"] .rq-print, tr[data-req="' + n + '"] .rq-print, [data-no="' + n + '"] .rq-print'), rqn), 15000);
+    const rsel = await R2.evaluate(n => { const b = document.querySelector('tr[data-rq="' + n + '"] .rq-print') ? 'tr[data-rq="' + n + '"] .rq-print' : document.querySelector('tr[data-req="' + n + '"] .rq-print') ? 'tr[data-req="' + n + '"] .rq-print' : '[data-no="' + n + '"] .rq-print'; return b; }, rqn);
+    html = await printed(R2, rsel); txt = html ? await keep(html, 'work_req_print') : '';
+    ok('   the requirement\'s Print – his Purchase Requisition Form: Indent No. ' + ref + '/PR/<year>/' + String(rqn).padStart(4, '0') + ', Sub Project (what it is for), Item Code / Description / Specification / Unit / Quantity / Required Date, Prepared / Checked / Approved By',
+      !!txt && /Purchase Requisition Form/.test(txt) && txt.indexOf(ref + '/PR/' + today.slice(0, 4) + '/' + String(rqn).padStart(4, '0')) > -1 && /Ch 545\+417 toe wall/.test(txt) && /Item Code/.test(txt) && /Required Date/.test(txt) && /Brand: ACC/.test(txt) &&
+      /Prepared By/.test(txt) && /Checked By/.test(txt) && /Approved By/.test(txt), txt.slice(0, 1500));
     // ---- the Store Admin: Opening stock & Numbers ----
     const A = await as('sujit@rcl.test', 'Nashik#Road848!', 'S1', 'settings');
     st = await A.evaluate(() => ({ title: document.getElementById('pg_title').textContent, rows: document.querySelectorAll('#op_list tr[data-c]').length, nm: !!document.getElementById('nm_grn') }));

@@ -45,7 +45,7 @@ function period(x) {
 }
 
 /* ---------- what is read from the site's database ---------- */
-const itemsOf = async site => { const m = {}; (await dbAll(site, 'items?select=code,name,unit,category,gst_pct,min_stock,status', 'code')).forEach(i => { m[i.code] = i; }); return m; };
+const itemsOf = async site => { const m = {}; (await dbAll(site, 'items?select=code,name,unit,category,hsn,gst_pct,min_stock,status', 'code')).forEach(i => { m[i.code] = i; }); return m; };
 const rpc = (site, fn, args) => db(site, 'POST', 'rpc/' + fn, args);
 const stockOn = async (site, date) => (await db(site, 'GET', 'rpc/store_stock_on' + (date ? '?p_date=' + date : ''))) || [];
 const avgOf = r => r && num(r.in_qty) > 0 ? num(r.in_value) / num(r.in_qty) : 0;
@@ -118,6 +118,19 @@ async function step4On(site) {
   catch (e) { if (e && e.code === 'rule' && /STORE_NO_LINES/.test(String(e.message))) return true; if (e && (e.code === 'notinstalled' || /store_grn_new|PGRST202|42883/i.test(String(e.message)))) return false; throw e; }
 }
 const STEP4 = 'A GRN No typed by hand needs the Store\'s database step 4 at this site: the Admin runs sql/store_step4_grn_no.sql once in Supabase → SQL Editor (in every site). Until then the GRN gets the next number by itself – leave its GRN No as it comes.';
+/* (28-10-2026, his formats – "DIESEL PURCHASE ORDER", "REQUIREMENT OF EXHAUST FANS") the papers' own settings of a site (Store
+ * Settings – the Store Admin): the numbers' prefix ("RCL/VTR"), the heading's e-mail, contact, CIN, web, and what a new PO starts with
+ * (its shipping address, site contact, terms). Kept in store_settings 'papers' (no database step). */
+const PAPERS = ['prefix', 'email', 'phone', 'cin', 'web', 'ship_to', 'site_contact', 'terms'];
+const papersOf = site => kept(site, 'papers', async () => { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.papers')) || [])[0]; return Object.assign({}, r && r.value && typeof r.value === 'object' ? r.value : {}); });
+// the prefix of the papers' numbers: as set, else the company's initials and the site ("RCL/VTR")
+const prefixOf = (pp, h, site) => pp.prefix || [W.initialsOf(h && h.company), site].filter(Boolean).join('/');
+// is the Store's step 5 (the PO's own fields, its approval) in this site's database?
+const step5On = site => kept(site, 'step5', async () => { try { await db(site, 'GET', 'store_po?select=appr&limit=1'); return true; } catch (e) { if (e && e.code === 'notinstalled') throw e; return false; } });
+const STEP5 = 'The purchase order\'s Credit Period, Site Contact, Shipping Address, Freight, Load / Unload and its approval need the Store\'s database step 5 at this site: the Admin runs sql/store_step5_po_format.sql once in Supabase → SQL Editor (in every site). Until then a PO is saved without them – leave them empty.';
+// who approves the POs of a site (the Portal tells: store_settings 'approvers' → po)
+const poPeople = async site => { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.approvers')) || [])[0]; return W.poApprovers(r ? r.value : null); };
+const apprOf = p => p.appr || 'Approved';      // a PO made before step 5: as approved
 const byNo = (a, b) => b.no - a.no;
 const sortLines = l => (l || []).slice().sort((a, b) => a.line - b.line);
 // ordered so far of each requirement line (POs not cancelled): 'req:line' → qty
@@ -134,7 +147,7 @@ async function receivedOf(site, poNos, skipGrn) {
 function poView(p, rec) {
   const lines = sortLines(p.lines).map(l => { const r = r3(num(rec[p.no + ':' + l.line])); return Object.assign({}, l, { received: r, left: Math.max(0, r3(num(l.qty) - r)) }); });
   const state = p.status !== 'Open' ? p.status : lines.every(l => l.left <= 0.0005) ? 'Received' : lines.some(l => l.received > 0) ? 'Part received' : 'Open';
-  return Object.assign({}, p, { lines: lines, state: state });
+  return Object.assign({}, p, { lines: lines, state: state, appr: apprOf(p) });
 }
 const reqView = (r, ordered, lv, s) => Object.assign({}, r, {
   lines: sortLines(r.lines).map(l => { const o = r3(num(ordered[r.no + ':' + l.line])); return Object.assign({}, l, { ordered: o, left: r.status === 'Approved' ? Math.max(0, r3(num(l.qty) - o)) : 0 }); }),
@@ -152,11 +165,11 @@ async function headingOf(site) {
   try {
     const home = (await registry()).find(x => x.home); if (!home) return null;
     const st = ((await db(home.code, 'GET', 'rcl_sites?select=code,name,company_id&code=eq.' + enc(site))) || [])[0];
-    const co = st && st.company_id ? ((await db(home.code, 'GET', 'rcl_companies?select=id,name,address,gstin,pan&id=eq.' + enc(st.company_id))) || [])[0] : null;
-    return { site: st ? st.name : site, company: co ? co.name : '', address: co ? co.address || '' : '', gstin: co ? co.gstin || '' : '', pan: co ? co.pan || '' : '' };
+    const co = st && st.company_id ? ((await db(home.code, 'GET', 'rcl_companies?select=id,name,address,gstin,pan,logo&id=eq.' + enc(st.company_id))) || [])[0] : null;
+    return { site: st ? st.name : site, company: co ? co.name : '', address: co ? co.address || '' : '', gstin: co ? co.gstin || '' : '', pan: co ? co.pan || '' : '', logo: co && /^(https:\/\/|data:image\/)/.test(String(co.logo || '')) ? co.logo : '' };
   } catch (e) { return null; }
 }
-const brief = i => ({ code: i.code, name: i.name, unit: i.unit, category: i.category, gst_pct: i.gst_pct, min_stock: i.min_stock, status: i.status });
+const brief = i => ({ code: i.code, name: i.name, unit: i.unit, category: i.category, hsn: i.hsn || '', gst_pct: i.gst_pct, min_stock: i.min_stock, status: i.status });
 
 const ACTIONS = {
   /* ---------- what the pages need to start ---------- */
@@ -190,7 +203,9 @@ const ACTIONS = {
     if (!can(s, 'req', 'View') && !isBuyer(s) && !lv.some(l => l.people.some(p => p.email === String(s.email).toLowerCase()))) need(s, 'req', 'View');
     const [reqs, pos] = await Promise.all([dbAll(s.site, 'store_req?select=*', 'no'), dbAll(s.site, 'store_po?select=no,status,lines', 'no')]);
     const ordered = orderedOf(pos);
-    return { reqs: reqs.sort(byNo).map(r => reqView(r, ordered, lv, s)), levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })) };
+    const [h, pp] = await Promise.all([headingOf(s.site), papersOf(s.site)]), pre = prefixOf(pp, h, s.site);
+    return { reqs: reqs.sort(byNo).map(r => Object.assign(reqView(r, ordered, lv, s), { ref: W.refOf(pre, 'PR', r.date, r.no) })), levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })),
+      heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '' }) };      // (28-10-2026) for its paper (the Purchase Requisition Form)
   },
   async reqSave(s, x) {
     need(s, 'req', 'Edit');
@@ -275,26 +290,37 @@ const ACTIONS = {
   // a site's items and vendors (to make its PO)
   async purItems(s, x) {
     const site = await siteFor(s, x); if (site === s.site && !isBuyer(s)) buyerOnly(s);
-    const [items, nm] = await Promise.all([itemsOf(site), names(site)]);
-    return { site: site, items: Object.values(items).filter(i => i.status === 'Active').map(brief).sort((a, b) => a.name.localeCompare(b.name)), vendors: nm.vendors, gst: nm.gst };
+    const [items, nm, pp, s5] = await Promise.all([itemsOf(site), names(site), papersOf(site), step5On(site)]);
+    return { site: site, items: Object.values(items).filter(i => i.status === 'Active').map(brief).sort((a, b) => a.name.localeCompare(b.name)), vendors: nm.vendors, gst: nm.gst,
+      papers: { ship_to: pp.ship_to || '', site_contact: pp.site_contact || '', terms: pp.terms || '' }, step5: s5 };      // (28-10-2026) what a new PO of this site starts with
   },
   async poList(s, x) {
-    const site = await siteFor(s, x);
-    if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View')) need(s, 'po', 'View');
+    const site = await siteFor(s, x), mine = await poPeople(s.site);      // (28-10-2026) one who approves POs sees them (as one who approves requirements)
+    if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View') && !mine.some(p => p.email === String(s.email).toLowerCase())) need(s, 'po', 'View');
     const sites = x.all && isBuyer(s) ? await storeSites() : [{ code: site, name: site }], out = [];
     for (const st of sites) {
       try {
         const pos = await dbAll(st.code, 'store_po?select=*', 'no'), rec = await receivedOf(st.code, pos.map(p => p.no));
-        pos.sort(byNo).forEach(p => out.push(Object.assign(poView(p, rec), { site: st.code, siteName: st.name })));
+        const who = st.code === s.site ? mine : [];      // a PO is approved by a person of its own site, signed in there
+        pos.sort(byNo).forEach(p => { const v = poView(p, rec);
+          out.push(Object.assign(v, { site: st.code, siteName: st.name, mayApprove: p.status === 'Open' && v.appr === 'Waiting' && W.mayApprovePo(who, s.email, p.created_by),
+            waitFor: v.appr === 'Waiting' ? who.filter(q => q.email !== String(p.created_by || '').toLowerCase()).map(q => q.name) : [] })); });
       } catch (e) { if (sites.length === 1) throw e; }
     }
     return { pos: out };
   },
   async poGet(s, x) {
-    const site = await siteFor(s, x), no = noOf(x.no);
-    if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View')) need(s, 'po', 'View');
+    const site = await siteFor(s, x), no = noOf(x.no), mine = await poPeople(s.site);
+    if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View') && !mine.some(p => p.email === String(s.email).toLowerCase())) need(s, 'po', 'View');
     const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
-    return { po: Object.assign(poView(p, await receivedOf(site, [no])), { site: site }), heading: await headingOf(site) };
+    const [h, pp, items] = await Promise.all([headingOf(site), papersOf(site), itemsOf(site)]);
+    // (28-10-2026, his format) the supplier's details from the Vendor Master of the site (Mechanical's – the same database): address,
+    // mobile, e-mail, the Owner Name as the contact person, GSTIN – what is not there stays blank
+    let v = null; try { v = ((await dbAll(site, 'vendors?select=*', 'id')) || []).find(r => I.keyOf(r.vendor_name) === I.keyOf(p.vendor)) || null; } catch (e) { v = null; }
+    const supplier = { name: p.vendor, address: v ? v.address || '' : '', mobile: v ? v.phone || '' : '', email: v ? v.email || '' : '', contact: v ? v.owner_name || '' : '', gstin: p.vendor_gst || (v ? v.gst_number || '' : '') };
+    const po = Object.assign(poView(p, await receivedOf(site, [no])), { site: site, ref: W.refOf(prefixOf(pp, h, site), 'PO', p.date, p.no), words: W.inWords(p.total),
+      lines: sortLines(p.lines).map(l => Object.assign({}, l, { hsn: l.hsn || (items[l.code] || {}).hsn || '' })) });
+    return { po: po, supplier: supplier, heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '' }) };
   },
   async poSave(s, x) {
     buyerOnly(s);
@@ -307,6 +333,11 @@ const ACTIONS = {
     const fresh = rn.filter(n => !cur || !(cur.lines || []).some(l => Number(l.req_no) === n));
     fresh.forEach(n => { if (!reqs[n] || reqs[n].status !== 'Approved') throw fail(409, 'Requirement ' + n + ' is not approved (or no longer open) – it cannot be ordered.', 'notapproved'); });
     p.vendor = party(p.vendor, (await names(site)).vendors, x.confirmParty, 'vendor');
+    // (28-10-2026) step 5: the PO's own fields and its approval – without the step, a PO with them is refused (they would be lost)
+    const s5 = await step5On(site);
+    if (!s5 && (p.credit_days !== null || p.site_contact || p.ship_to || p.freight > 0 || p.load_unload > 0)) throw fail(400, STEP5, 'sql');
+    if (s5) { const others = (await poPeople(site)).filter(q => q.email !== String(s.email).toLowerCase());
+      p.appr = others.length ? 'Waiting' : 'Approved'; p.appr_note = others.length ? '' : 'Nobody approves purchase orders at this site – approved when made.'; }
     if (cur) {      // a changed PO: never less than already came
       const rec = await receivedOf(site, [no]);
       (cur.lines || []).forEach(l => { const got = rec[no + ':' + l.line] || 0, nl = p.lines.find(y => y.line === l.line && y.code === l.code); if (got > 0 && (!nl || nl.qty + 0.0005 < got)) throw fail(409, l.name + ': ' + r3(got) + ' ' + l.unit + ' already came on PO ' + no + ' – the PO keeps at least that (line ' + l.line + ').', 'received'); });
@@ -314,7 +345,23 @@ const ACTIONS = {
     const n = await rpc(site, 'store_po_put', { p_no: no, p_row: p, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
     changed(site);
     await activity(site, s.email, no ? 'PO changed' : 'PO made', 'PO ' + n, { vendor: p.vendor, total: p.total, lines: p.lines.length, by: s.site !== site ? 'HO Purchase (' + s.site + ')' : undefined });
-    return { ok: true, site: site, no: Number(n), total: p.total };
+    return { ok: true, site: site, no: Number(n), total: p.total, appr: p.appr || 'Approved' };
+  },
+  /* (28-10-2026, his answer: "PO approve karaychi payri kara") a PO waiting for its approval: approved (his name goes on the PO's
+   * "Approved By") or rejected, saying why (the one who made it changes it – it waits again). Only one the Super Admin ticked for this
+   * site ("Approves purchase orders"), never his own; only a PO still open and waiting. */
+  async poDecide(s, x) {
+    if (!(await step5On(s.site))) throw fail(400, STEP5, 'sql');
+    const no = noOf(x.no), ok = x.ok === true, note = I.clean(x.note, 300), people = await poPeople(s.site);
+    const p = ((await db(s.site, 'GET', 'store_po?select=no,status,appr,created_by,total,vendor&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
+    if (!W.mayApprovePo(people, s.email, p.created_by)) throw fail(403, String(p.created_by || '').toLowerCase() === String(s.email).toLowerCase() ? 'Nobody approves his own purchase order.' : 'You do not approve the purchase orders of this site – the Super Admin gives it in the Portal ("Approves purchase orders").', 'approve');
+    if (p.status !== 'Open' || apprOf(p) !== 'Waiting') throw fail(409, 'PO ' + no + ' is not waiting for its approval any more (it is ' + (p.status !== 'Open' ? p.status.toLowerCase() : apprOf(p).toLowerCase()) + ') – refresh.', 'decided');
+    if (!ok && !note) throw fail(400, 'Say why the PO is rejected (the one who made it sees it).', 'field');
+    const r = await db(s.site, 'PATCH', 'store_po?no=eq.' + no + '&status=eq.Open&appr=eq.Waiting', { appr: ok ? 'Approved' : 'Rejected', appr_by: s.email, appr_name: s.name, appr_at: new Date().toISOString(), appr_note: note || null }, 'return=representation');
+    if (!r || !r.length) throw fail(409, 'PO ' + no + ' was decided by someone else just now – refresh.', 'decided');
+    changed(s.site);
+    await activity(s.site, s.email, ok ? 'PO approved' : 'PO rejected', 'PO ' + no, { vendor: p.vendor, total: num(p.total), note: note || undefined });
+    return { ok: true, no: no, appr: ok ? 'Approved' : 'Rejected' };
   },
   async poCancel(s, x) {
     buyerOnly(s);
@@ -347,7 +394,7 @@ const ACTIONS = {
   async poOpen(s) {
     need(s, 'grn', 'Edit');
     const pos = await dbAll(s.site, 'store_po?select=*&status=eq.Open', 'no'), rec = await receivedOf(s.site, pos.map(p => p.no));
-    return { pos: pos.sort(byNo).map(p => poView(p, rec)).filter(p => p.state !== 'Received') };
+    return { pos: pos.sort(byNo).map(p => poView(p, rec)).filter(p => p.state !== 'Received' && p.appr === 'Approved') };      // (28-10-2026) a PO not approved yet: its material is not taken in on it
   },
   // (28-10-2026) the new GRN's form: the next GRN No (it can be changed by hand where step 4 is run)
   async grnNext(s) {
@@ -365,6 +412,7 @@ const ACTIONS = {
     if (poNo) {
       po = ((await db(s.site, 'GET', 'store_po?select=*&no=eq.' + poNo)) || [])[0]; if (!po) throw gone('PO ' + poNo);
       if (po.status !== 'Open' && !(cur && Number(cur.po_no) === poNo)) throw fail(409, 'PO ' + poNo + ' is ' + po.status.toLowerCase() + ' – its material is not taken in on it.', 'decided');
+      if (apprOf(po) !== 'Approved' && !(cur && Number(cur.po_no) === poNo)) throw fail(409, 'PO ' + poNo + ' is ' + (apprOf(po) === 'Rejected' ? 'rejected' : 'not approved yet') + ' – its material is taken in on it only after it is approved.', 'notapproved');
     }
     let g; try { g = W.checkGrn(x.grn, items, { po: po, had: new Set(cur ? (cur.store_grn_lines || []).map(l => l.code) : []) }); } catch (e) { userErr(e); }
     g.head.supplier = party(g.head.supplier, (await names(s.site)).suppliers.concat(po ? [po.vendor] : []), x.confirmParty, 'supplier');
@@ -688,7 +736,20 @@ const ACTIONS = {
     // number of its own beyond 1,000,000,000 – not one the next GRN goes on from
     const [nums, g, o] = await Promise.all([db(s.site, 'GET', 'store_numbers?select=kind,next_no'), db(s.site, 'GET', 'store_grn?select=no&no=lt.1000000000&order=no.desc&limit=1'), db(s.site, 'GET', 'store_issue?select=no&order=no.desc&limit=1')]);
     const n = {}; (nums || []).forEach(r => { n[r.kind] = Number(r.next_no); });
-    return { next: { GRN: n.GRN || 1, OUT: n.OUT || 1 }, used: { GRN: g && g[0] ? Number(g[0].no) : 0, OUT: o && o[0] ? Number(o[0].no) : 0 } };
+    const [pp, h, s5] = await Promise.all([papersOf(s.site), headingOf(s.site), step5On(s.site)]);
+    return { next: { GRN: n.GRN || 1, OUT: n.OUT || 1 }, used: { GRN: g && g[0] ? Number(g[0].no) : 0, OUT: o && o[0] ? Number(o[0].no) : 0 }, papers: pp, prefixNow: prefixOf(pp, h, s.site), step5: s5 };
+  },
+  // (28-10-2026) the papers' settings (the Store Admin): the numbers' prefix, the heading's e-mail / contact / CIN / web, a new PO's
+  // shipping address, site contact and terms – each as typed (empty = none)
+  async papersSave(s, x) {
+    adminOnly(s, 'set the papers');
+    const v = {}, max = { prefix: 30, email: 80, phone: 60, cin: 30, web: 80, ship_to: 300, site_contact: 120, terms: 3000 };
+    PAPERS.forEach(k => { const raw = String(x[k] === undefined || x[k] === null ? '' : x[k]); const t = (k === 'terms' || k === 'ship_to' ? raw.split(/\r?\n/).map(l => I.clean(l, 400)).filter(Boolean).join('\n') : I.clean(raw, max[k])).slice(0, max[k]); if (t) v[k] = t; });
+    if (v.prefix && !/^[A-Za-z0-9][A-Za-z0-9/-]*$/.test(v.prefix)) throw fail(400, 'The prefix of the numbers may have only letters, digits, "/" and "-" (e.g. RCL/VTR).', 'field');
+    if (v.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email)) throw fail(400, 'The e-mail "' + v.email + '" is not an e-mail address.', 'field');
+    await db(s.site, 'POST', 'store_settings', [{ id: 'papers', value: v, updated_by: s.email }], 'resolution=merge-duplicates,return=minimal');
+    changed(s.site); await activity(s.site, s.email, 'Papers set', s.site, v);
+    return Object.assign(await ACTIONS.numbers(s), { ok: true });
   },
   async numbersSave(s, x) {
     adminOnly(s, 'set the numbers');

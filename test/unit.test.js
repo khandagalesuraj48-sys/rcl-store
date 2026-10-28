@@ -361,3 +361,47 @@ test('(28-10-2026) the assistant\'s Store look-ups: a report as the AI reads it 
   const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
   assert.match(src, /async aiLook\(s, x\) \{\n    try \{ return await AL\.look\(x \|\| \{\}, \{ report: \(kind, y\) => ACTIONS\.report\(s, Object\.assign\(\{\}, y, \{ kind: kind \}\)\), items: \(\) => itemsOf\(s\.site\) \}\); \}/);
 });
+
+test('(28-10-2026, his formats) the PO in the company\'s format: Disc. %, HSN, Credit Period, Site Contact, Shipping Address, Freight, Load / Unload, the terms line by line; the numbers RCL/VTR/PO/2026/0128; the amount in words; who approves a PO', () => {
+  const W = require('../lib/work');
+  const items = { 'ITM-0001': { code: 'ITM-0001', name: 'Diesel', unit: 'LTR', hsn: '27101910', gst_pct: 0, status: 'Active' }, 'ITM-0002': { code: 'ITM-0002', name: 'Tyre 11.00 R20', unit: 'NOS', hsn: '', gst_pct: 18, status: 'Active' } };
+  // his Diesel PO: 2,300 L × 98.13, no discount, GST 0 → 2,25,699.00; the HSN from the Item Master
+  let p = W.checkPo({ date: '2026-10-17', vendor: 'New Popular Service Station', credit_days: '0', site_contact: 'Site office : 9000000000', ship_to: 'VTR site office\nBhiwandi', terms: '1. Payment : 100 % Advance\n\n2. Delivery: Immediate',
+    lines: [{ code: 'ITM-0001', qty: 2300, rate: 98.13, spec: 'H S Diesel' }] }, items);
+  assert.deepStrictEqual([p.lines[0].taxable, p.lines[0].hsn, p.lines[0].disc_pct, p.disc, p.total, p.credit_days, p.ship_to, p.terms], [225699, '27101910', 0, 0, 225699, 0, 'VTR site office\nBhiwandi', '1. Payment : 100 % Advance\n2. Delivery: Immediate']);
+  assert.strictEqual(W.inWords(p.total), 'Two Lakhs Twenty Five Thousand Six Hundred and Ninety Nine Only', 'as his PO says it');
+  // a discount, GST, freight and load / unload: Amount = Qty × Rate less Disc. %; GST on it; TOTAL = lines + GST + freight + load
+  p = W.checkPo({ date: '2026-10-27', vendor: 'Shree Sai Tyres', freight: '500', load_unload: '250', lines: [{ code: 'ITM-0002', qty: 4, rate: 24203.5, disc_pct: '2', hsn: '4011 10' }] }, items);
+  assert.deepStrictEqual([p.lines[0].taxable, p.lines[0].disc, p.lines[0].gst, p.lines[0].hsn, p.freight, p.load_unload, p.total], [94877.72, 1936.28, 17077.99, '401110', 500, 250, 112705.71]);
+  const bad = (x, re) => assert.throws(() => W.checkPo(Object.assign({ date: '2026-10-27', vendor: 'Shree Sai Tyres', lines: [{ code: 'ITM-0002', qty: 1, rate: 10 }] }, x), items), re);
+  bad({ credit_days: '7.5' }, /^Error: The Credit Period must be whole days from 0 to 365\.$/);
+  bad({ lines: [{ code: 'ITM-0002', qty: 1, rate: 10, disc_pct: 100 }] }, /Disc\. % of Tyre 11\.00 R20 "100" must be a number from 0 to 99\.99\./);
+  bad({ lines: [{ code: 'ITM-0002', qty: 1, rate: 10, hsn: '40A' }] }, /HSN of Tyre 11\.00 R20 "40A" must be 4, 6 or 8 digits\./);
+  bad({ freight: '-5' }, /Total Freight Charges cannot be below 0/);
+  // a PO of before (none of the new fields): the same figures as before
+  p = W.checkPo({ date: '2026-10-27', vendor: 'Shree Sai Tyres', terms: 'Payment against delivery', lines: [{ code: 'ITM-0002', qty: 2, rate: 100 }] }, items);
+  assert.deepStrictEqual([p.taxable, p.gst, p.total, p.credit_days, p.site_contact, p.ship_to, p.freight, p.load_unload, p.terms], [200, 36, 236, null, null, null, 0, 0, 'Payment against delivery']);
+  // the numbers of his papers
+  assert.strictEqual(W.refOf('RCL/VTR', 'PO', '2026-10-17', 128), 'RCL/VTR/PO/2026/0128');
+  assert.strictEqual(W.refOf('RCL/VTR/', 'PR', '2026-10-24', 232), 'RCL/VTR/PR/2026/0232');
+  assert.strictEqual(W.initialsOf('Rachana Construction Limited'), 'RCL'); assert.strictEqual(W.initialsOf('Sketchline Industries'), 'SI');
+  assert.strictEqual(W.inWords(141390), 'One Lakh Forty One Thousand Three Hundred and Ninety Only');
+  assert.strictEqual(W.inWords(12345678.5), 'One Crore Twenty Three Lakhs Forty Five Thousand Six Hundred and Seventy Eight and Fifty Paise Only');
+  // who approves a PO: the people the Portal told; never his own
+  const people = W.poApprovers({ levels: [], po: [{ email: 'Ajinkya@X.test', name: 'Ajinkya' }, { email: '', name: 'x' }] });
+  assert.deepStrictEqual(people, [{ email: 'ajinkya@x.test', name: 'Ajinkya' }]);
+  assert.strictEqual(W.mayApprovePo(people, 'ajinkya@x.test', 'buyer@x.test'), true);
+  assert.strictEqual(W.mayApprovePo(people, 'ajinkya@x.test', 'ajinkya@x.test'), false, 'not his own');
+  assert.strictEqual(W.mayApprovePo(people, 'other@x.test', 'buyer@x.test'), false);
+  assert.deepStrictEqual(W.poApprovers({ levels: [] }), [], 'a Portal of before (no po): nobody – a PO is approved when made');
+  // step 5 only adds (no row changed, nothing dropped or deleted – but in its rollback note)
+  const sql = fs.readFileSync(path.join(root, 'sql', 'store_step5_po_format.sql'), 'utf8'), code = sql.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.ok(!/\b(drop|truncate|delete\s+from|update\s+public\.store_po\s+set)\b/i.test(code.replace(/update public\.store_po set date = /, '')), 'nothing dropped, deleted or changed by the step itself');
+  assert.strictEqual((code.match(/alter table public\.store_po add column if not exists /g) || []).length, 11);
+  assert.match(code, /grant execute on function public\.store_po_put\(bigint, jsonb, text, text\) to service_role/);
+  // the server: a PO not approved is not taken in; poDecide – only one who approves, never his own, only a PO waiting
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
+  assert.match(src, /if \(apprOf\(po\) !== 'Approved' && !\(cur && Number\(cur\.po_no\) === poNo\)\) throw fail\(409/);
+  assert.match(src, /filter\(p => p\.state !== 'Received' && p\.appr === 'Approved'\)/);
+  assert.match(src, /'store_po\?no=eq\.' \+ no \+ '&status=eq\.Open&appr=eq\.Waiting'/);
+});

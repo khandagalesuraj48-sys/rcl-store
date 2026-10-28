@@ -279,6 +279,60 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
   ok('S1\'s papers stay in S1\'s database', sql('rcl_s2', 'select count(*) from store_grn') === '0' && sql('rcl_s2', 'select count(*) from store_issue') === '0' && Number(sql('rcl', 'select count(*) from store_grn')) === 6);
   ok('who did what is kept (the Store\'s activity record)', Number(sql('rcl', "select count(*) from store_activity where action in ('GRN made', 'Issue made', 'Requirement approved', 'PO made', 'Return made', 'Approvers set')")) >= 8);
 
+  // ---- (28-10-2026, his formats: "DIESEL PURCHASE ORDER", "REQUIREMENT OF EXHAUST FANS") the Store's step 5: the PO's own fields,
+  // its approval; the papers' settings; the numbers RCL/VTR/PO/…, RCL/VTR/PR/… ----
+  const po5 = x => Object.assign({ date: D1, vendor: 'Bedrok Chem Infra', lines: [{ code: OIL, qty: 5, rate: 300, disc_pct: 2, hsn: '2710' }] }, x || {});
+  r = await B.w('poSave', { site: 'S1', po: po5({ freight: 100 }) });
+  ok('before step 5: a PO with Freight (a field of step 5) is refused – it says what to run', r.status === 400 && /sql\/store_step5_po_format\.sql/.test(r.j.error), r.j);
+  let s5 = ''; try { s5 = sqlFile('rcl', path.join(root, 'sql', 'store_step5_po_format.sql')) + sqlFile('rcl', path.join(root, 'sql', 'store_step5_po_format.sql')); } catch (e) { s5 = 'FAULT ' + e.message; }
+  ok('step 5 runs twice without a fault (it only adds; the POs of before are kept as they are)', (s5.match(/Store step 5 done · POs \d+ · new columns 11 of 11/g) || []).length === 2 && sql('rcl', "select count(*) from store_po where appr is not null or freight <> 0") === '0', s5);
+  await wait(1200);
+  r = await A.w('papersSave', { prefix: 'RCL/VTR', email: 'purchase@rcl.test', phone: '022 0000 0000', cin: 'U00000MH0000PLC000000', web: 'https://rcl.test', ship_to: 'VTR site office\nBhiwandi', site_contact: 'Site office : 9000000000', terms: '1. Payment : 100 % Advance\n2. Delivery: Immediate' });
+  ok('Store Settings → Papers (the Store Admin): the numbers\' prefix, the heading\'s e-mail / contact / CIN / web, a new PO\'s address, contact, terms', r.status === 200 && r.j.papers.prefix === 'RCL/VTR' && r.j.papers.ship_to === 'VTR site office\nBhiwandi' && r.j.step5 === true, r.j);
+  r = await K.w('papersSave', { prefix: 'X' });
+  ok('   a User cannot set them', r.status === 403, r.j);
+  r = await B.w('purItems', { site: 'S1' });
+  ok('   a new PO of S1 starts with them (HO Purchase\'s form)', r.status === 200 && r.j.step5 === true && r.j.papers.terms === '1. Payment : 100 % Advance\n2. Delivery: Immediate' && r.j.papers.site_contact === 'Site office : 9000000000', r.j.papers);
+  // nobody approves POs at S1 yet: a PO is approved when made
+  r = await B.w('poSave', { site: 'S1', po: po5({ credit_days: 0, site_contact: 'Raj : 9000000001', ship_to: 'VTR site office', freight: 100, load_unload: 50, terms: '1. Payment : advance\n2. Delivery : immediate' }) });
+  const P5a = r.j.no;
+  ok('step 5, nobody approves POs at S1: the PO with its new fields is approved when made – Amount 5 × 300 less 2 % = 1,470, GST 18 % 264.60, + freight 100 + load 50 = 1,884.60',
+    r.status === 200 && r.j.appr === 'Approved' && r.j.total === 1884.6 && sql('rcl', "select appr || '|' || credit_days || '|' || freight || '|' || load_unload || '|' || disc || '|' || site_contact from store_po where no = " + P5a) === 'Approved|0|100|50|30|Raj : 9000000001', r.j);
+  // the Super Admin ticks view "Approves purchase orders" at S1: the Store is told
+  r = await SA.req('/api/admin', { action: 'storePagesSave', email: 'view@rcl.test', site: 'S1', pages: { dashboard: 'View', items: 'View', req: 'Edit', grn: 'View', issue: 'View', reports: 'View', po: 'View', approve: 'L1', purchase: 'None', poapprove: 'Yes' } }).then(x => x.j);
+  const apv5 = JSON.parse(sql('rcl', "select value::text from store_settings where id = 'approvers'") || '{}');
+  ok('the Portal: view "Approves purchase orders" at S1 – the Store keeps it (po), the requirement levels as they were', r.ok && !r.warn && r.pages.poapprove === 'Yes' && JSON.stringify((apv5.po || []).map(p => p.email)) === '["view@rcl.test"]' && (apv5.levels || []).length === 2, [r, apv5]);
+  r = await B.w('poSave', { site: 'S1', po: po5({ credit_days: 30 }) });
+  const P5 = r.j.no;
+  ok('   now a new PO waits for its approval', r.status === 200 && r.j.appr === 'Waiting' && sql('rcl', 'select appr from store_po where no = ' + P5) === 'Waiting', r.j);
+  r = await K.w('poOpen');
+  ok('   a PO not approved: not offered for a GRN', r.status === 200 && !r.j.pos.some(p => p.no === P5) && r.j.pos.some(p => p.no === P5a), r.j.pos.map(p => p.no));
+  r = await K.w('grnSave', { grn: { date: D1, supplier: 'Bedrok Chem Infra', po_no: P5, lines: [{ code: OIL, qty: 5, rate: 294, po_line: 1 }] } });
+  ok('   a GRN against it is refused ("…not approved yet – its material is taken in on it only after it is approved.")', r.status === 409 && /PO \d+ is not approved yet – its material is taken in on it only after it is approved\./.test(r.j.error), r.j);
+  r = await V.w('poList');
+  const v5 = (r.j.pos || []).find(p => p.no === P5) || {};
+  ok('   view (who approves) sees it with Approve – the PO "waits for" him', r.status === 200 && v5.mayApprove === true && JSON.stringify(v5.waitFor) === JSON.stringify([sql('rcl_portal', "select name from users where email = 'view@rcl.test'")]), v5);
+  r = await K.w('poDecide', { no: P5, ok: true });
+  ok('   one not ticked (the store keeper) cannot approve it', r.status === 403 && /You do not approve the purchase orders of this site/.test(r.j.error), r.j);
+  r = await A.w('poDecide', { no: P5, ok: true });
+  ok('   nor sujit, who made it (as HO Purchase): "Nobody approves his own purchase order."', r.status === 403 && r.j.error === 'Nobody approves his own purchase order.', r.j);
+  r = await V.w('poDecide', { no: P5, ok: false });
+  ok('   a rejection needs its reason', r.status === 400 && r.j.error === 'Say why the PO is rejected (the one who made it sees it).', r.j);
+  r = await V.w('poDecide', { no: P5, ok: false, note: 'Rate too high' });
+  ok('   rejected – with why; the one who made it changes it: it waits again', r.status === 200 && sql('rcl', "select appr || '|' || appr_note from store_po where no = " + P5) === 'Rejected|Rate too high' &&
+    (await B.w('poSave', { site: 'S1', no: P5, po: po5({ credit_days: 30, lines: [{ code: OIL, qty: 5, rate: 290, disc_pct: 2, hsn: '2710' }] }) })).status === 200 && sql('rcl', 'select appr from store_po where no = ' + P5) === 'Waiting', r.j);
+  r = await V.w('poDecide', { no: P5, ok: true });
+  ok('   approved by view – his name on it; the GRN against it now taken in', r.status === 200 && sql('rcl', "select appr || '|' || appr_by from store_po where no = " + P5) === 'Approved|view@rcl.test' &&
+    (await K.w('grnSave', { grn: { date: D1, supplier: 'Bedrok Chem Infra', po_no: P5, lines: [{ code: OIL, qty: 5, rate: 284.2, po_line: 1 }] } })).status === 200, r.j);
+  r = await V.w('poDecide', { no: P5, ok: true });
+  ok('   once only ("…is not waiting for its approval any more")', r.status === 409 && /is not waiting for its approval any more/.test(r.j.error), r.j);
+  // the paper: its number, words, supplier, heading
+  r = await A.w('poGet', { no: P5 });
+  ok('the PO paper: PO No RCL/VTR/PO/' + D1.slice(0, 4) + '/' + String(P5).padStart(4, '0') + ', the amount in words, the HSN, Approved By, the heading\'s e-mail and CIN',
+    r.status === 200 && r.j.po.ref === 'RCL/VTR/PO/' + D1.slice(0, 4) + '/' + String(P5).padStart(4, '0') && /Only$/.test(r.j.po.words) && r.j.po.lines[0].hsn === '2710' && r.j.po.appr_name && r.j.heading.email === 'purchase@rcl.test' && r.j.heading.cin === 'U00000MH0000PLC000000' && r.j.supplier.name === 'Bedrok Chem Infra', r.j);
+  r = await V.w('reqList');
+  ok('   a requirement\'s Indent No: RCL/VTR/PR/<year>/<4 digits>', r.status === 200 && r.j.reqs.length && r.j.reqs.every(x => /^RCL\/VTR\/PR\/\d{4}\/\d{4,}$/.test(x.ref)) && r.j.heading, r.j.reqs && r.j.reqs.map(x => x.ref));
+
   console.log(out.join('\n'));
   console.log('TOTAL ' + pass + ' passed, ' + fail + ' failed  (' + Math.round((Date.now() - T0) / 1000) + ' s)');
   process.exit(fail ? 1 : 0);
