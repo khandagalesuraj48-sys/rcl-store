@@ -35,8 +35,8 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
     const shot = (n, full) => p.screenshot({ path: path.join(SHOTS, n + '.png'), fullPage: !!full });
     const text = sel => p.evaluate(s => { const e = document.querySelector(s); return e ? e.innerText : ''; }, sel);
     const tiles = () => p.evaluate(() => Object.fromEntries([...document.querySelectorAll('#gr_impbox .tile')].map(t => [t.querySelector('small').textContent, t.querySelector('b').textContent])));
-    let r = await p.evaluate(() => [...document.querySelectorAll('#gr_list thead th')].map(t => t.textContent));
-    ok('the GRN page: the list in the columns of his inward register', JSON.stringify(r.slice(0, 18)) === JSON.stringify(['Sr No', 'GRN No', 'GRN Date', 'Challan No', 'Invoice No.', 'Invoice Date', 'Vehicle No', 'Supplier Name', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'Taxable Amount', 'GST Amount', 'TCS', 'Gross Amount', 'Remark', 'PO No']), r);
+    let r = await p.evaluate(() => ({ hint: !!document.getElementById('gr_hint'), cards: document.querySelectorAll('#gr_list .grnc').length }));
+    ok('the GRN page: no list until Show is pressed ("Choose the dates and press Show")', r.hint && r.cards === 0, r);
     // ---- the Import format: his columns ----
     await p.click('#gr_tpl'); const fmt = await until(() => fs.readdirSync(DL).find(f => /^GRN_import_format\.xlsx$/.test(f)), 15000);
     const XLSX = require('../public/vendor/xlsx-0.18.5.full.min.js');
@@ -102,11 +102,15 @@ const until = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < 
     ok('   the check again (after the import): nothing left to import – 412 already in the Store', t['GRNs to import'] === '0' && t['Already in the Store'] === '412' && await p.evaluate(() => document.getElementById('rg_go').disabled), t);
     // ---- the GRN list: his columns, the GRN No as in the file ----
     await p.evaluate(() => { document.getElementById('gr_from').value = '2022-12-01'; document.getElementById('gr_to').value = '2023-06-30'; }); await p.click('#gr_show'); await wait(2500);
-    r = await p.evaluate(() => { const rows = [...document.querySelectorAll('#gr_list tbody tr')]; const a = rows.find(tr => /342-A/.test(tr.innerText)); return { n: rows.length, a: a ? [...a.children].map(td => td.textContent) : null, count: document.querySelector('#gr_list .count').textContent }; });
-    ok('   the GRN list: a row for each material, GRN 342-A as in the file', r.a && r.a[1] === '342-A' && /412 GRN\(s\)/.test(r.count) && r.n > 412, r);
+    r = await p.evaluate(() => { const cards = [...document.querySelectorAll('#gr_list .grnc')], a = cards.find(c => c.querySelector('.gno span').textContent === '342-A');
+      return { n: cards.length, rows: document.querySelectorAll('#gr_list .glines tbody tr').length, keys: a ? [...a.querySelectorAll('header .gk small')].map(x => x.textContent) : null, heads: a ? [...a.querySelectorAll('.glines thead th')].map(x => x.textContent) : null,
+        line: a ? [...a.querySelector('.glines tbody tr').children].map(td => td.textContent) : null, count: document.querySelector('#gr_list .count').textContent }; });
+    ok('   Show: each GRN a card – GRN 342-A as in the file; its GRN No, date, supplier, invoice, gross at the top; its materials under it (Sr No, Material Description, Received Qty, UOM, Basic Rate, Taxable / GST / Gross Amount, Remark)',
+      r.n === 412 && /412 GRN\(s\)/.test(r.count) && r.rows > 412 && r.keys && r.keys.slice(0, 3).join('|') === 'GRN No|GRN Date|Supplier Name' && r.keys.indexOf('Gross Amount') > -1 &&
+      JSON.stringify(r.heads) === JSON.stringify(['Sr No', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'Taxable Amount', 'GST Amount', 'Gross Amount', 'Remark']) && /^\d+$/.test(r.line[0]) && /\.\d\d$/.test(r.line[7]), r);
     await p.evaluate(() => window.scrollTo(0, document.getElementById('gr_list').offsetTop - 80)); await shot('grnreg_list');
     // (28-10-2026, his picture) a GRN changed: the form of his picture with that GRN in it; Clear – back as it is saved
-    await p.evaluate(() => [...document.querySelectorAll('#gr_list tbody tr')].find(tr => /342-A/.test(tr.innerText)).querySelector('.gr-edit').click()); await wait(1500);
+    await p.evaluate(() => [...document.querySelectorAll('#gr_list .grnc')].find(c => c.querySelector('.gno span').textContent === '342-A').querySelector('.gr-edit').click()); await wait(1500);
     const chg = () => p.evaluate(() => ({ sub: (document.querySelector('#gr_form .gsub') || {}).textContent, sup: document.getElementById('gr_sup').value, rows: document.querySelectorAll('#gr_lines tbody tr[data-i]').length, qty: (document.querySelector('#gr_lines tr[data-i="0"] [data-k="qty"]') || {}).value }));
     const c0 = await chg();
     ok('Change on GRN 342-A: the form of his picture, "Change GRN 342-A", its supplier and rows', c0.sub === 'Change GRN 342-A' && !!c0.sup && c0.rows >= 1 && !!c0.qty, c0);
