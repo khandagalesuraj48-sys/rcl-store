@@ -1,6 +1,8 @@
 # RCL ERP – Store
 
-The Store module of RCL ERP. **Now:** the Item Master. **Later (each its own step):** Inward, Outward, Purchase Requisition.
+The Store module of RCL ERP: the Item Master (step 1) and **the Store's work (step 2, 28-10-2026 – "sagle banwayla chalu kr")**:
+Material Requirements and their approvals, Purchase (every site – HO Purchase), Purchase Orders, Inward (GRN), Issue & Return, Stock &
+Reports, Opening stock & Numbers. The phone app has the same as its own screens (rcl-mobile 3.55.0).
 
 * **Sign-in only through the Portal.** The Portal sends the person here with a one-minute signed ticket. Nobody signs in here.
 * **A sign-in lasts 15 minutes** (23-10-2026; it was 12 hours): the open page asks the Portal for a fresh ticket every 10 minutes
@@ -34,6 +36,36 @@ The Store module of RCL ERP. **Now:** the Item Master. **Later (each its own ste
     * The import is one write: all of it or nothing.
     * Item Codes of another site's file are not used; this site gives its own.
 
+## The Store's work (step 2 – `sql/store_step2_work.sql`, run once in EVERY site's Supabase)
+* **Who may do what** – given by the Super Admin in the Portal (Users & Access → a user → Pages in the Store), per site:
+  * **Material Requirements** (Edit = make, View = see), **Inward (GRN)** and **Issue & Return** (Edit / View), **Stock & Reports**
+    and **Purchase Orders** (View). Not given = no access. A Store Admin has them all (and changes, deletes, imports, the opening
+    stock and the numbers).
+  * **Approves requirements – Level 1 … 5** (also for a Store Admin): any one person of the level a requirement waits for approves it
+    (or rejects it, saying why), never his own; Level 1 first, then 2 … No approver at a site: a requirement is approved when made.
+    One who approves sees the Requirements (View) even when that page is not given. The Portal tells the Store who approves (a
+    signed ticket, `api/portal.js` → `store_settings` 'approvers') whenever pages or roles are saved; if the Store could not be told,
+    the Portal says so – save again.
+  * **Store Purchase – every site (HO)** (also for a Store Admin): the approved requirements of every site still to order → a
+    purchase order of that site (kept in that site's own database), its Change / Cancel / Close, the POs of every site.
+* **Material Requirement:** date, needed by, for (site work / a machinery / office / other), its items (with the stock now). Changed
+  only while nobody has approved it; cancelled while nothing of it is ordered; an approved one is closed when the rest will not be bought.
+* **Purchase Order:** vendor (a name nearly one written before is asked), GST no., delivery by, terms; its lines (from the
+  requirements – never more than asked – or any item), rate, GST %. A PO's paper with its site's company on top.
+* **Inward (GRN):** against a PO (its lines still to come; more than the PO still has is asked first) or direct (a bill); supplier,
+  challan, invoice, vehicle, TCS. Its basic rate makes the item's average rate.
+* **Issue (Outward):** to site work, a sub-contractor, a machinery (its reading – on the site on that date; it joins the machinery's
+  maintenance log book in Mechanical, Party "RCL Store") or the office; location (chainage), side, use for, receiver; returnable and
+  serial no; on debit (charged with GST). **Return:** what is still out comes back.
+* **The stock never goes below zero on any date** (checked inside the database – one save at a time on a site).
+* **Reports:** stock (on a date), stock statement (a day / month / period), item ledger, GRN register, issue register, consumption
+  (by party / machinery / use / location / item), returnable out, requirements, purchase orders – shown, Excel, print.
+* **Excel import (Store Admin):** his INWARD (GRN) and OUTWORD (Issue) registers in his columns – every row checked first, then all
+  or nothing; the opening stock (Item, Qty, Rate, Date).
+* **Numbers:** where the GRN and Outward numbers go on from (only higher than the last one used).
+* Files: `api/work.js` (every action and its check), `lib/work.js` (the rules), `lib/sreport.js` (the reports),
+  `public/work.js` (the pages), `api/portal.js` (who approves – from the Portal), `sql/store_step2_work.sql`.
+
 ## Parts
 | Part | File |
 |---|---|
@@ -43,7 +75,8 @@ The Store module of RCL ERP. **Now:** the Item Master. **Later (each its own ste
 | The rules of an item (names, near names, suggestions, fields) | `lib/items.js` |
 | Which database is a site's | `lib/sites.js` (Mechanical's list of sites, `rcl_sites`) |
 | Ticket check, sign-ins, activity record | `lib/portal.js`, `lib/session.js`, `lib/activity.js` |
-| Database (run once in EVERY site's Supabase) | `sql/store_step1_items.sql` |
+| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql` |
+| The Store's work (step 2) | `api/work.js`, `lib/work.js`, `lib/sreport.js`, `public/work.js`, `api/portal.js` |
 
 ## Settings (Vercel → the Store project → Settings → Environment Variables – never in a file)
 | Name | What |
@@ -59,6 +92,8 @@ timeout 120 node --test test/unit.test.js     # no database
 timeout 300 node test/api.test.js             # rig: Portal :3010, Store :3020, site databases :3100 / :3102
 timeout 400 node test/browser.test.js         # rig + Chromium; pictures in test/shots/
 timeout 300 node test/paging155.test.js       # rig: 2,500 items, an import, lost answers (starts its own Store on :3021; SRC=<tree>)
+timeout 600 node test/work.test.js            # rig: the Store's work – requirements, approvals, POs, GRN, issues, returns, reports
+timeout 600 node test/work.browser.test.js    # rig + Chromium: the work pages (also on a phone's width)
 ```
 
 ## Fewer reads, every item, no second copy (24-10-2026, with Mechanical's update-155)

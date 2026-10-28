@@ -26,5 +26,5 @@ module.exports = handler(async (req, res) => {
   if (old) { try { await db(old.site, 'DELETE', 'store_sessions?id_hash=eq.' + old.idHash, undefined, 'return=minimal'); } catch (e) { /* it ends by itself in 15 minutes */ } }
   const again = !!x.renew && !!old && old.site === c.site && String(old.email).toLowerCase() === String(c.email).toLowerCase() && old.admin === !!c.admin;
   if (!again) await activity(c.site, c.email, 'Sign-in', c.site, { admin: c.admin });
-  send(res, 200, { ok: true, preview: isPreview() || undefined, user: { email: c.email, name: c.name, admin: c.admin }, pages: ses.pagesOf(c.admin, c.pages), site: c.site, siteName: c.siteName, mods: c.mods, sites: c.sites, portal: portal.url() }, { 'Set-Cookie': cookie });
+  send(res, 200, { ok: true, preview: isPreview() || undefined, user: { email: c.email, name: c.name, admin: c.admin, super: c.super || undefined }, pages: ses.pagesOf(c.admin, c.pages), site: c.site, siteName: c.siteName, mods: c.mods, sites: c.sites, portal: portal.url() }, { 'Set-Cookie': cookie });
 });
