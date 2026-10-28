@@ -123,6 +123,34 @@ function. Rollback: `drop function public.store_grn_new(jsonb, jsonb, text, text
   every look-up goes through the Store's own report (`ACTIONS.report`) and its access checks. It only reads. No database step, no new
   setting.
 
+## The PO and the requirement in the company's own format; the PO's approval (step 5 – `sql/store_step5_po_format.sql`, run once in EVERY site's Supabase after step 4; 28-10-2026)
+"he amche company che format ahet mala je po bantil requiremet bantil te same ya format amddhe hawet" (with his Diesel PO, Tyres PO
+and the Exhaust Fans requirement): the PO's print is the Diesel PO's format, the requirement's print the Purchase Requisition Form.
+* **Numbers as on his papers:** PO `RCL/VTR/PO/2026/0128`, requirement `RCL/VTR/PR/2026/0232` – the start (`RCL/VTR`) is the site's
+  in Store Settings → **Papers** (by itself: `RCL/<site code>`), then PO / PR, the year of its date and the Store's own number. Only the
+  print and the lists show it; the numbers themselves are as before.
+* **The PO form** has his PO Details too: Credit Period (days), Site Contact, Shipping Address, Total Freight Charges, Total Load /
+  Unload Amount; each line a **Disc. %** and its **HSN** (the item's own, or typed – 4, 6 or 8 digits). Taxable = Qty × Rate less the
+  Disc. %; TOTAL AMOUNT = the lines + freight + load / unload; "Amount in word" in lakhs ("Two Lakhs … Only"). Site Contact, Shipping
+  Address and the Terms & Conditions come filled from Papers – they can be changed on each PO.
+* **The print** (A4): the logo and the company's heading (name, address, Email ID, Contact, CIN No, Web, GST No, PAN No – the company
+  record and Papers); Supplier Details (name, address, mobile, e-mail, contact person, GSTIN – from the Vendor Master) beside PO Details
+  (PO No., PO Date, Credit Period, Project Name, Site Contact) and the Shipping Address; the lines (S.N., Item Description- Specification,
+  Brand, HSN, GST %, Qty, Unit, Rate, Disc. %, Amount); Total Disc. Amount, Gross Amount, Total GST Amount, Total Freight Charges,
+  Total Load / Unload Amount, TOTAL AMOUNT (Rs.), Amount in word; Remark; Terms And Conditions; Prepared By / Approved By; "This
+  Purchase Order is computer generated it does not require signature." **The requirement's print** – Purchase Requisition Form:
+  Project Name, Sub Project (what it is for), Indent No., Date; Sr No, Item Code, Item Description, Item Specification, Unit,
+  Quantity, Required Date; Remark; Prepared By / Checked By (the levels before the last) / Approved By.
+* **The PO's approval:** the Super Admin ticks **"Approves purchase orders"** for a person in the Portal (Store pages of that site).
+  A PO made there then **waits** ("Waiting approval", for whom); the ticked one sees **Approve** / **Reject** (a reason) in the PO list – never
+  his own PO. A rejected PO is changed and saved – it waits again. **A GRN is taken in only on an approved PO.** Nobody ticked at a
+  site: a PO is approved when made (as before). A PO made before step 5 counts as approved.
+* **Before step 5 at a site:** the PO saves and prints as before (with the new numbers and heading); the new fields are refused with
+  what to run. Only ADDS columns to `store_po` and puts in `store_po_put` again – no row is changed. **Note:** running step 2 again
+  puts in step 2's `store_po_put` – run step 5 again after it.
+* Actions: `poDecide` (approve / reject), `papersSave` (Store Admin); `poGet` gives the print's supplier, words and heading. The
+  Portal's console (`rcl-portal`, "Approves purchase orders") signs the list into the Store's approvers ticket (`po`).
+
 ## Parts
 | Part | File |
 |---|---|
@@ -132,7 +160,7 @@ function. Rollback: `drop function public.store_grn_new(jsonb, jsonb, text, text
 | The rules of an item (names, near names, suggestions, fields) | `lib/items.js` |
 | Which database is a site's | `lib/sites.js` (Mechanical's list of sites, `rcl_sites`) |
 | Ticket check, sign-ins, activity record | `lib/portal.js`, `lib/session.js`, `lib/activity.js` |
-| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql`, `sql/store_step3_grn_import.sql`, `sql/store_step4_grn_no.sql` |
+| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql`, `sql/store_step3_grn_import.sql`, `sql/store_step4_grn_no.sql`, `sql/store_step5_po_format.sql` |
 | The Store's work (step 2) | `api/work.js`, `lib/work.js`, `lib/sreport.js`, `public/work.js`, `api/portal.js` |
 
 ## Settings (Vercel → the Store project → Settings → Environment Variables – never in a file)

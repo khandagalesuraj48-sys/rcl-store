@@ -90,7 +90,7 @@
   }
   const num = v => { const n = Number(String(v === undefined || v === null ? '' : v).replace(/,/g, '')); return isFinite(n) ? n : 0; };
   // a paper's money: taxable = qty × rate, GST on it, the total
-  const lineMoney = r => { const t = r2(num(r.qty) * num(r.rate)), g = r2(t * num(r.gst_pct) / 100); return { t: t, g: g, all: r2(t + g) }; };
+  const lineMoney = r => { const t = r2(r2(num(r.qty) * num(r.rate)) * (100 - num(r.disc_pct)) / 100), g = r2(t * num(r.gst_pct) / 100); return { t: t, g: g, all: r2(t + g) }; };      // (28-10-2026) less its Disc. % (a PO's line)
 
   // a save that asks first when a party's name is nearly one written before, or more than a PO has to come
   async function saveAsk(action, x) {
@@ -151,7 +151,7 @@
     await reqLoad();
   }
   async function reqLoad() {
-    try { await boot(); const r = await W('reqList'); RQ.list = r.reqs; RQ.levels = r.levels;
+    try { await boot(); const r = await W('reqList'); RQ.list = r.reqs; RQ.levels = r.levels; RQ.heading = r.heading;
       $('rq_lv').textContent = r.levels.length ? 'Approved by: ' + r.levels.map(l => 'Level ' + l.level + ' – ' + l.people.join(', ')).join(' · ') : 'No approver set for this site – a requirement is approved when it is made.';
       B.waiting = RQ.list.filter(x => x.mayApprove).length; lists(); reqDraw(); }
     catch (e) { failed(e); $('rq_list').innerHTML = '<p class="empty">' + esc(e.message) + '</p>'; }
@@ -167,7 +167,7 @@
         '<td style="white-space:normal">' + x.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (x.status === 'Approved' && l.left < l.qty ? ' <small>(ordered ' + n2(l.ordered) + ')</small>' : '')).join('<br>') + '</td>' +
         '<td>' + stateTag(x.status) + (x.status === 'Pending' ? '<small>Level ' + x.level + (x.waitFor.length ? ' – ' + esc(x.waitFor.join(', ')) : '') + '</small>' : '') + '</td><td><small>' + esc(x.created_name || x.created_by || '') + '</small></td>' +
         '<td><div class="acts">' + (x.mayApprove ? '<button type="button" class="btn small primary rq-ok">Approve</button><button type="button" class="btn small bad rq-no">Reject</button>' : '') +
-        '<button type="button" class="link rq-det">Details</button>' + ((x.mine || admin()) && x.status === 'Pending' && !(x.approvals || []).length && canEdit('req') ? '<button type="button" class="link rq-edit">Change</button>' : '') +
+        '<button type="button" class="link rq-det">Details</button><button type="button" class="link rq-print">Print</button>' + ((x.mine || admin()) && x.status === 'Pending' && !(x.approvals || []).length && canEdit('req') ? '<button type="button" class="link rq-edit">Change</button>' : '') +
         ((x.mine || admin()) && (x.status === 'Pending' || x.status === 'Approved') && !x.lines.some(l => l.ordered > 0) ? '<button type="button" class="link del rq-cancel">Cancel</button>' : '') +
         ((buyer() || admin()) && x.status === 'Approved' && x.lines.some(l => l.left > 0) ? '<button type="button" class="link rq-close">Close</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="9" class="empty">No requirement here.</td></tr>') + '</tbody></table></div>';
   }
@@ -183,6 +183,7 @@
         ((x.approvals || []).length ? '<p class="sub2" style="margin:6px 0 0">' + x.approvals.map(a => 'Level ' + a.level + ': ' + (a.ok ? 'approved' : 'rejected') + ' by ' + esc(a.name) + ' on ' + dmy(a.at) + (a.note ? ' – "' + esc(a.note) + '"' : '')).join('<br>') + '</p>' : '') + (x.close_note ? '<p class="sub2">' + esc(x.close_note) + '</p>' : '') + '</td>';
       tr.after(d); return;
     }
+    if (b.classList.contains('rq-print')) return reqPrint(x, RQ.heading);      // (28-10-2026) his Purchase Requisition Form
     if (b.classList.contains('rq-ok')) return busy(b, async () => { await W('reqDecide', { no: x.no, ok: true }); toast('Requirement ' + x.no + ' approved.'); reqLoad(); });
     if (b.classList.contains('rq-no')) {
       const v = await ask('Reject requirement ' + x.no + '?', '<p>Say why (the person who made it sees it):</p><input id="rq_why" maxlength="300" style="width:100%"><p class="mr">का नाकारले ते लिहा.</p>', [{ label: 'Cancel', value: false }, { label: 'Reject', value: true, bad: true }]);
@@ -245,50 +246,110 @@
     const keepB = B; B = Object.assign({}, B, { items: it.items, names: Object.assign({}, (B || {}).names, { vendors: it.vendors }) }); lists();
     const ticked = po ? [] : [...document.querySelectorAll('.pu-tick:checked')].filter(x => x.dataset.site === site);
     const st = PU.sites.find(s => s.site === site) || { reqs: [] };
-    const rows = po ? po.lines.map(l => Object.assign({ fixedItem: !!l.req_no }, l)) : ticked.map(t => { const r = st.reqs.find(q => q.no === Number(t.dataset.req)), l = r.lines.find(z => z.line === Number(t.dataset.line)); const i = it.items.find(z => z.code === l.code) || {};
-      return { code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: '', gst_pct: i.gst_pct === null || i.gst_pct === undefined ? '' : i.gst_pct, req_no: r.no, req_line: l.line, brand: l.brand || '', spec: l.spec || '', fixedItem: true }; });
+    const rows = po ? po.lines.map(l => Object.assign({ fixedItem: !!l.req_no }, l, { disc_pct: l.disc_pct || '', hsn: l.hsn || '' })) : ticked.map(t => { const r = st.reqs.find(q => q.no === Number(t.dataset.req)), l = r.lines.find(z => z.line === Number(t.dataset.line)); const i = it.items.find(z => z.code === l.code) || {};
+      return { code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: '', disc_pct: '', hsn: i.hsn || '', gst_pct: i.gst_pct === null || i.gst_pct === undefined ? '' : i.gst_pct, req_no: r.no, req_line: l.line, brand: l.brand || '', spec: l.spec || '', fixedItem: true }; });
     f.innerHTML = '<h2>' + (po ? 'Change PO ' + po.no : 'New purchase order') + ' – ' + esc(site) + '</h2><div class="grid" style="margin-top:10px">' +
       field('pu_date', 'PO date *', inp('pu_date', po ? po.date : today(), ' type="date"')) + field('pu_ven', 'Vendor (supplier) *', inp('pu_ven', po ? po.vendor : '', ' list="dl_wvendors" maxlength="80" autocomplete="off"'), 'wide') +
       field('pu_gst', 'Vendor GST no.', inp('pu_gst', po ? po.vendor_gst : '', ' maxlength="15"')) + field('pu_del', 'Delivery by', inp('pu_del', po ? po.deliver_by : '', ' type="date"')) +
-      field('pu_terms', 'Terms (payment, delivery, …)', inp('pu_terms', po ? po.terms : '', ' maxlength="500"'), 'wide') + field('pu_rem', 'Remark', inp('pu_rem', po ? po.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="pu_lines"></div>' +
+      // (28-10-2026, his format) the PO Details: Credit Period, Site Contact, Shipping Address; Freight, Load / Unload; Terms line by line
+      // (a new PO starts with the site's Shipping Address, Site Contact and Terms of Store Settings)
+      (it.step5 ? field('pu_cr', 'Credit Period (days)', inp('pu_cr', po ? po.credit_days : '', ' inputmode="numeric" placeholder="e.g. 0 or 30"')) + field('pu_sc', 'Site Contact', inp('pu_sc', po ? po.site_contact : (it.papers || {}).site_contact || '', ' maxlength="120" placeholder="Name : mobile"'), 'wide') +
+        field('pu_ship', 'Shipping Address', '<textarea id="pu_ship" rows="2" maxlength="300">' + esc(po ? po.ship_to || '' : (it.papers || {}).ship_to || '') + '</textarea>', 'wide') +
+        field('pu_fr', 'Total Freight Charges ₹', inp('pu_fr', po ? po.freight || '' : '', ' inputmode="decimal"')) + field('pu_lu', 'Total Load / Unload Amount ₹', inp('pu_lu', po ? po.load_unload || '' : '', ' inputmode="decimal"')) : '') +
+      field('pu_terms', 'Terms And Conditions (one a line)', '<textarea id="pu_terms" rows="4" maxlength="3000">' + esc(po ? po.terms || '' : (it.papers || {}).terms || '') + '</textarea>', 'wide') + field('pu_rem', 'Remark', inp('pu_rem', po ? po.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="pu_lines"></div>' +
+      (it.step5 ? '' : '<p class="note2">The Credit Period, Site Contact, Shipping Address, Freight, Load / Unload and the PO\'s approval come after the Store\'s database step 5 (sql/store_step5_po_format.sql) is run at this site.</p>') +
       '<div class="bar"><button type="button" class="btn primary" id="pu_save">Save PO</button><button type="button" class="btn" id="pu_x">Cancel</button></div>';
     $('pu_ven').onchange = () => { const g = (it.gst || {})[val('pu_ven').trim()]; if (g && !val('pu_gst')) $('pu_gst').value = g; };
-    const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }); return '<td colspan="8">Total</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all) + '</td><td></td>'; };
+    const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }); return '<td colspan="10">Total</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all) + '</td><td></td>'; };
     const L = Lines($('pu_lines'), [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'req', h: 'Req', type: 'ro', calc: r => r.req_no ? 'REQ ' + r.req_no : '' }, { k: 'brand', h: 'Brand', type: 'text', w: 130 }, { k: 'spec', h: 'Material specification', type: 'text', w: 200 }, { k: 'qty', h: 'Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') },
-      { k: 'rate', h: 'Rate ₹ *', type: 'num' }, { k: 'gst_pct', h: 'GST %', type: 'num' }, { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).t) : '' }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).g) : '' }, { k: 'ax', h: 'Total', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).all) : '' }],
-      rows, { total: tot, picked: (r, i) => { if (r.gst_pct === '' && i.gst_pct !== null && i.gst_pct !== undefined) r.gst_pct = i.gst_pct; } });
-    const done = () => { f.hidden = true; B = keepB; lists(); };
+      { k: 'rate', h: 'Rate ₹ *', type: 'num' }, { k: 'disc_pct', h: 'Disc. %', type: 'num' }, { k: 'hsn', h: 'HSN', type: 'text', w: 90 }, { k: 'gst_pct', h: 'GST %', type: 'num' }, { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).t) : '' }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).g) : '' }, { k: 'ax', h: 'Total', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).all) : '' }],
+      rows, { total: tot, picked: (r, i) => { if (r.gst_pct === '' && i.gst_pct !== null && i.gst_pct !== undefined) r.gst_pct = i.gst_pct; if (!r.hsn && i.hsn) r.hsn = i.hsn; } });
+    const done = () => { f.hidden = true; B = keepB; if (B) lists(); };      // (28-10-2026) the Purchase page opened straight (B not read yet): no error after Save PO / Cancel, the list comes again
     $('pu_x').onclick = done;
     $('pu_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Pick each item from the list (as it is in the Item Master of ' + site + ').');
       const x = { site: site, no: po ? po.no : undefined, po: { date: val('pu_date'), vendor: val('pu_ven'), vendor_gst: val('pu_gst'), deliver_by: val('pu_del'), terms: val('pu_terms'), remark: val('pu_rem'),
-        lines: lines.map(l => ({ code: l.code, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, req_no: l.req_no || undefined, req_line: l.req_line || undefined, brand: l.brand || '', spec: l.spec || '' })) } };
+        credit_days: val('pu_cr'), site_contact: val('pu_sc'), ship_to: val('pu_ship'), freight: val('pu_fr'), load_unload: val('pu_lu'),
+        lines: lines.map(l => ({ code: l.code, qty: l.qty, rate: l.rate, disc_pct: l.disc_pct, hsn: l.hsn || '', gst_pct: l.gst_pct, req_no: l.req_no || undefined, req_line: l.req_line || undefined, brand: l.brand || '', spec: l.spec || '' })) } };
       const r = await saveAsk('poSave', x); if (!r) return;
-      toast('PO ' + r.no + ' of ' + r.site + ' saved – ' + money(r.total) + '.'); done(); purLoad();
+      toast('PO ' + r.no + ' of ' + r.site + ' saved – ' + money(r.total) + (r.appr === 'Waiting' ? ' – it waits for its approval.' : '.')); done(); purLoad();
     });
   }
   const poTable = (pos, sites) => '<div class="tw"><table><thead><tr>' + (sites ? '<th>Site</th>' : '') + '<th>PO</th><th>Date</th><th>Vendor</th><th>Items</th><th class="n">Total</th><th>State</th><th></th></tr></thead><tbody>' +
     (pos.map(p => '<tr data-po="' + p.no + '" data-site="' + esc(p.site || '') + '">' + (sites ? '<td>' + esc(p.site) + '</td>' : '') + '<td><b>' + p.no + '</b></td><td>' + dmy(p.date) + '</td><td>' + esc(p.vendor) + '</td><td style="white-space:normal">' +
-      p.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (l.received ? ' <small>(came ' + n2(l.received) + ')</small>' : '')).join('<br>') + '</td><td class="n">' + money(p.total) + '</td><td>' + stateTag(p.state) + '</td><td><div class="acts"><button type="button" class="link po-print">Print</button>' +
+      p.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (l.received ? ' <small>(came ' + n2(l.received) + ')</small>' : '')).join('<br>') + '</td><td class="n">' + money(p.total) + '</td><td>' + stateTag(p.state) + apprTag(p) + '</td><td><div class="acts">' +
+      (p.mayApprove ? '<button type="button" class="btn small primary po-ok">Approve</button><button type="button" class="btn small bad po-no">Reject</button>' : '') + '<button type="button" class="link po-print">Print</button>' +
       (buyer() && p.status === 'Open' && sites ? '<button type="button" class="link po-edit">Change</button>' : '') + (buyer() && p.status === 'Open' && !p.lines.some(l => l.received > 0) ? '<button type="button" class="link del po-cancel">Cancel</button>' : '') +
       ((buyer() || admin()) && p.status === 'Open' && p.state !== 'Received' ? '<button type="button" class="link po-close">Close</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="8" class="empty">No purchase order.</td></tr>') + '</tbody></table></div>';
+  // (28-10-2026) a PO's approval: waiting (for whom), rejected (why), approved (by whom)
+  const apprTag = p => p.status !== 'Open' || !p.appr ? '' : p.appr === 'Waiting' ? '<br>' + tag('Waiting approval', 'warn') + (p.waitFor && p.waitFor.length ? '<small> ' + esc(p.waitFor.join(', ')) + '</small>' : '')
+    : p.appr === 'Rejected' ? '<br>' + tag('Rejected', 'bad') + (p.appr_note ? '<small> "' + esc(p.appr_note) + '" – ' + esc(p.appr_name || '') + '</small>' : '') : p.appr_name ? '<br><small>Approved by ' + esc(p.appr_name) + '</small>' : '';
   async function poClick(e, list, reload) {
     const b = e.target.closest('button'), tr = e.target.closest('tr[data-po]'); if (!b || !tr) return;
     const p = list.find(z => z.no === Number(tr.dataset.po) && (z.site || '') === tr.dataset.site); if (!p) return;
     const site = p.site || undefined;
-    if (b.classList.contains('po-print')) return busy(b, async () => { const r = await W('poGet', { site: site, no: p.no }); poPrint(r.po, r.heading); });
+    if (b.classList.contains('po-print')) return busy(b, async () => { const r = await W('poGet', { site: site, no: p.no }); poPrint(r.po, r.heading, r.supplier); });
+    if (b.classList.contains('po-ok')) return busy(b, async () => { await W('poDecide', { no: p.no, ok: true }); toast('PO ' + p.no + ' approved.'); reload(); });
+    if (b.classList.contains('po-no')) {
+      const v = await ask('Reject PO ' + p.no + '?', '<p>Say why (the one who made it sees it and changes it):</p><input id="po_why" maxlength="300" style="width:100%"><p class="mr">का नाकारले ते लिहा.</p>', [{ label: 'Cancel', value: false }, { label: 'Reject', value: true, bad: true }]);
+      if (!v) return; const why = (document.getElementById('po_why') || {}).value || '';
+      return busy(b, async () => { await W('poDecide', { no: p.no, ok: false, note: why }); toast('PO ' + p.no + ' rejected.'); reload(); });
+    }
     if (b.classList.contains('po-edit')) return purForm(p.site, p);
     if (b.classList.contains('po-cancel')) { if (!await ask('Cancel PO ' + p.no + '?', '<p>Nothing of it has come – it is cancelled.</p>', [{ label: 'No', value: false }, { label: 'Cancel the PO', value: true, bad: true }])) return; return busy(b, async () => { await W('poCancel', { site: site, no: p.no }); toast('PO ' + p.no + ' cancelled.'); reload(); }); }
     if (b.classList.contains('po-close')) { if (!await ask('Close PO ' + p.no + '?', '<p>The rest of it will not come.</p>', [{ label: 'No', value: false }, { label: 'Close', value: true, primary: true }])) return; return busy(b, async () => { await W('poClose', { site: site, no: p.no }); toast('PO ' + p.no + ' closed.'); reload(); }); }
   }
-  function poPrint(p, h) {
+  /* (28-10-2026) THE COMPANY'S OWN PAPERS – his formats: "DIESEL PURCHASE ORDER – NEW POPULAR SERVICE STATION" (the Purchase Order) and
+   * "REQUIREMENT OF EXHAUST FANS" (the Purchase Requisition Form): the logo and the company's details on top, the boxes and columns as
+   * there. The company's name, address, GST, PAN and logo from the site's company; its e-mail, contact, CIN and web from Store Settings. */
+  const RLOGO = 'https://i.ibb.co/CpSfBqXX/RCL-LOGO-PDF.png';      // (the Rachana logo of the menu – its words cut out of the big picture)
+  const logoOf = h => h.logo ? '<img src="' + esc(h.logo) + '" alt="" style="max-height:70px;max-width:100%">'
+    : /rachana/i.test(h.company || '') ? '<span class="plogo"><img src="' + RLOGO + '" alt="' + esc(h.company) + '"></span>' : '<b style="font-size:22px">' + esc(h.company || '') + '</b>';
+  const PCSS = '<style>.fm{font:11px Arial,sans-serif}.fm table{border-collapse:collapse;width:100%}.fm td,.fm th{border:1px solid #000;padding:2px 5px;vertical-align:top}.fm .nb td{border:0;padding:1px 3px}' +
+    '.fm .plogo{position:relative;overflow:hidden;display:inline-block;width:250px;aspect-ratio:3.724}.fm .plogo img{position:absolute;max-width:none;width:209.2%;left:-54.8%;top:-227.8%;height:auto}' +
+    '.fm .cn{font-size:18px;font-weight:700;text-align:center}.fm .ttl{text-align:center;font-weight:700;font-size:14px}.fm .sh{text-align:center;font-weight:700;border-bottom:1px solid #000;margin:0 -5px 3px;padding-bottom:2px}' +
+    '.fm .r{text-align:right}.fm .c{text-align:center}.fm .sig{display:flex;justify-content:space-between;margin-top:120px;padding:0 40px}.fm .sig div{text-align:center;font-weight:700}.fm .cg{text-align:center;font-weight:700;margin-top:6px}' +
+    '.fm ol{margin:4px 0 0 18px;padding:0}.fm li{margin:6px 0}.fm .s2{margin-top:90px;display:flex;justify-content:space-between;padding:0 10px}.fm .s2 div{text-align:center;min-width:150px}.fm .s2 span{display:block;border-top:1px solid #000;margin-top:2px}</style>';
+  const kv = rows => '<table class="nb">' + rows.map(r => '<tr><td style="width:' + (r[2] || 95) + 'px">' + esc(r[0]) + '</td><td style="width:10px">-</td><td>' + (r[1] || '') + '</td></tr>').join('') + '</table>';
+  const nl = t => esc(t || '').replace(/\n/g, '<br>');
+  function poPrint(p, h, sup) {
+    h = h || {}; sup = sup || {};
+    const n2f = v => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const head = '<table><tr><td style="width:50%;text-align:center;vertical-align:middle;border-right:0">' + logoOf(h) + '</td><td style="border-left:1px solid #000"><div class="cn">' + esc(h.company || '') + '</div>' +
+      '<div class="c">' + nl(h.address) + '</div><table class="nb">' +
+      '<tr><td><b>Email ID.</b> : ' + esc(h.email || '') + '</td><td><b>Contact</b> : ' + esc(h.phone || '') + '</td></tr><tr><td><b>CIN No</b> : ' + esc(h.cin || '') + '</td><td><b>Web</b> : ' + esc(h.web || '') + '</td></tr>' +
+      '<tr><td><b>GST No</b> : ' + esc(h.gstin || '') + '</td><td><b>PAN No</b> : ' + esc(h.pan || '') + '</td></tr></table></td></tr><tr><td colspan="2" class="ttl">Purchase Order</td></tr>' +
+      '<tr><td style="width:50%"><div class="sh">Supplier Details</div>' + kv([['Name', '<b>' + esc(sup.name || p.vendor) + '</b>'], ['Address', nl(sup.address)], ['Mobile No.', esc(sup.mobile)], ['E-mail', esc(sup.email)], ['Contact Person', esc(sup.contact)], ['GSTIN No', esc(sup.gstin || p.vendor_gst || '')]]) + '</td>' +
+      '<td><div class="sh">PO Details</div>' + kv([['PO No.', '<b>' + esc(p.ref || p.no) + '</b>'], ['PO Date', dmy(p.date)], ['Credit Period', p.credit_days === null || p.credit_days === undefined ? '' : p.credit_days + ' Days'], ['Project Name', esc(h.site || p.site || '')], ['Site Contact', esc(p.site_contact || '')]].concat(p.deliver_by ? [['Delivery by', dmy(p.deliver_by)]] : [])) +
+      '<div class="sh" style="border-top:1px solid #000;padding-top:2px;margin-top:3px">Shipping Address</div>' + nl(p.ship_to) + '</td></tr></table>';
+    const lines = p.lines.map((l, i) => '<tr><td class="c">' + (i + 1) + '</td><td>' + esc(l.name + (l.spec ? ' - ' + l.spec : '')) + '</td><td class="c">' + esc(l.brand || '-') + '</td><td class="c">' + esc(l.hsn || '') + '</td><td class="r">' + n2f(l.gst_pct) +
+      '</td><td class="r">' + Number(l.qty).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 3 }) + '</td><td class="c">' + esc(l.unit) + '</td><td class="r">' + n2f(l.rate) + '</td><td class="r">' + n2f(l.disc_pct) + '</td><td class="r">' + n2f(l.taxable) + '</td></tr>').join('');
+    const disc = p.lines.reduce((a, l) => a + Number(l.disc || 0), 0), gross = p.lines.reduce((a, l) => a + Number(l.taxable || 0), 0), gst = Number(p.gst || 0);
+    const row = (t, v, b) => '<tr><td colspan="9"><b>' + t + '</b></td><td class="r">' + (b ? '<b>' + n2f(v) + '</b>' : n2f(v)) + '</td></tr>';
+    const items = '<table style="margin-top:6px"><thead><tr><th>S.N.</th><th>Item Description- Specification</th><th>Brand</th><th>HSN</th><th>GST %</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Disc. %</th><th>Amount</th></tr></thead><tbody>' + lines +
+      row('Total Disc. Amount', disc) + row('Gross Amount', gross) + (gst > 0 ? row('Total GST Amount', gst) : '') + '<tr><td colspan="10" style="height:22px"></td></tr>' +
+      row('Total Freight Charges', p.freight || 0) + row('Total Load / Unload Amount', p.load_unload || 0) + row('TOTAL AMOUNT (Rs.)', p.total, true) +
+      '<tr><td colspan="2"><b>Amount in word :</b></td><td colspan="8"><b>' + esc(p.words || '') + '</b></td></tr></tbody></table>';
+    const terms = String(p.terms || '').split('\n').map(t => t.trim()).filter(Boolean);
+    const tc = terms.length ? '<p style="margin-top:14px"><b>Terms And Conditions:</b></p>' + (terms.every(t => /^\d+[.)]/.test(t)) ? terms.map(t => '<p style="margin:6px 0">' + esc(t) + '</p>').join('') : '<ol>' + terms.map(t => '<li>' + esc(t) + '</li>').join('') + '</ol>') : '';
+    const ap = p.appr === 'Waiting' ? '(waiting for approval)' : p.appr === 'Rejected' ? '(rejected)' : esc(p.appr_name || '');
+    printHtml('PO ' + (p.ref || p.no), PCSS + '<div class="fm">' + head + items + '<p style="margin-top:8px"><b>Remark:</b> ' + esc(p.remark || '') + '</p>' + tc +
+      '<div class="sig"><div>' + esc(p.created_name || '') + '<br><br>Prepared By</div><div>' + ap + '<br><br>Approved By</div></div><div class="cg">This Purchase Order is computer generated it does not require signature.</div></div>');
+  }
+  // the Purchase Requisition Form of a requirement: Prepared By – who made it; Checked By – the levels before the last; Approved By – the last
+  function reqPrint(x, h) {
     h = h || {};
-    printHtml('PO ' + p.no, '<div class="hd"><div><h1>' + esc(h.company || 'Purchase Order') + '</h1><div class="muted">' + esc(h.address || '') + (h.gstin ? '<br>GSTIN ' + esc(h.gstin) : '') + '</div></div><div style="text-align:right"><h1>PURCHASE ORDER</h1>PO No <b>' + p.no + '</b> · ' + dmy(p.date) + '<br>Site: ' + esc(h.site || p.site || '') + '</div></div>' +
-      '<p><b>To:</b> ' + esc(p.vendor) + (p.vendor_gst ? ' · GSTIN ' + esc(p.vendor_gst) : '') + (p.deliver_by ? '<br><b>Delivery by:</b> ' + dmy(p.deliver_by) : '') + '</p>' +
-      '<table><thead><tr><th>#</th><th>Item</th><th>Brand</th><th>Material specification</th><th class="n">Qty</th><th>Unit</th><th class="n">Rate ₹</th><th class="n">Taxable ₹</th><th class="n">GST %</th><th class="n">GST ₹</th><th class="n">Total ₹</th></tr></thead><tbody>' +
-      p.lines.map((l, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(l.name) + '</td><td>' + esc(l.brand || '') + '</td><td>' + esc(l.spec || '') + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td><td class="n">' + n2(l.rate) + '</td><td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.total) + '</td></tr>').join('') +
-      '<tr><td colspan="7"><b>Total</b></td><td class="n"><b>' + n2(p.taxable) + '</b></td><td></td><td class="n"><b>' + n2(p.gst) + '</b></td><td class="n"><b>' + n2(p.total) + '</b></td></tr></tbody></table>' +
-      (p.terms ? '<p><b>Terms:</b> ' + esc(p.terms) + '</p>' : '') + (p.remark ? '<p>' + esc(p.remark) + '</p>' : '') + '<div class="sign"><div>Prepared by: ' + esc(p.created_name || '') + '</div><div>Authorised signatory</div></div>');
+    const ok = (x.approvals || []).filter(a => a.ok), last = x.status === 'Approved' || x.status === 'Closed' ? ok[ok.length - 1] : null, checked = (last ? ok.slice(0, -1) : ok).map(a => a.name).join(', ');
+    const appr = last ? last.name : x.status === 'Pending' ? '(waiting – level ' + x.level + ')' : x.status === 'Rejected' ? '(rejected)' : '';
+    const head = '<table><tr><td style="width:55%;text-align:center;vertical-align:middle" rowspan="2">' + logoOf(h) + '</td><td class="cn" style="font-size:26px;font-weight:400;height:70px;vertical-align:middle">' + esc(h.company || '') + '</td></tr>' +
+      '<tr><td class="c" style="font-size:16px">Purchase Requisition Form</td></tr></table>' +
+      '<table class="nb" style="border:1px solid #000;border-top:0"><tr><td style="width:15%">Project Name :</td><td style="width:45%">' + esc(h.site || '') + '</td><td style="width:15%">Sub Project :</td><td>' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + '</td></tr>' +
+      '<tr><td>Indent No. :</td><td>' + esc(x.ref || x.no) + '</td><td>Date :</td><td>' + dmy(x.date).replace(/-/g, '/') + '</td></tr></table>';
+    const items = '<table><thead><tr><th>Sr No</th><th>Item Code</th><th>Item Description</th><th>Item Specification</th><th>Unit</th><th>Quantity</th><th>Required Date</th></tr></thead><tbody>' +
+      x.lines.map((l, i) => '<tr><td class="c">' + (i + 1) + '</td><td class="c">' + esc(l.code) + '</td><td>' + esc(l.name) + '</td><td>' + esc([l.brand ? 'Brand: ' + l.brand : '', l.spec || '', l.note || ''].filter(Boolean).join(' · ')) + '</td><td class="c">' + esc(l.unit) +
+        '</td><td class="r">' + Number(l.qty).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 3 }) + '</td><td class="c">' + dmy(x.need_by || x.date).replace(/-/g, '/') + '</td></tr>').join('') + '</tbody></table>';
+    printHtml('Requirement ' + (x.ref || x.no), PCSS + '<div class="fm" style="border:1px solid #000;min-height:260mm;padding:0">' + head + items + '<p style="margin:6px">Remark:' + esc(x.remark || '') + '</p>' +
+      '<div class="s2"><div>' + esc(x.created_name || '') + '<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div></div></div>');
   }
 
   /* ====================== PURCHASE ORDERS OF THIS SITE ====================== */
@@ -774,7 +835,11 @@
     const el = $('pg_settings');
     el.innerHTML = '<section class="panel"><h2>Opening stock</h2><p class="muted" style="margin:0">The stock of each item when the Store starts here (as on a date) and its rate. Change a row and Save; 0 takes it out. Or import an Excel (Item, Qty, Rate, Date).</p>' +
       '<div class="bar">' + field('op_date', 'As on (for new rows)', inp('op_date', monthStart(), ' type="date"')) + field('op_q', 'Search', inp('op_q', '', ' placeholder="Item, code, category"'), 'grow') + '<button type="button" class="btn primary" id="op_save">Save the changed rows</button><button type="button" class="btn" id="op_imp">Import from Excel</button><button type="button" class="btn small" id="op_tpl">Import format</button><input type="file" id="op_file" accept=".xlsx,.xls,.csv" hidden></div><div id="op_list"></div></section>' +
-      '<section class="panel"><h2>Numbers</h2><p class="muted" style="margin:0">Where the GRN and Outward numbers go on from (e.g. after the old register\'s last number). Only higher than the last one used.</p><div class="bar" id="nm_bar"></div></section>';
+      '<section class="panel"><h2>Numbers</h2><p class="muted" style="margin:0">Where the GRN and Outward numbers go on from (e.g. after the old register\'s last number). Only higher than the last one used.</p><div class="bar" id="nm_bar"></div></section>' +
+      // (28-10-2026, his formats) the papers: the numbers' prefix (RCL/VTR → RCL/VTR/PO/2026/0128, RCL/VTR/PR/2026/0232), the heading's
+      // e-mail, contact, CIN, web; what a new PO starts with – its Shipping Address, Site Contact, Terms And Conditions
+      '<section class="panel"><h2>Papers – Purchase Order and Requirement</h2><p class="muted" style="margin:0">Printed on the PO and the Purchase Requisition Form of this site. The company\'s name, address, GST, PAN and logo come from the site\'s company (Portal).</p><div class="grid" id="pp_box" style="margin-top:10px"></div>' +
+      '<div class="bar"><button type="button" class="btn primary" id="pp_save">Save the papers</button></div></section>';
     await boot();
     let rows = [], have = {};
     const draw = () => { const q = val('op_q').toLowerCase();
@@ -804,7 +869,16 @@
     const nums = async () => { const n = await W('numbers');
       $('nm_bar').innerHTML = field('nm_grn', 'Next GRN No (last used ' + n.used.GRN + ')', inp('nm_grn', n.next.GRN, ' inputmode="numeric"')) + field('nm_out', 'Next Outward No (last used ' + n.used.OUT + ')', inp('nm_out', n.next.OUT, ' inputmode="numeric"')) + '<button type="button" class="btn" id="nm_save">Save the numbers</button>';
       $('nm_save').onclick = e => busy(e.target, async () => { const r = await W('numbersSave', { GRN: val('nm_grn'), OUT: val('nm_out') }); toast('Next GRN ' + r.next.GRN + ', next Outward ' + r.next.OUT + '.'); nums(); }); };
-    try { await load(); await nums(); } catch (e) { failed(e); }
+    const papers = n => { const pp = n.papers || {}, ta = (id, v) => '<textarea id="' + id + '" rows="3">' + esc(v || '') + '</textarea>';
+      $('pp_box').innerHTML = field('pp_prefix', 'Numbers start with', inp('pp_prefix', pp.prefix || '', ' maxlength="30" placeholder="' + esc(n.prefixNow || 'RCL/VTR') + '"')) + field('pp_email', 'Email ID', inp('pp_email', pp.email || '', ' maxlength="80"')) +
+        field('pp_phone', 'Contact', inp('pp_phone', pp.phone || '', ' maxlength="60"')) + field('pp_cin', 'CIN No', inp('pp_cin', pp.cin || '', ' maxlength="30"')) + field('pp_web', 'Web', inp('pp_web', pp.web || '', ' maxlength="80"')) +
+        field('pp_sc', 'Site Contact (a new PO)', inp('pp_sc', pp.site_contact || '', ' maxlength="120" placeholder="Name : mobile"')) + field('pp_ship', 'Shipping Address (a new PO)', ta('pp_ship', pp.ship_to), 'wide') +
+        field('pp_terms', 'Terms And Conditions (a new PO – one a line)', ta('pp_terms', pp.terms), 'wide') +
+        '<p class="muted wide" style="margin:0">PO No: <b>' + esc((pp.prefix || n.prefixNow || '') + '/PO/' + today().slice(0, 4) + '/0001') + '</b> · Indent No: <b>' + esc((pp.prefix || n.prefixNow || '') + '/PR/' + today().slice(0, 4) + '/0001') + '</b>' +
+        (n.step5 ? '' : ' · <b>The PO\'s Credit Period, Site Contact, Shipping Address, Freight, Load / Unload and its approval need the Store\'s step 5 (sql/store_step5_po_format.sql) at this site.</b>') + '</p>';
+      $('pp_save').onclick = e => busy(e.target, async () => { const r = await W('papersSave', { prefix: val('pp_prefix'), email: val('pp_email'), phone: val('pp_phone'), cin: val('pp_cin'), web: val('pp_web'), site_contact: val('pp_sc'), ship_to: val('pp_ship'), terms: val('pp_terms') });
+        toast('The papers are saved.'); papers(r); }); };
+    try { await load(); await nums(); papers(await W('numbers')); } catch (e) { failed(e); }
   }
 
   /* ====================== THE DASHBOARD'S WORK PART ====================== */
