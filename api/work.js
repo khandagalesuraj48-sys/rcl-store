@@ -102,6 +102,21 @@ function said(e, items) {
   if (/^STORE_GONE/.test(m)) throw gone('This paper');
   throw fail(409, m, 'rule');
 }
+// (28-10-2026, step 4) the number the next new GRN gets: the next of the numbers, past any taken (as a number or as a GRN No)
+async function nextGrn(site) {
+  const n0 = Number((((await db(site, 'GET', 'store_numbers?select=next_no&kind=eq.GRN')) || [])[0] || {}).next_no || 1);
+  for (let n = n0; ; n += 300) {
+    const ns = Array.from({ length: 300 }, (_, i) => n + i), used = new Set();
+    ((await db(site, 'GET', 'store_grn?select=no,ref&or=(and(no.gte.' + n + ',no.lt.' + (n + 300) + '),ref.in.(' + ns.join(',') + '))')) || []).forEach(g => { used.add(String(g.no)); if (g.ref) used.add(String(g.ref)); });
+    const f = ns.find(x => !used.has(String(x))); if (f) return f;
+  }
+}
+// is the Store's step 4 (a GRN No typed by hand) in this site's database? – its function answers "no lines" to an empty GRN, nothing saved
+async function step4On(site) {
+  try { await rpc(site, 'store_grn_new', { p_head: {}, p_lines: [], p_ref: null, p_by: '', p_name: '' }); return true; }
+  catch (e) { if (e && e.code === 'rule' && /STORE_NO_LINES/.test(String(e.message))) return true; if (e && (e.code === 'notinstalled' || /store_grn_new|PGRST202|42883/i.test(String(e.message)))) return false; throw e; }
+}
+const STEP4 = 'A GRN No typed by hand needs the Store\'s database step 4 at this site: the Admin runs sql/store_step4_grn_no.sql once in Supabase → SQL Editor (in every site). Until then the GRN gets the next number by itself – leave its GRN No as it comes.';
 const byNo = (a, b) => b.no - a.no;
 const sortLines = l => (l || []).slice().sort((a, b) => a.line - b.line);
 // ordered so far of each requirement line (POs not cancelled): 'req:line' → qty
@@ -333,6 +348,12 @@ const ACTIONS = {
     const pos = await dbAll(s.site, 'store_po?select=*&status=eq.Open', 'no'), rec = await receivedOf(s.site, pos.map(p => p.no));
     return { pos: pos.sort(byNo).map(p => poView(p, rec)).filter(p => p.state !== 'Received') };
   },
+  // (28-10-2026) the new GRN's form: the next GRN No (it can be changed by hand where step 4 is run)
+  async grnNext(s) {
+    need(s, 'grn', 'Edit');
+    const [next, on] = await Promise.all([nextGrn(s.site), step4On(s.site)]);
+    return { next: next, step4: on };
+  },
   async grnSave(s, x) {
     const no = x.no ? noOf(x.no) : null;
     if (no) adminOnly(s, 'change a GRN'); else need(s, 'grn', 'Edit');
@@ -351,10 +372,20 @@ const ACTIONS = {
       g.lines.filter(l => l.po_line).forEach(l => { const pl = (po.lines || []).find(z => Number(z.line) === l.po_line), left = r3(num(pl.qty) - num(rec[poNo + ':' + l.po_line])); if (l.qty > left + 0.0005) over.push(l.name + ': ' + l.qty + ' ' + l.unit + ' (PO still has ' + Math.max(0, left) + ')'); });
       if (over.length) throw fail(409, 'More than PO ' + poNo + ' still has to come – ' + over.join('; ') + '. Take it in anyway?', 'over', { over: over });
     }
-    const n = await rpc(s.site, 'store_grn_put', { p_no: no, p_head: g.head, p_lines: g.lines, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
+    let n;
+    if (!no && g.head.ref) {      // (step 4) a new GRN with its GRN No: saved with it in one go – a number already used is refused
+      n = await rpc(s.site, 'store_grn_new', { p_head: g.head, p_lines: g.lines, p_ref: g.head.ref, p_by: s.email, p_name: s.name }).catch(async e => {
+        if (e && (e.code === 'notinstalled' || /store_grn_new|PGRST202|42883/i.test(String(e.message)))) {      // no step 4 here: only the number as it came
+          if (g.head.ref === String(await nextGrn(s.site))) return rpc(s.site, 'store_grn_put', { p_no: null, p_head: g.head, p_lines: g.lines, p_by: s.email, p_name: s.name }).catch(e2 => said(e2, items));
+          throw fail(400, STEP4, 'sql');
+        }
+        if (e && e.code === 'rule' && /^STORE_REF_USED/.test(String(e.message))) { const nx = await nextGrn(s.site); throw fail(409, 'GRN No ' + g.head.ref + ' is already used by another GRN – the next free number is ' + nx + '. Nothing was saved.', 'refused', { next: nx }); }
+        return said(e, items);
+      });
+    } else n = await rpc(s.site, 'store_grn_put', { p_no: no, p_head: g.head, p_lines: g.lines, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
     changed(s.site);
-    await activity(s.site, s.email, no ? 'GRN changed' : 'GRN made', 'GRN ' + n, { supplier: g.head.supplier, gross: g.head.gross, lines: g.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), po: poNo || undefined });
-    return { ok: true, no: Number(n), gross: g.head.gross };
+    await activity(s.site, s.email, no ? 'GRN changed' : 'GRN made', 'GRN ' + (!no && g.head.ref ? g.head.ref : n), { supplier: g.head.supplier, gross: g.head.gross, lines: g.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), po: poNo || undefined });
+    return { ok: true, no: Number(n), ref: !no && g.head.ref ? g.head.ref : String(n), gross: g.head.gross };
   },
   async grnDelete(s, x) {
     adminOnly(s, 'delete a GRN');

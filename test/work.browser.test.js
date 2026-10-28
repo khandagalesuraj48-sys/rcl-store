@@ -53,12 +53,13 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     const V = await as('view@rcl.test', 'Audit#PassView9!x', 'S1', 'req');
     await V.click('#rq_new'); await wait(400);
     await set(V, 'rq_for', 'Ch 545+417 toe wall');
-    await line(V, 'rq_lines', 0, 'item', label(CEM)); await line(V, 'rq_lines', 0, 'qty', '75');
+    await line(V, 'rq_lines', 0, 'item', label(CEM)); await line(V, 'rq_lines', 0, 'qty', '75'); await line(V, 'rq_lines', 0, 'brand', 'ACC'); await line(V, 'rq_lines', 0, 'spec', 'PPC, 50 kg bag');
     await line(V, 'rq_lines', 1, 'item', label(OIL)); await line(V, 'rq_lines', 1, 'qty', '4');
     await shot(V, 'work_req_form');
     await V.click('#rq_save'); await wait(1500);
     const t1 = await toast(V), rqn = Number(sql('rcl', 'select max(no) from store_req'));
     ok('view makes a requirement from the form (2 items): saved, it waits for Level 1', /Requirement \d+ saved – it waits for Level 1/.test(t1) && sql('rcl', 'select status || level || jsonb_array_length(lines) from store_req where no = ' + rqn) === 'Pending12', t1);
+    ok('   (28-10-2026) the form\'s Brand and Material specification of a line: kept', sql('rcl', "select (lines->0->>'brand') || '|' || (lines->0->>'spec') from store_req where no = " + rqn) === 'ACC|PPC, 50 kg bag', sql('rcl', 'select lines from store_req where no = ' + rqn));
     await K.click('#grp_store [data-page="req"]'); await wait(1500);
     await K.evaluate(() => [...document.querySelectorAll('#rq_chips .chip')].find(c => c.dataset.f === 'mine').click()); await wait(400);
     st = await K.evaluate(n => ({ badge: document.getElementById('nb_req').textContent, row: !!document.querySelector('#rq_list tr[data-no="' + n + '"] .rq-ok') }), rqn);
@@ -72,10 +73,12 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     // (28-10-2026, his picture) the form in two cards: GRN Details (Clear and the GRN Date at its top right), Items (+ Add Row, a bin on each row)
     st = await K.evaluate(() => ({ heads: [...document.querySelectorAll('#gr_form .gcard h3')].map(h => h.textContent), date: !!document.querySelector('#gr_form .ghead .gact #gr_date'), clear: !!document.querySelector('#gr_form .ghead #gr_clr'),
       grid: [...document.querySelectorAll('#gr_form .ggrid label')].map(l => l.textContent), rem: (document.getElementById('gr_rem') || {}).tagName, add: !!document.querySelector('#gr_form #gr_add'), rows: document.querySelectorAll('#gr_lines tbody tr[data-i]').length,
-      th: [...document.querySelectorAll('#gr_lines thead th')].map(t => t.textContent), bins: document.querySelectorAll('#gr_lines .binb').length, ph: (document.querySelector('#gr_lines [data-k="item"]') || {}).placeholder }));
+      th: [...document.querySelectorAll('#gr_lines thead th')].map(t => t.textContent), bins: document.querySelectorAll('#gr_lines .binb').length, ph: (document.querySelector('#gr_lines [data-k="item"]') || {}).placeholder,
+      ref: (document.getElementById('gr_ref') || {}).value, refAt: !!document.querySelector('#gr_form .ghead .gact #gr_ref') }));
     ok('the GRN form of his picture: GRN Details (Clear, GRN Date at the top right; PO / Supplier / Challan No; Invoice No / Invoice Date / Vehicle No / TCS; the Remark box), Items (+ Add Row; one row, its bin; "Search item…")',
       JSON.stringify(st.heads) === '["GRN Details","Items"]' && st.date && st.clear && JSON.stringify(st.grid) === JSON.stringify(['Against PO', 'Supplier *', 'Challan No', 'Invoice No', 'Invoice Date', 'Vehicle No', 'TCS ₹']) && st.rem === 'TEXTAREA' && st.add && st.rows === 1 && st.bins === 1 && st.ph === 'Search item…' &&
       JSON.stringify(st.th) === JSON.stringify(['#', 'Item *', 'Received Qty *', 'Unit', 'Basic Rate ₹', 'GST %', 'Taxable', 'GST', 'Gross', 'Remark', 'Action']), st);
+    ok('   (28-10-2026) its GRN No at the top right: the next number by itself (' + st.ref + ')', st.refAt && /^\d+$/.test(st.ref || ''), st);
     await set(K, 'gr_sup', 'Shree Auto Spares'); await set(K, 'gr_inv', 'SA-77'); await set(K, 'gr_veh', 'mh12 xy 4455');
     await line(K, 'gr_lines', 0, 'item', label(OIL)); await line(K, 'gr_lines', 0, 'qty', '6'); await line(K, 'gr_lines', 0, 'rate', '335');
     await K.click('#gr_add'); await wait(300);

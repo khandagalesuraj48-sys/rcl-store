@@ -11,6 +11,7 @@
   let B = null;      // what the pages need (the items, the stock, the machinery, the names typed before, who approves)
   const n2 = v => v === '' || v === null || v === undefined ? '' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 });
   const money = v => '₹' + Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const a2 = v => v === '' || v === null || v === undefined ? '' : Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });      // (an amount in a list: 2 decimals)
   const dmy = d => d ? String(d).slice(0, 10).split('-').reverse().join('-') : '';
   const r2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
   const today = () => (B && B.today) || new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
@@ -32,6 +33,8 @@
   // an item typed or picked: its code ("ITM-0001 · …" or the name as it is in the Item Master)
   function codeOf(v) { const m = /^\s*(ITM-\d+)/i.exec(String(v || '')); if (m) return m[1].toUpperCase(); const k = keyOf(v); const it = k && (B.items || []).find(i => keyOf(i.name) === k); return it ? it.code : ''; }
   const stockOf = c => (B.stock || {})[c] || 0;
+  // (28-10-2026) a line's Brand and Material specification, small after the item
+  const bsOf = l => (l.brand || l.spec ? ' <small>' + esc([l.brand, l.spec].filter(Boolean).join(' · ')) + '</small>' : '');
   const tag = (t, cls) => '<span class="tag' + (cls ? ' ' + cls : '') + '">' + esc(t) + '</span>';
   const stateTag = s => tag(s, /^(Approved|Received|Open)$/.test(s) ? '' : /Pending|Part/.test(s) ? 'warn' : /Rejected|Cancelled/.test(s) ? 'bad' : 'off');
   const field = (id, lbl, html, cls) => '<div class="field' + (cls ? ' ' + cls : '') + '"><label for="' + id + '">' + esc(lbl) + '</label>' + html + '</div>';
@@ -161,7 +164,7 @@
     $('rq_bulk').hidden = !rows.some(x => x.mayApprove);
     $('rq_list').innerHTML = '<div class="tw"><table><thead><tr><th></th><th>No</th><th>Date</th><th>Needed by</th><th>For</th><th>Items</th><th>State</th><th>Asked by</th><th></th></tr></thead><tbody>' +
       (rows.map(x => '<tr data-no="' + x.no + '"><td>' + (x.mayApprove ? '<input type="checkbox" class="rq-tick" value="' + x.no + '" style="width:auto;min-height:0">' : '') + '</td><td><b>' + x.no + '</b></td><td>' + dmy(x.date) + '</td><td>' + dmy(x.need_by) + '</td><td style="white-space:normal">' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + '</td>' +
-        '<td style="white-space:normal">' + x.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + (x.status === 'Approved' && l.left < l.qty ? ' <small>(ordered ' + n2(l.ordered) + ')</small>' : '')).join('<br>') + '</td>' +
+        '<td style="white-space:normal">' + x.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (x.status === 'Approved' && l.left < l.qty ? ' <small>(ordered ' + n2(l.ordered) + ')</small>' : '')).join('<br>') + '</td>' +
         '<td>' + stateTag(x.status) + (x.status === 'Pending' ? '<small>Level ' + x.level + (x.waitFor.length ? ' – ' + esc(x.waitFor.join(', ')) : '') + '</small>' : '') + '</td><td><small>' + esc(x.created_name || x.created_by || '') + '</small></td>' +
         '<td><div class="acts">' + (x.mayApprove ? '<button type="button" class="btn small primary rq-ok">Approve</button><button type="button" class="btn small bad rq-no">Reject</button>' : '') +
         '<button type="button" class="link rq-det">Details</button>' + ((x.mine || admin()) && x.status === 'Pending' && !(x.approvals || []).length && canEdit('req') ? '<button type="button" class="link rq-edit">Change</button>' : '') +
@@ -175,8 +178,8 @@
     if (b.classList.contains('rq-det')) {
       const nx = tr.nextElementSibling; if (nx && nx.classList.contains('det')) { nx.remove(); return; }
       const d = document.createElement('tr'); d.className = 'det';
-      d.innerHTML = '<td colspan="9"><b>Requirement ' + x.no + '</b>' + (x.remark ? ' – ' + esc(x.remark) : '') + '<table style="margin-top:6px"><thead><tr><th>Item</th><th class="n">Asked</th><th class="n">Ordered</th><th class="n">To order</th><th class="n">Stock now</th><th>Note</th></tr></thead><tbody>' +
-        x.lines.map(l => '<tr><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered || 0) + '</td><td class="n">' + n2(l.left || 0) + '</td><td class="n">' + n2(stockOf(l.code)) + '</td><td>' + esc(l.note || '') + '</td></tr>').join('') + '</tbody></table>' +
+      d.innerHTML = '<td colspan="9"><b>Requirement ' + x.no + '</b>' + (x.remark ? ' – ' + esc(x.remark) : '') + '<table style="margin-top:6px"><thead><tr><th>Item</th><th>Brand</th><th>Material specification</th><th class="n">Asked</th><th class="n">Ordered</th><th class="n">To order</th><th class="n">Stock now</th><th>Note</th></tr></thead><tbody>' +
+        x.lines.map(l => '<tr><td>' + esc(l.name) + '</td><td>' + esc(l.brand || '') + '</td><td style="white-space:normal">' + esc(l.spec || '') + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered || 0) + '</td><td class="n">' + n2(l.left || 0) + '</td><td class="n">' + n2(stockOf(l.code)) + '</td><td>' + esc(l.note || '') + '</td></tr>').join('') + '</tbody></table>' +
         ((x.approvals || []).length ? '<p class="sub2" style="margin:6px 0 0">' + x.approvals.map(a => 'Level ' + a.level + ': ' + (a.ok ? 'approved' : 'rejected') + ' by ' + esc(a.name) + ' on ' + dmy(a.at) + (a.note ? ' – "' + esc(a.note) + '"' : '')).join('<br>') + '</p>' : '') + (x.close_note ? '<p class="sub2">' + esc(x.close_note) + '</p>' : '') + '</td>';
       tr.after(d); return;
     }
@@ -200,12 +203,13 @@
     const which = () => { const k = val('rq_kind'), cur = x ? x.for_text : '';
       $('rq_whichw').innerHTML = k === 'Machinery' ? '<label for="rq_for">Machinery *</label>' + sel('rq_for', [['', 'Pick…']].concat((B.machinery || []).map(m => [m.no, m.no + (m.name ? ' – ' + m.name : '')])), cur) : '<label for="rq_for">' + (k === 'Site work' ? 'Location / work (e.g. Ch 540+450 toe wall)' : 'Which') + '</label>' + inp('rq_for', cur, ' maxlength="120"'); };
     which(); $('rq_kind').onchange = which;
-    const L = Lines($('rq_lines'), [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'qty', h: 'Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc((itemOf(r.code) || {}).unit || '') }, { k: 'stock', h: 'Stock now', type: 'ro', n: true, calc: r => r.code ? n2(stockOf(r.code)) : '' }, { k: 'note', h: 'Note', type: 'text' }],
-      x ? x.lines.map(l => ({ code: l.code, qty: l.qty, note: l.note || '' })) : []);
+    const L = Lines($('rq_lines'), [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'qty', h: 'Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc((itemOf(r.code) || {}).unit || '') }, { k: 'stock', h: 'Stock now', type: 'ro', n: true, calc: r => r.code ? n2(stockOf(r.code)) : '' },
+      { k: 'brand', h: 'Brand', type: 'text', w: 140 }, { k: 'spec', h: 'Material specification', type: 'text', w: 230 }, { k: 'note', h: 'Note', type: 'text' }],
+      x ? x.lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand || '', spec: l.spec || '', note: l.note || '' })) : []);
     $('rq_x').onclick = () => { f.hidden = true; };
     $('rq_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Line ' + (L.rows.indexOf(lines.find(l => !l.code)) + 1) + ': pick the item from the list (as it is in the Item Master).');
-      const r = await W('reqSave', { no: x ? x.no : undefined, req: { date: val('rq_date'), need_by: val('rq_need'), for_kind: val('rq_kind'), for_text: val('rq_for'), remark: val('rq_rem'), lines: lines.map(l => ({ code: l.code, qty: l.qty, note: l.note })) } });
+      const r = await W('reqSave', { no: x ? x.no : undefined, req: { date: val('rq_date'), need_by: val('rq_need'), for_kind: val('rq_kind'), for_text: val('rq_for'), remark: val('rq_rem'), lines: lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) } });
       toast('Requirement ' + r.no + ' saved – ' + (r.status === 'Approved' ? 'approved (no approver set for this site).' : 'it waits for Level ' + r.level + '.'));
       f.hidden = true; reqLoad();
     });
@@ -230,7 +234,7 @@
       const [p, l] = await Promise.all([W('purPending'), W('poList', { all: true })]); PU.sites = p.sites; PU.pos = l.pos;
       $('pu_sites').innerHTML = PU.sites.map(s => '<section class="panel" data-site="' + esc(s.site) + '"><h2>' + esc(s.name) + ' <small class="muted">(' + esc(s.site) + ')</small></h2>' + (s.error ? '<p class="muted">' + esc(s.error) + '</p>' :
         (s.reqs.length ? '<div class="tw" style="margin-top:8px"><table><thead><tr><th></th><th>Req</th><th>Date</th><th>Needed by</th><th>For</th><th>Item</th><th class="n">Asked</th><th class="n">Ordered</th><th class="n">To order</th></tr></thead><tbody>' +
-          s.reqs.map(r => r.lines.filter(l => l.left > 0).map(l => '<tr><td><input type="checkbox" class="pu-tick" data-site="' + esc(s.site) + '" data-req="' + r.no + '" data-line="' + l.line + '" style="width:auto;min-height:0"></td><td>' + r.no + '</td><td>' + dmy(r.date) + '</td><td>' + dmy(r.need_by) + '</td><td style="white-space:normal">' + esc(r.for_kind + (r.for_text ? ' – ' + r.for_text : '')) + '</td><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered) + '</td><td class="n"><b>' + n2(l.left) + '</b></td></tr>').join('')).join('') + '</tbody></table></div>'
+          s.reqs.map(r => r.lines.filter(l => l.left > 0).map(l => '<tr><td><input type="checkbox" class="pu-tick" data-site="' + esc(s.site) + '" data-req="' + r.no + '" data-line="' + l.line + '" style="width:auto;min-height:0"></td><td>' + r.no + '</td><td>' + dmy(r.date) + '</td><td>' + dmy(r.need_by) + '</td><td style="white-space:normal">' + esc(r.for_kind + (r.for_text ? ' – ' + r.for_text : '')) + '</td><td style="white-space:normal">' + esc(l.name) + bsOf(l) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered) + '</td><td class="n"><b>' + n2(l.left) + '</b></td></tr>').join('')).join('') + '</tbody></table></div>'
           : '<p class="muted">Nothing to order.</p>') + '<div class="bar"><button type="button" class="btn primary small" data-mk="' + esc(s.site) + '">Make a PO for ' + esc(s.site) + (s.reqs.length ? ' (the ticked lines)' : '') + '</button>' + (s.open ? '<span class="count">' + s.open + ' PO(s) open</span>' : '') + '</div>') + '</section>').join('');
       $('pu_pos').innerHTML = poTable(PU.pos, true);
     } catch (e) { failed(e); }
@@ -242,15 +246,15 @@
     const ticked = po ? [] : [...document.querySelectorAll('.pu-tick:checked')].filter(x => x.dataset.site === site);
     const st = PU.sites.find(s => s.site === site) || { reqs: [] };
     const rows = po ? po.lines.map(l => Object.assign({ fixedItem: !!l.req_no }, l)) : ticked.map(t => { const r = st.reqs.find(q => q.no === Number(t.dataset.req)), l = r.lines.find(z => z.line === Number(t.dataset.line)); const i = it.items.find(z => z.code === l.code) || {};
-      return { code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: '', gst_pct: i.gst_pct === null || i.gst_pct === undefined ? '' : i.gst_pct, req_no: r.no, req_line: l.line, fixedItem: true }; });
+      return { code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: '', gst_pct: i.gst_pct === null || i.gst_pct === undefined ? '' : i.gst_pct, req_no: r.no, req_line: l.line, brand: l.brand || '', spec: l.spec || '', fixedItem: true }; });
     f.innerHTML = '<h2>' + (po ? 'Change PO ' + po.no : 'New purchase order') + ' – ' + esc(site) + '</h2><div class="grid" style="margin-top:10px">' +
       field('pu_date', 'PO date *', inp('pu_date', po ? po.date : today(), ' type="date"')) + field('pu_ven', 'Vendor (supplier) *', inp('pu_ven', po ? po.vendor : '', ' list="dl_wvendors" maxlength="80" autocomplete="off"'), 'wide') +
       field('pu_gst', 'Vendor GST no.', inp('pu_gst', po ? po.vendor_gst : '', ' maxlength="15"')) + field('pu_del', 'Delivery by', inp('pu_del', po ? po.deliver_by : '', ' type="date"')) +
       field('pu_terms', 'Terms (payment, delivery, …)', inp('pu_terms', po ? po.terms : '', ' maxlength="500"'), 'wide') + field('pu_rem', 'Remark', inp('pu_rem', po ? po.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="pu_lines"></div>' +
       '<div class="bar"><button type="button" class="btn primary" id="pu_save">Save PO</button><button type="button" class="btn" id="pu_x">Cancel</button></div>';
     $('pu_ven').onchange = () => { const g = (it.gst || {})[val('pu_ven').trim()]; if (g && !val('pu_gst')) $('pu_gst').value = g; };
-    const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }); return '<td colspan="6">Total</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all) + '</td><td></td>'; };
-    const L = Lines($('pu_lines'), [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'req', h: 'Req', type: 'ro', calc: r => r.req_no ? 'REQ ' + r.req_no : '' }, { k: 'qty', h: 'Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') },
+    const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }); return '<td colspan="8">Total</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all) + '</td><td></td>'; };
+    const L = Lines($('pu_lines'), [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'req', h: 'Req', type: 'ro', calc: r => r.req_no ? 'REQ ' + r.req_no : '' }, { k: 'brand', h: 'Brand', type: 'text', w: 130 }, { k: 'spec', h: 'Material specification', type: 'text', w: 200 }, { k: 'qty', h: 'Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') },
       { k: 'rate', h: 'Rate ₹ *', type: 'num' }, { k: 'gst_pct', h: 'GST %', type: 'num' }, { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).t) : '' }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).g) : '' }, { k: 'ax', h: 'Total', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).all) : '' }],
       rows, { total: tot, picked: (r, i) => { if (r.gst_pct === '' && i.gst_pct !== null && i.gst_pct !== undefined) r.gst_pct = i.gst_pct; } });
     const done = () => { f.hidden = true; B = keepB; lists(); };
@@ -258,14 +262,14 @@
     $('pu_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Pick each item from the list (as it is in the Item Master of ' + site + ').');
       const x = { site: site, no: po ? po.no : undefined, po: { date: val('pu_date'), vendor: val('pu_ven'), vendor_gst: val('pu_gst'), deliver_by: val('pu_del'), terms: val('pu_terms'), remark: val('pu_rem'),
-        lines: lines.map(l => ({ code: l.code, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, req_no: l.req_no || undefined, req_line: l.req_line || undefined })) } };
+        lines: lines.map(l => ({ code: l.code, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, req_no: l.req_no || undefined, req_line: l.req_line || undefined, brand: l.brand || '', spec: l.spec || '' })) } };
       const r = await saveAsk('poSave', x); if (!r) return;
       toast('PO ' + r.no + ' of ' + r.site + ' saved – ' + money(r.total) + '.'); done(); purLoad();
     });
   }
   const poTable = (pos, sites) => '<div class="tw"><table><thead><tr>' + (sites ? '<th>Site</th>' : '') + '<th>PO</th><th>Date</th><th>Vendor</th><th>Items</th><th class="n">Total</th><th>State</th><th></th></tr></thead><tbody>' +
     (pos.map(p => '<tr data-po="' + p.no + '" data-site="' + esc(p.site || '') + '">' + (sites ? '<td>' + esc(p.site) + '</td>' : '') + '<td><b>' + p.no + '</b></td><td>' + dmy(p.date) + '</td><td>' + esc(p.vendor) + '</td><td style="white-space:normal">' +
-      p.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + (l.received ? ' <small>(came ' + n2(l.received) + ')</small>' : '')).join('<br>') + '</td><td class="n">' + money(p.total) + '</td><td>' + stateTag(p.state) + '</td><td><div class="acts"><button type="button" class="link po-print">Print</button>' +
+      p.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (l.received ? ' <small>(came ' + n2(l.received) + ')</small>' : '')).join('<br>') + '</td><td class="n">' + money(p.total) + '</td><td>' + stateTag(p.state) + '</td><td><div class="acts"><button type="button" class="link po-print">Print</button>' +
       (buyer() && p.status === 'Open' && sites ? '<button type="button" class="link po-edit">Change</button>' : '') + (buyer() && p.status === 'Open' && !p.lines.some(l => l.received > 0) ? '<button type="button" class="link del po-cancel">Cancel</button>' : '') +
       ((buyer() || admin()) && p.status === 'Open' && p.state !== 'Received' ? '<button type="button" class="link po-close">Close</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="8" class="empty">No purchase order.</td></tr>') + '</tbody></table></div>';
   async function poClick(e, list, reload) {
@@ -281,9 +285,9 @@
     h = h || {};
     printHtml('PO ' + p.no, '<div class="hd"><div><h1>' + esc(h.company || 'Purchase Order') + '</h1><div class="muted">' + esc(h.address || '') + (h.gstin ? '<br>GSTIN ' + esc(h.gstin) : '') + '</div></div><div style="text-align:right"><h1>PURCHASE ORDER</h1>PO No <b>' + p.no + '</b> · ' + dmy(p.date) + '<br>Site: ' + esc(h.site || p.site || '') + '</div></div>' +
       '<p><b>To:</b> ' + esc(p.vendor) + (p.vendor_gst ? ' · GSTIN ' + esc(p.vendor_gst) : '') + (p.deliver_by ? '<br><b>Delivery by:</b> ' + dmy(p.deliver_by) : '') + '</p>' +
-      '<table><thead><tr><th>#</th><th>Item</th><th class="n">Qty</th><th>Unit</th><th class="n">Rate ₹</th><th class="n">Taxable ₹</th><th class="n">GST %</th><th class="n">GST ₹</th><th class="n">Total ₹</th></tr></thead><tbody>' +
-      p.lines.map((l, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td><td class="n">' + n2(l.rate) + '</td><td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.total) + '</td></tr>').join('') +
-      '<tr><td colspan="5"><b>Total</b></td><td class="n"><b>' + n2(p.taxable) + '</b></td><td></td><td class="n"><b>' + n2(p.gst) + '</b></td><td class="n"><b>' + n2(p.total) + '</b></td></tr></tbody></table>' +
+      '<table><thead><tr><th>#</th><th>Item</th><th>Brand</th><th>Material specification</th><th class="n">Qty</th><th>Unit</th><th class="n">Rate ₹</th><th class="n">Taxable ₹</th><th class="n">GST %</th><th class="n">GST ₹</th><th class="n">Total ₹</th></tr></thead><tbody>' +
+      p.lines.map((l, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(l.name) + '</td><td>' + esc(l.brand || '') + '</td><td>' + esc(l.spec || '') + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td><td class="n">' + n2(l.rate) + '</td><td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.total) + '</td></tr>').join('') +
+      '<tr><td colspan="7"><b>Total</b></td><td class="n"><b>' + n2(p.taxable) + '</b></td><td></td><td class="n"><b>' + n2(p.gst) + '</b></td><td class="n"><b>' + n2(p.total) + '</b></td></tr></tbody></table>' +
       (p.terms ? '<p><b>Terms:</b> ' + esc(p.terms) + '</p>' : '') + (p.remark ? '<p>' + esc(p.remark) + '</p>' : '') + '<div class="sign"><div>Prepared by: ' + esc(p.created_name || '') + '</div><div>Authorised signatory</div></div>');
   }
 
@@ -308,34 +312,40 @@
       (canEdit('grn') ? '<button type="button" class="btn primary" id="gr_new">+ New GRN</button>' : '') + '<button type="button" class="btn" id="gr_xl">GRN register (Excel)</button>' +
       (admin() ? '<button type="button" class="btn" id="gr_imp">Import from Excel</button><button type="button" class="btn small" id="gr_tpl">Import format</button><input type="file" id="gr_file" accept=".xlsx,.xls,.csv" hidden>' : '') + '</div></section>' +
       '<section id="gr_form" hidden></section><section class="panel formbox" id="gr_impbox" hidden></section><section class="panel" id="gr_list"></section>';
-    $('gr_show').onclick = () => grnLoad();
+    $('gr_show').onclick = () => { GR.shown = true; grnLoad(); };
     if ($('gr_new')) $('gr_new').onclick = () => grnForm(null);
     $('gr_xl').onclick = () => busy($('gr_xl'), async () => toExcel(await W('report', { kind: 'grn', from: val('gr_from'), to: val('gr_to') }), 'GRN_register'));
     // (28-10-2026) the Import of the GRNs: the register's (his inward register – any size, its own GRN No; the check first)
     if ($('gr_imp')) { $('gr_imp').onclick = () => { $('gr_file').value = ''; $('gr_file').click(); }; $('gr_file').onchange = () => regFile($('gr_file').files[0], $('gr_impbox')); $('gr_tpl').onclick = () => importTemplate('grn'); }
     $('gr_list').onclick = e => grnClick(e);
-    await boot(); await grnLoad();
+    GR.shown = false; $('gr_list').innerHTML = '<p class="empty" id="gr_hint">Choose the dates and press <b>Show</b> – the GRNs of those dates come here.<br><span class="mr">तारखा निवडा आणि Show दाबा – त्या तारखांचे GRN इथे दिसतील.</span></p>';
+    await boot();
   }
-  // (28-10-2026, "ji excel diley tech column mala GRN / inward madhe de") the list in the columns of his inward register: a row for each
-  // material; the GRN's own (GRN No, date, challan, invoice, vehicle, supplier, TCS, PO) once for its rows
-  const RCOLS = ['Sr No', 'GRN No', 'GRN Date', 'Challan No', 'Invoice No.', 'Invoice Date', 'Vehicle No', 'Supplier Name', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'Taxable Amount', 'GST Amount', 'TCS', 'Gross Amount', 'Remark', 'PO No'];
+  // (28-10-2026, "ji excel diley tech column mala GRN / inward madhe de") his inward register's columns; (the same day, "show kel nantr
+  // disaw ani perfect nit disaw") shown when Show is pressed, each GRN a card: its own (GRN No, date, supplier, invoice, challan, vehicle,
+  // PO, TCS, gross) once at its top, its materials under it (Sr No, Material Description, Received Qty, UOM, Basic Rate, Taxable / GST /
+  // Gross Amount, Remark). The GRN register (Excel) has every column on each row.
+  const LCOLS = ['Sr No', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'Taxable Amount', 'GST Amount', 'Gross Amount', 'Remark'];
   const refOf = g => String(g.ref === null || g.ref === undefined || g.ref === '' ? g.no : g.ref);
   async function grnLoad() {
+    if (!GR.shown) return;      // (the list comes when Show is pressed)
     try { const r = await W('grnList', { from: val('gr_from'), to: val('gr_to') }); GR.list = r.grns;
       let sr = 0;
-      const span = (g, html, cls) => '<td rowspan="' + Math.max(1, g.lines.length) + '"' + (cls ? ' class="' + cls + '"' : '') + '>' + html + '</td>';
-      const rowsOf = g => (g.lines.length ? g.lines : [{}]).map((l, i) => '<tr data-no="' + g.no + '"><td class="n">' + (++sr) + '</td>' +
-        (i ? '' : span(g, '<b>' + esc(refOf(g)) + '</b>') + span(g, dmy(g.date)) + span(g, esc(g.challan_no || '')) + span(g, esc(g.invoice_no || '')) + span(g, dmy(g.invoice_date)) + span(g, esc(g.vehicle_no || '')) + span(g, esc(g.supplier), 'nm')) +
-        '<td style="white-space:normal;min-width:200px">' + esc(l.name || '') + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit || '') + '</td><td class="n">' + n2(l.rate) + '</td><td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst) + '</td>' +
-        (i ? '' : span(g, Number(g.tcs) ? n2(g.tcs) : '', 'n')) + '<td class="n">' + n2(l.gross) + '</td><td style="white-space:normal">' + esc(l.remark || (i ? '' : g.remark) || '') + '</td>' +
-        (i ? '' : span(g, g.po_no || '') + span(g, '<div class="acts"><button type="button" class="link gr-print">Print</button>' + (admin() ? '<button type="button" class="link gr-edit">Change</button><button type="button" class="link del gr-del">Delete</button>' : '') + '</div>')) + '</tr>').join('');
-      $('gr_list').innerHTML = '<div class="tw"><table><thead><tr>' + RCOLS.map(h => '<th' + (/Qty|Rate|Amount|^TCS|Sr No/.test(h) ? ' class="n"' : '') + '>' + esc(h) + '</th>').join('') + '<th></th></tr></thead><tbody>' +
-        (GR.list.map(rowsOf).join('') || '<tr><td colspan="19" class="empty">No GRN in these dates.</td></tr>') + '</tbody></table></div>' +
-        '<p class="count">' + GR.list.length + ' GRN(s) · ' + sr + ' row(s) · ' + money(GR.list.reduce((a, g) => a + Number(g.gross || 0), 0)) + '</p>'; }
+      const kv = (k, v, cls) => '<div class="gk' + (cls ? ' ' + cls : '') + '"><small>' + esc(k) + '</small><span>' + v + '</span></div>';
+      const card = g => '<article class="grnc" data-no="' + g.no + '"><header>' + kv('GRN No', '<b>' + esc(refOf(g)) + '</b>', 'gno') + kv('GRN Date', dmy(g.date)) + kv('Supplier Name', '<b>' + esc(g.supplier) + '</b>', 'gsup') +
+          (g.invoice_no ? kv('Invoice No.', esc(g.invoice_no)) : '') + (g.invoice_date ? kv('Invoice Date', dmy(g.invoice_date)) : '') + (g.challan_no ? kv('Challan No', esc(g.challan_no)) : '') + (g.vehicle_no ? kv('Vehicle No', esc(g.vehicle_no)) : '') +
+          (g.po_no ? kv('PO No', esc(g.po_no)) : '') + (Number(g.tcs) ? kv('TCS', money(g.tcs)) : '') + kv('Gross Amount', '<b>' + money(g.gross) + '</b>', 'gamt') +
+          '<div class="gacts"><button type="button" class="btn small gr-print">Print</button>' + (admin() ? '<button type="button" class="btn small gr-edit">Change</button><button type="button" class="btn small bad gr-del">Delete</button>' : '') + '</div></header>' +
+        '<div class="gtw"><table class="glines"><thead><tr>' + LCOLS.map(h => '<th' + (/Qty|Rate|Amount|Sr No/.test(h) ? ' class="n"' : '') + '>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
+          (g.lines.length ? g.lines.map(l => '<tr><td class="n">' + (++sr) + '</td><td class="gm">' + esc(l.name || '') + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit || '') + '</td><td class="n">' + a2(l.rate) + '</td><td class="n">' + a2(l.taxable) + '</td><td class="n">' + a2(l.gst) + '</td><td class="n"><b>' + a2(l.gross) + '</b></td><td class="gr">' + esc(l.remark || '') + '</td></tr>').join('')
+            : '<tr><td colspan="9" class="empty">No material.</td></tr>') + '</tbody></table></div>' + (g.remark ? '<p class="grem"><b>Remark:</b> ' + esc(g.remark) + '</p>' : '') + '</article>';
+      const tot = GR.list.reduce((a, g) => a + Number(g.gross || 0), 0), rows = GR.list.reduce((a, g) => a + g.lines.length, 0);
+      $('gr_list').innerHTML = '<div class="glhead"><h3>GRNs ' + dmy(val('gr_from')) + ' to ' + dmy(val('gr_to')) + '</h3><p class="count">' + GR.list.length + ' GRN(s) · ' + rows + ' row(s) · ' + money(tot) + '</p></div>' +
+        (GR.list.map(card).join('') || '<p class="empty">No GRN in these dates.</p>'); }
     catch (e) { failed(e); }
   }
   async function grnClick(e) {
-    const b = e.target.closest('button'), tr = e.target.closest('tr[data-no]'); if (!b || !tr) return; const g = GR.list.find(x => x.no === Number(tr.dataset.no)); if (!g) return;
+    const b = e.target.closest('button'), tr = e.target.closest('[data-no]'); if (!b || !tr) return; const g = GR.list.find(x => x.no === Number(tr.dataset.no)); if (!g) return;
     if (b.classList.contains('gr-print')) return printHtml('GRN ' + refOf(g), head('Goods Received Note – GRN ' + refOf(g), dmy(g.date)) + '<p><b>Supplier:</b> ' + esc(g.supplier) + (g.invoice_no ? ' · Invoice ' + esc(g.invoice_no) + ' ' + dmy(g.invoice_date) : '') + (g.challan_no ? ' · Challan ' + esc(g.challan_no) : '') + (g.vehicle_no ? ' · Vehicle ' + esc(g.vehicle_no) : '') + (g.po_no ? ' · PO ' + g.po_no : '') + '</p>' +
       '<table><thead><tr><th>#</th><th>Material</th><th class="n">Received Qty</th><th>UOM</th><th class="n">Basic Rate</th><th class="n">Taxable</th><th class="n">GST %</th><th class="n">GST</th><th class="n">Gross</th><th>Remark</th></tr></thead><tbody>' + g.lines.map((l, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td><td class="n">' + n2(l.rate) + '</td><td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.gross) + '</td><td>' + esc(l.remark || '') + '</td></tr>').join('') +
       (Number(g.tcs) ? '<tr><td colspan="8">TCS</td><td class="n">' + n2(g.tcs) + '</td><td></td></tr>' : '') + '<tr><td colspan="8"><b>Gross</b></td><td class="n"><b>' + n2(g.gross) + '</b></td><td></td></tr></tbody></table>' + (g.remark ? '<p>' + esc(g.remark) + '</p>' : '') + '<div class="sign"><div>Received by: ' + esc(g.created_name || '') + '</div><div>Store in-charge</div></div>');
@@ -349,7 +359,8 @@
     if (g && g.po_no && !pos.some(p => p.no === Number(g.po_no))) pos.push({ no: Number(g.po_no), vendor: g.supplier, lines: [] });
     // (28-10-2026, his picture) two cards: GRN Details – Clear and the GRN date at its top right; Items – + Add Row
     f.innerHTML = '<div class="gcard"><div class="ghead">' + ico('box', 'gico') + '<h3>GRN Details</h3>' + (g ? '<span class="gsub">Change GRN ' + esc(refOf(g)) + '</span>' : '') +
-        '<div class="gact"><button type="button" class="btn" id="gr_clr" title="' + (g ? 'Back to the GRN as it is saved' : 'Empty the form') + '">' + ico('clear') + 'Clear</button>' + field('gr_date', 'GRN Date *', inp('gr_date', g ? g.date : today(), ' type="date"')) + '</div></div>' +
+        '<div class="gact"><button type="button" class="btn" id="gr_clr" title="' + (g ? 'Back to the GRN as it is saved' : 'Empty the form') + '">' + ico('clear') + 'Clear</button>' +
+          field('gr_ref', 'GRN No', inp('gr_ref', g ? refOf(g) : '', g ? ' readonly title="The GRN No of a saved GRN stays as it is"' : ' maxlength="20" autocomplete="off" placeholder="…"'), 'gref') + field('gr_date', 'GRN Date *', inp('gr_date', g ? g.date : today(), ' type="date"')) + '</div></div>' +
       '<div class="ggrid g3">' + field('gr_po', 'Against PO', sel('gr_po', [['', 'Direct (no PO)']].concat(pos.map(p => [p.no, 'PO ' + p.no + ' – ' + p.vendor + (p.lines.length ? ' (' + p.lines.filter(l => l.left > 0).map(l => l.name + ' ' + n2(l.left)).join(', ') + ')' : '')])), g ? g.po_no || '' : '')) +
         field('gr_sup', 'Supplier *', '<div class="ib">' + inp('gr_sup', g ? g.supplier : '', ' list="dl_wsuppliers" maxlength="80" autocomplete="off" placeholder="Select or type the supplier"') + ico('down') + '</div>') +
         field('gr_ch', 'Challan No', inp('gr_ch', g ? g.challan_no : '', ' maxlength="40"')) + '</div>' +
@@ -375,15 +386,19 @@
     };
     fromPo(); $('gr_po').onchange = fromPo; $('gr_tcs').oninput = () => L.draw();
     $('gr_add').onclick = () => L.add();
+    // (28-10-2026, "new grn number auto yeil … manually pn edit krta yeil") a new GRN: its GRN No comes by itself, it can be changed (step 4)
+    if (!g) W('grnNext').then(r => { const e = $('gr_ref'); if (!e || e.dataset.typed) return; e.value = r.next; if (!r.step4) { e.readOnly = true; e.title = 'The GRN gets this number by itself. A number typed by hand needs the Store\'s database step 4 (sql/store_step4_grn_no.sql).'; } }).catch(() => { const e = $('gr_ref'); if (e) e.placeholder = 'the next number'; });
+    $('gr_ref').addEventListener('input', () => { $('gr_ref').dataset.typed = '1'; });
     // Clear: a new GRN empty again; a GRN being changed back as it is saved (nothing saved is changed)
     $('gr_clr').onclick = async () => { if ((L.get().length || val('gr_sup')) && !await ask('Clear the form?', '<p>' + (g ? 'The GRN comes back as it is saved – what is typed here goes.' : 'What is typed here goes.') + ' Nothing saved is changed.</p><p class="mr">फॉर्म मध्ये टाइप केलेले जाईल – save केलेले काहीही बदलत नाही.</p>', [{ label: 'Cancel', value: false }, { label: 'Clear', value: true, primary: true }])) return; grnForm(g); };
     $('gr_x').onclick = () => { f.hidden = true; };
     $('gr_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Pick each item from the list (as it is in the Item Master).');
-      const x = { no: g ? g.no : undefined, grn: { po_no: val('gr_po') || undefined, date: val('gr_date'), supplier: val('gr_sup'), challan_no: val('gr_ch'), invoice_no: val('gr_inv'), invoice_date: val('gr_invd'), vehicle_no: val('gr_veh'), tcs: val('gr_tcs'), remark: val('gr_rem'),
+      const x = { no: g ? g.no : undefined, grn: { ref: g ? undefined : val('gr_ref').trim(), po_no: val('gr_po') || undefined, date: val('gr_date'), supplier: val('gr_sup'), challan_no: val('gr_ch'), invoice_no: val('gr_inv'), invoice_date: val('gr_invd'), vehicle_no: val('gr_veh'), tcs: val('gr_tcs'), remark: val('gr_rem'),
         lines: lines.map(l => ({ code: l.code, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line || undefined, remark: l.remark || undefined })) } };
-      const r = await saveAsk('grnSave', x); if (!r) return;
-      toast('GRN ' + r.no + ' saved – ' + money(r.gross) + '.'); f.hidden = true; B = null; await boot(); grnLoad();
+      let r; try { r = await saveAsk('grnSave', x); } catch (e2) { if (e2 && e2.code === 'refused' && e2.data && e2.data.next && $('gr_ref')) { $('gr_ref').value = e2.data.next; delete $('gr_ref').dataset.typed; } throw e2; }
+      if (!r) return;
+      toast('GRN ' + (r.ref || r.no) + ' saved – ' + money(r.gross) + '.'); f.hidden = true; B = null; await boot(); grnLoad();
     });
     f.scrollIntoView({ block: 'nearest' });
   }

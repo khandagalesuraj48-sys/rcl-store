@@ -44,6 +44,7 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
     sql(db, 'truncate public.store_return_lines, public.store_return, public.store_issue_lines, public.store_issue, public.store_grn_lines, public.store_grn, public.store_opening, public.store_po, public.store_req, public.store_settings, public.items, public.store_sessions, public.store_tickets, public.store_activity cascade; ' +
       "alter sequence public.items_code_seq restart; update public.store_numbers set next_no = 1; notify pgrst, 'reload schema';");
   }
+  sql('rcl', "delete from public.master where id = 'RL-STORE-1'");      // (the rig's: the machinery this test made in a run before)
   ok('the Store\'s step 2 runs twice in a site\'s database without a fault (it only adds)', (() => { try { sqlFile('rcl', path.join(root, 'sql', 'store_step2_work.sql')); return true; } catch (e) { return false; } })());
   await wait(1500);
   sql('rcl_portal', "insert into modules (key, name, url, status, sort) values ('store', 'Store', 'http://127.0.0.1:3020', 'live', 2) on conflict (key) do update set url = excluded.url, status = 'live'; " +
@@ -93,9 +94,11 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
   // ---- MATERIAL REQUIREMENT and its approvals ----
   r = await K.w('reqSave', { req: { date: D8, for_kind: 'Site work', for_text: 'Ch 540+450 toe wall', lines: [{ code: CEM, qty: 200 }] } });
   ok('store (Requirements View) cannot make a requirement – said why', r.status === 403 && r.j.code === 'page' && /View/.test(r.j.error), r.j);
-  r = await V.w('reqSave', { req: { date: D8, need_by: D3, for_kind: 'Site work', for_text: 'Ch 540+450 toe wall', lines: [{ code: CEM, qty: 200 }, { code: BAM, qty: 100, note: 'shuttering' }] } });
+  r = await V.w('reqSave', { req: { date: D8, need_by: D3, for_kind: 'Site work', for_text: 'Ch 540+450 toe wall', lines: [{ code: CEM, qty: 200, brand: ' UltraTech ', spec: 'OPC 53 grade,  50 kg bag' }, { code: BAM, qty: 100, note: 'shuttering' }] } });
   const RQ1 = r.j.no;
   ok('view makes requirement 1 (Cement 200, Bamboo 100): it waits for Level 1', r.status === 200 && RQ1 === 1 && r.j.status === 'Pending' && r.j.level === 1, r.j);
+  ok('   (28-10-2026) a line\'s Brand and Material specification kept (as typed, the spaces tidied); a line without them: none', sql('rcl', "select (lines->0->>'brand') || '|' || (lines->0->>'spec') || '|' || coalesce(lines->1->>'brand', '-') from store_req where no = 1") === 'UltraTech|OPC 53 grade, 50 kg bag|-',
+    sql('rcl', 'select lines from store_req where no = 1'));
   r = await V.w('reqDecide', { no: RQ1, ok: true });
   ok('   view cannot approve his own (he is at Level 1) – said', r.status === 409 && /your own requirement/.test(r.j.error), r.j);
   r = await A.w('reqDecide', { no: RQ1, ok: true });
@@ -125,6 +128,7 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
   const po1 = { date: D6, vendor: 'Bedrok Chem Infra', deliver_by: D2, terms: 'Delivery at site', lines: [{ code: CEM, qty: 150, rate: 340, req_no: RQ1, req_line: 1 }, { code: BAM, qty: 100, rate: 90, gst_pct: 0, req_no: RQ1, req_line: 2 }] };
   r = await B.w('poSave', { site: 'S1', po: po1 });
   const PO1 = r.j.no;
+  ok('   (28-10-2026) the PO\'s line of requirement 1 line 1 has its Brand and Material specification (not typed in the PO: the requirement\'s)', sql('rcl', "select (lines->0->>'brand') || '|' || (lines->0->>'spec') from store_po where no = 1") === 'UltraTech|OPC 53 grade, 50 kg bag', sql('rcl', 'select lines from store_po where no = 1'));
   ok('   PO 1 made for S1 (kept in S1\'s database): Cement 150 @ ₹340 + 28 % GST, Bamboo 100 @ ₹90 – total ₹74,280', r.status === 200 && PO1 === 1 && r.j.total === 74280 && sql('rcl', 'select count(*) from store_po') === '1' && sql('rcl_s2', 'select count(*) from store_po') === '0', r.j);
   r = await B.w('poSave', { site: 'S1', po: { date: D6, vendor: 'Bedrok Chem Infra', lines: [{ code: CEM, qty: 60, rate: 340, req_no: RQ1, req_line: 1 }] } });
   ok('   a second PO of 60 more Cement of requirement 1 (150 + 60 > 200): refused – never more than asked', r.status === 409 && r.j.code === 'overorder' && /ordered 210, asked 200/.test(r.j.error), r.j);
@@ -222,9 +226,9 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
   t = await rep(K, { kind: 'returnable' });
   ok('Returnable still out: Bamboo 30 with Tushar Mandal', (t.rows || []).length === 1 && t.rows[0][7] === 30 && t.rows[0][2] === 'Tushar Mandal', t.rows);
   t = await rep(V, { kind: 'req', status: 'To order' });
-  ok('Requirements to order: Cement of requirement 1 – 200 asked, 150 ordered: 50 left (Bamboo all ordered – not listed)', (t.rows || []).length === 1 && t.rows[0][4] === 'Cement OPC 53' && t.rows[0][8] === 50, t.rows);
+  ok('Requirements to order: Cement of requirement 1 – 200 asked, 150 ordered: 50 left (Bamboo all ordered – not listed)', (t.rows || []).length === 1 && t.rows[0][4] === 'Cement OPC 53' && t.rows[0][10] === 50 && t.rows[0][5] === 'UltraTech' && t.rows[0][6] === 'OPC 53 grade, 50 kg bag' && t.cols[5].h === 'Brand' && t.cols[6].h === 'Material specification', t.rows);      // (28-10-2026: its Brand and Material specification)
   t = await rep(B, { kind: 'po', all: true });
-  ok('HO Purchase: the purchase orders of every site', (t.rows || []).length === 2 && t.rows.every(x => x[13] === 'S1'), t.rows);
+  ok('HO Purchase: the purchase orders of every site (each line its Brand and Material specification)', (t.rows || []).length === 2 && t.rows.every(x => x[15] === 'S1') && t.rows[0][4] === 'UltraTech' && t.cols[4].h === 'Brand', t.rows);
 
   // ---- SETTINGS: where the GRN and Outward numbers go on from (the old registers) ----
   r = await A.w('numbersSave', { GRN: 2 });

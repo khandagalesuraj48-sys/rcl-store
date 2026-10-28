@@ -48,7 +48,9 @@ Reports, Opening stock & Numbers. The phone app has the same as its own screens 
     the Portal says so – save again.
   * **Store Purchase – every site (HO)** (also for a Store Admin): the approved requirements of every site still to order → a
     purchase order of that site (kept in that site's own database), its Change / Cancel / Close, the POs of every site.
-* **Material Requirement:** date, needed by, for (site work / a machinery / office / other), its items (with the stock now). Changed
+* **Material Requirement:** date, needed by, for (site work / a machinery / office / other), its items (with the stock now) – each
+  with its **Brand** and **Material specification** (28-10-2026; carried into the PO made from it – the PO form, its list, its paper
+  and the Excel show them; HO Purchase can change them in the PO). Changed
   only while nobody has approved it; cancelled while nothing of it is ordered; an approved one is closed when the rest will not be bought.
 * **Purchase Order:** vendor (a name nearly one written before is asked), GST no., delivery by, terms; its lines (from the
   requirements – never more than asked – or any item), rate, GST %. A PO's paper with its site's company on top.
@@ -57,7 +59,11 @@ Reports, Opening stock & Numbers. The phone app has the same as its own screens 
   *GRN Details* (Clear and the GRN Date at its top right; Against PO · Supplier · Challan No; Invoice No · Invoice Date · Vehicle No ·
   TCS ₹; the Remark box) and *Items* (+ Add Row; the item's search box, Received Qty, the Unit – the Item Master's, as the stock is
   counted in it –, Basic Rate, GST %, Taxable / GST / Gross worked out, the line's Remark, a bin on each row; the Total, the TCS on its
-  own row); Save GRN · Cancel. Clear asks first: a new GRN empty again, a GRN being changed back as it is saved.
+  own row); Save GRN · Cancel. Clear asks first: a new GRN empty again, a GRN being changed back as it is saved. **The GRN No**
+  (28-10-2026, step 4 below) at the top right: the next number by itself, it can be changed by hand. **The list** comes when
+  **Show** is pressed: each GRN a card – its GRN No, date, supplier, invoice, challan, vehicle, PO, TCS and gross at the top, its
+  materials under it (Sr No, Material Description, Received Qty, UOM, Basic Rate, Taxable / GST / Gross Amount, Remark); the GRN
+  register (Excel) has every column on each row.
 * **Issue (Outward):** to site work, a sub-contractor, a machinery (its reading – on the site on that date; it joins the machinery's
   maintenance log book in Mechanical, Party "RCL Store") or the office; location (chainage), side, use for, receiver; returnable and
   serial no; on debit (charged with GST). **Return:** what is still out comes back.
@@ -99,6 +105,14 @@ His "INWARD UPTO GRN … .xlsx" (or any file with the register's headings) – I
 * **The GRN page** shows his register's columns (Sr No, GRN No, GRN Date, Challan No, Invoice No., Invoice Date, Vehicle No, Supplier
   Name, Material Description, Received Qty, UOM, Basic Rate, Taxable Amount, GST Amount, TCS, Gross Amount, Remark, PO No); the
   GRN register (Excel), the print, the ledger and the Dashboard show the GRN No. A line has its Remark.
+## A new GRN with its GRN No (step 4 – `sql/store_step4_grn_no.sql`, run once in EVERY site's Supabase after step 3; 28-10-2026)
+"new grn kartana new grn number auto yeil ok ani manually pn edit krta yeil": the new GRN's form shows the next number (`grnNext`);
+it can be changed. Saved with the GRN in one go (`store_grn_new`): a whole number not used yet is the GRN's number and the next new
+GRN goes on after it (when higher); another GRN No ("342-B") is kept as typed (a number of its own beyond 1,000,000,000); a GRN No
+already used is refused – nothing saved, the next free one said; nothing typed – the next number. Before step 4 at a site: the number
+as it came saves as before, a number typed by hand is refused with what to run. A saved GRN's GRN No is not changed. Only adds a
+function. Rollback: `drop function public.store_grn_new(jsonb, jsonb, text, text, text);`.
+
 * Files: `public/grnreg.js` (the page's reading and check – pure), `lib/grnimport.js` (the server's check of each GRN – pure),
   `lib/ai.js`, `lib/itemcodes.js`, `api/work.js` (`regInfo`, `regNames`, `regVendors`, `regItems`, `regGrns`), `public/work.js`.
 
@@ -111,7 +125,7 @@ His "INWARD UPTO GRN … .xlsx" (or any file with the register's headings) – I
 | The rules of an item (names, near names, suggestions, fields) | `lib/items.js` |
 | Which database is a site's | `lib/sites.js` (Mechanical's list of sites, `rcl_sites`) |
 | Ticket check, sign-ins, activity record | `lib/portal.js`, `lib/session.js`, `lib/activity.js` |
-| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql`, `sql/store_step3_grn_import.sql` |
+| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql`, `sql/store_step3_grn_import.sql`, `sql/store_step4_grn_no.sql` |
 | The Store's work (step 2) | `api/work.js`, `lib/work.js`, `lib/sreport.js`, `public/work.js`, `api/portal.js` |
 
 ## Settings (Vercel → the Store project → Settings → Environment Variables – never in a file)
@@ -134,6 +148,7 @@ timeout 600 node test/work.browser.test.js    # rig + Chromium: the work pages (
 timeout 900 node test/grnreg.test.js          # rig: the old inward register (a made one; REG_FILE=<his file> for his own) – the
                                               # Store started with ANTHROPIC_API_KEY=test-key-s ANTHROPIC_API_BASE=http://127.0.0.1:3996
 timeout 600 node test/grnreg.browser.test.js  # rig + Chromium: the register's check and import on the page
+timeout 300 node test/grnno.test.js           # rig: a new GRN with its GRN No – before and after step 4 (run after grnreg.test.js)
 ```
 
 ## Fewer reads, every item, no second copy (24-10-2026, with Mechanical's update-155)
