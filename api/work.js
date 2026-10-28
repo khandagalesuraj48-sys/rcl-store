@@ -15,6 +15,9 @@ const { activity } = require('../lib/activity');
 const W = require('../lib/work');
 const R = require('../lib/sreport');
 const I = require('../lib/items');
+const G = require('../lib/grnimport');
+const AI = require('../lib/ai');
+const { codesAll, nextCode, codeOnce } = require('../lib/itemcodes');
 const { r2, r3, dmy } = W;
 const enc = encodeURIComponent;
 
@@ -160,7 +163,7 @@ const ACTIONS = {
       out.req = { pending: reqs.filter(r => r.status === 'Pending').length, mine: reqs.filter(r => r.status === 'Pending' && W.canApprove(lv, r.level, s.email, r.created_by)).length, approved: reqs.filter(r => r.status === 'Approved').length };
     }
     if (can(s, 'po', 'View') || can(s, 'grn', 'View') || isBuyer(s)) out.po = { open: (await dbAll(s.site, 'store_po?select=no&status=eq.Open', 'no')).length };
-    if (can(s, 'grn', 'View')) { const g = await dbAll(s.site, 'store_grn?select=no,date,supplier,gross&date=gte.' + t.slice(0, 8) + '01', 'no'); out.grn = { today: g.filter(x => x.date === t).length, todayValue: r2(g.filter(x => x.date === t).reduce((a, x) => a + num(x.gross), 0)), month: g.length, monthValue: r2(g.reduce((a, x) => a + num(x.gross), 0)), recent: g.sort(byNo).slice(0, 8) }; }
+    if (can(s, 'grn', 'View')) { const g = (await dbAll(s.site, 'store_grn?select=*&date=gte.' + t.slice(0, 8) + '01', 'no')).map(x => ({ no: x.no, ref: R.refOf(x), date: x.date, supplier: x.supplier, gross: x.gross })); out.grn = { today: g.filter(x => x.date === t).length, todayValue: r2(g.filter(x => x.date === t).reduce((a, x) => a + num(x.gross), 0)), month: g.length, monthValue: r2(g.reduce((a, x) => a + num(x.gross), 0)), recent: g.sort(byNo).slice(0, 8) }; }
     if (can(s, 'issue', 'View')) { const g = await dbAll(s.site, 'store_issue?select=no,date,to_kind,party,machinery,use_for,amount&date=gte.' + t.slice(0, 8) + '01', 'no'); out.issue = { today: g.filter(x => x.date === t).length, todayValue: r2(g.filter(x => x.date === t).reduce((a, x) => a + num(x.amount), 0)), month: g.length, monthValue: r2(g.reduce((a, x) => a + num(x.amount), 0)), recent: g.sort(byNo).slice(0, 8) }; }
     return out;
   },
@@ -321,7 +324,8 @@ const ACTIONS = {
   async grnList(s, x) {
     need(s, 'grn', 'View');
     const p = period(x), g = await dbAll(s.site, 'store_grn?select=*,store_grn_lines(*)&date=gte.' + p.from + '&date=lte.' + p.to, 'no');
-    return { from: p.from, to: p.to, grns: g.sort(byNo).map(r => Object.assign({}, r, { lines: sortLines(r.store_grn_lines), store_grn_lines: undefined })) };
+    // (28-10-2026) the newest first by date, then by GRN No (an imported GRN's number is its GRN No – "342-A" too – not its row's)
+    return { from: p.from, to: p.to, grns: g.sort((a, b) => b.date.localeCompare(a.date) || R.refCmp(b, a)).map(r => Object.assign({}, r, { ref: R.refOf(r), lines: sortLines(r.store_grn_lines), store_grn_lines: undefined })) };
   },
   // this site's open POs with what is still to come (a GRN against a PO)
   async poOpen(s) {
@@ -480,6 +484,117 @@ const ACTIONS = {
     return Object.assign(out, { ok: true, saved: (nos || []).length, nos: nos || [] });
   },
 
+  /* ---------- (28-10-2026) THE OLD INWARD REGISTER (his "INWARD UPTO GRN …", sheet MAIN SHEET INWARD1) – the Store Admin. The page reads
+   * the file, puts every GRN together and shows the check (nothing saved); here: what is there already, the names written in more
+   * than one way (the AI – he ticks), the suppliers made in the site's Vendor Master ("Material Supplier"), the items made, the GRNs
+   * saved a part at a time with the file's GRN No – a GRN already in the Store never twice (lib/grnimport.js). ---------- */
+  async regInfo(s) {
+    adminOnly(s, 'import the old inward register');
+    let step3 = true; try { await db(s.site, 'GET', 'store_grn?select=ref&limit=1'); } catch (e) { if (/ref|42703|PGRST204|column/i.test(String(e && e.message))) step3 = false; else throw e; }
+    const [items, ven, grns, nums] = await Promise.all([itemsOf(s.site), dbAll(s.site, 'vendors?select=id,vendor_name', 'id').catch(() => []),
+      dbAll(s.site, 'store_grn?select=no,' + (step3 ? 'ref,' : '') + 'date,supplier,invoice_no', 'no'), db(s.site, 'GET', 'store_numbers?select=next_no&kind=eq.GRN')]);
+    return { step3: step3, ai: AI.on(), today: W.today(), units: I.UNITS, next: Number(((nums || [])[0] || {}).next_no || 1),
+      items: Object.values(items).map(i => [i.code, i.name, i.unit, i.category]), vendors: ven.map(v => v.vendor_name).filter(Boolean),
+      grns: grns.map(g => [G.docKey(g.ref || g.no, g.date, g.supplier, g.invoice_no), String(g.ref || g.no), g.no, g.date, g.supplier]) };
+  },
+  // the names of the file written in more than one way (the AI) – suppliers, items or categories; he ticks what is changed
+  async regNames(s, x) {
+    adminOnly(s, 'import the old inward register');
+    const what = { supplier: 'SUPPLIER names (the shop, dealer or company the material came from)', item: 'ITEM names (the material, part, oil, tool, service)', category: 'CATEGORY names (the kind of material)' }[x.list];
+    if (!what) throw fail(400, 'Which names?', 'field');
+    const seen = {}, names = (Array.isArray(x.names) ? x.names : []).map(a => Array.isArray(a) ? [I.clean(a[0], 120), Math.max(1, Math.floor(num(a[1])) || 1)] : [I.clean(a, 120), 1])
+      .filter(a => a[0] && !seen[a[0]] && (seen[a[0]] = true)).slice(0, 800);
+    if (names.length < 2) return { fixes: [] };
+    const saved = (Array.isArray(x.saved) ? x.saved : []).map(v => I.clean(v, 120)).filter(Boolean).slice(0, 3000);
+    const ask = 'NAMES OF AN OLD STORE INWARD REGISTER (GRN) of a construction company in India. The same name is often written in several ways: a letter missing or extra, ' +
+      'another spelling, spaces or dots, a short form, singular / plural (e.g. "LABOUR CHARGE" and "Labour Charges"; "Hardeware" for "Hardware"; "Shree Ganesh Electrical & Hardware" and "Shri Ganesh Electricals & Hardware"). ' +
+      'In the list of ' + what + ' below find the names that are the SAME thing written differently, and give for each of them its right spelling: the name already saved when it is one of them, ' +
+      'else the spelling most rows use. Different things stay apart – never put together two different parts, sizes, grades, models, colours or numbers (FUEL FILTER and OIL FILTER, 10 MM and 12 MM, ' +
+      '15W40 and 20W50, M-40 and M-30, a part number and another) or two different companies (a branch or a place in the name makes another one: "Vandana Auto Center" is not "Vandana Motors"). ' +
+      'A name already right is not given. Answer with JSON only: {"fixes": [[nameInTheList, rightSpelling], …]} – nameInTheList exactly as it is below.\n' +
+      'In the file, [name, rows]: ' + JSON.stringify(names) + (saved.length ? '\nAlready saved: ' + JSON.stringify(saved) : '');
+    let j; try { j = await AI.askJson(ask, { tokens: 8000, ms: 26000 }); } catch (e) { userErr(e); }
+    const has = {}; names.forEach(a => { has[a[0]] = true; });
+    const out = [], done = {};
+    (Array.isArray(j && j.fixes) ? j.fixes : []).forEach(z => {
+      const a = Array.isArray(z) ? z : z && typeof z === 'object' ? [z.from || z.nameInTheList, z.to || z.rightSpelling] : [];
+      const from = I.clean(a[0], 120), to = I.clean(a[1], x.list === 'supplier' ? 80 : x.list === 'category' ? 40 : 120);
+      if (!has[from] || !to || to === from || done[from]) return;
+      done[from] = true; out.push([from, to]);
+    });
+    return { fixes: out.slice(0, 5000) };
+  },
+  // the suppliers of the file made in the site's Vendor Master (Mechanical's – the same database) as "Material Supplier": the name only,
+  // GST / PAN / Aadhaar to be filled later; a name already there is left
+  async regVendors(s, x) {
+    adminOnly(s, 'import the old inward register');
+    const want = [...new Set((Array.isArray(x.names) ? x.names : []).map(v => I.clean(v, 80)).filter(v => I.keyOf(v).length >= 2))].slice(0, 1000);
+    if (!want.length) return { added: 0, have: 0 };
+    const have = new Set((await dbAll(s.site, 'vendors?select=id,vendor_name', 'id')).map(v => I.keyOf(v.vendor_name)));
+    const now = new Date().toISOString(), rows = [];
+    want.forEach(n => { const k = I.keyOf(n); if (have.has(k)) return; have.add(k);
+      rows.push({ id: n.replace(/\s+/g, ' ').trim().toUpperCase(), vendor_name: n, gst_registered: 'No', vendor_type: 'Material Supplier', remark: 'Material supplier – from the Store\'s old inward register (GST, PAN, Aadhaar to be filled)', entered_at: now, entered_by: s.email, owner_site: s.site }); });
+    if (rows.length) {
+      const put = r => db(s.site, 'POST', 'vendors', r, 'resolution=ignore-duplicates,return=minimal');
+      try { await put(rows); } catch (e) { if (/owner_site|vendor_type|42703|PGRST204/i.test(String(e && e.message))) await put(rows.map(r => { const o = Object.assign({}, r); delete o.owner_site; if (/vendor_type/i.test(String(e.message))) delete o.vendor_type; return o; })); else throw e; }
+      changed(s.site);
+      await activity(s.site, s.email, 'Suppliers made (old inward register)', rows.length + ' suppliers', { names: rows.map(r => r.vendor_name).slice(0, 300) });
+    }
+    return { added: rows.length, have: want.length - rows.length };
+  },
+  // the items of the file made in the Item Master: [{ name, unit, category, gst }] – a name already there (its key) is left
+  async regItems(s, x) {
+    adminOnly(s, 'import the old inward register');
+    const rows = (Array.isArray(x.items) ? x.items : []).slice(0, 1501);
+    if (rows.length > 1500) throw fail(400, 'At most 1,500 items in one part.', 'field');
+    const list = await dbAll(s.site, 'items?select=code,name,name_key', 'code'), have = new Set(list.map(i => i.name_key || I.keyOf(i.name))), ins = [], bad = [];
+    rows.forEach(r => {
+      let it; try { it = I.check({ name: r && r.name, unit: r && r.unit, category: (r && r.category) || 'General', gst: r && r.gst !== undefined && r.gst !== null ? String(r.gst) : '' }); }
+      catch (e) { if (!(e && e.user)) throw e; bad.push({ name: String((r && r.name) || '').slice(0, 120), msg: e.message }); return; }
+      if (have.has(it.name_key)) return; have.add(it.name_key);
+      ins.push(Object.assign(it, { created_by: s.email, similar_note: 'From the old inward register (' + new Date().toISOString().slice(0, 10) + ')' }));
+    });
+    let added = [];
+    if (ins.length) {
+      const codes = await codesAll(s.site);
+      ins.forEach((it, k) => { it.code = nextCode(codes, k); });
+      try { added = (await db(s.site, 'POST', 'items', ins, 'return=representation')) || []; }
+      catch (e) { if (e && e.code === 'duplicate') throw fail(409, 'An item of this part was saved by someone else meanwhile – press Import again (what is there is left).', 'exact'); throw e; }
+      const after = await codesAll(s.site), fixed = []; for (const i of added) fixed.push(await codeOnce(s.site, i, after)); added = fixed;
+      changed(s.site);
+      await activity(s.site, s.email, 'Items made (old inward register)', added.length + ' items', { added: added.map(i => i.code + ' ' + i.name).slice(0, 300) });
+    }
+    return { added: added.map(i => [i.code, i.name]), have: rows.length - ins.length - bad.length, bad: bad };
+  },
+  // a part of the GRNs: each checked (lib/grnimport.js – its items in the Item Master); one already in the Store (its GRN No, date,
+  // supplier, invoice) is left out; the rest saved in one go with the file's GRN No (the database: store_grn_import, SQL step 3)
+  async regGrns(s, x) {
+    adminOnly(s, 'import the old inward register');
+    const docs = Array.isArray(x.docs) ? x.docs.slice(0, 401) : [];
+    if (docs.length > 400) throw fail(400, 'At most 400 GRNs in one part.', 'field');
+    if (docs.reduce((a, d) => a + (Array.isArray(d && d.lines) ? d.lines.length : 0), 0) > 4000) throw fail(400, 'At most 4,000 lines in one part.', 'field');
+    const items = await itemsOf(s.site), byKey = {}; Object.values(items).forEach(i => { byKey[I.keyOf(i.name)] = i; });
+    const t = W.today(), good = [], errors = [], skipped = [];
+    docs.forEach(d => { try { good.push(G.checkDoc(d, byKey, t)); } catch (e) { if (!(e && e.user)) throw e; errors.push({ ref: String((d && d.ref) || ''), msg: e.message }); } });
+    if (good.length) {
+      // the Store's GRNs of the same days (only those days – a part of the file can have a date far from the others); a GRN of the file
+      // without a GRN No got a number at its import: it is the same GRN when its date, supplier and invoice are
+      const days = [...new Set(good.map(g => g.head.date))], there = new Set(), noRef = k => k.replace(/^[^|]*/, '');
+      for (let i = 0; i < days.length; i += 60) (await dbAll(s.site, 'store_grn?select=*&date=in.(' + days.slice(i, i + 60).join(',') + ')', 'no')).forEach(g => { const k = G.docKey(g.ref || g.no, g.date, g.supplier, g.invoice_no); there.add(k); there.add('*' + noRef(k)); });
+      for (let i = 0; i < good.length; i++) { const k = good[i].key, k2 = '*' + noRef(k), was = good[i].head.ref ? there.has(k) : there.has(k2);
+        if (was) { skipped.push(good[i].head.ref || ''); good.splice(i--, 1); } else { there.add(k); if (!good[i].head.ref) there.add(k2); } }
+    }
+    let saved = [];
+    if (good.length) {
+      saved = (await rpc(s.site, 'store_grn_import', { p_docs: good.map(g => ({ head: g.head, lines: g.lines })), p_by: s.email, p_name: s.name }).catch(e => {
+        if (e && (e.code === 'notinstalled' || /store_grn_import|PGRST202|42883/i.test(String(e.message)))) throw fail(400, 'The Store\'s database step 3 is not run here yet: the Admin runs sql/store_step3_grn_import.sql once in Supabase → SQL Editor (in every site).', 'sql');
+        return said(e, items); })) || [];
+      changed(s.site);
+      await activity(s.site, s.email, 'GRNs imported (old inward register)', saved.length + ' GRNs', { refs: saved.map(z => z.ref).slice(0, 400), skipped: skipped.length, errors: errors.length });
+    }
+    return { saved: saved, skipped: skipped, errors: errors };
+  },
+
   /* ---------- STOCK & REPORTS ---------- */
   async report(s, x) {
     const k = String(x.kind || '');
@@ -491,10 +606,10 @@ const ACTIONS = {
     if (k === 'ledger') {
       const p = period(x), it = items[String(x.code || '')]; if (!it) throw fail(400, 'Pick the item.', 'field');
       const moves = await dbAll(s.site, 'store_moves?select=code,date,q,kind,no,rate,id&code=eq.' + enc(it.code) + '&date=lte.' + p.to, 'id'), who = {};
-      const nos = kind => [...new Set(moves.filter(m => m.kind === kind && m.date >= p.from).map(m => m.no))];
-      const get = async (t, sel, kind, f) => { const l = nos(kind); for (let i = 0; i < l.length; i += 150) (await dbAll(s.site, t + '?select=no,' + sel + '&no=in.(' + l.slice(i, i + 150).join(',') + ')', 'no')).forEach(r => { who[kind + ':' + r.no] = f(r); }); };
-      await Promise.all([get('store_grn', 'supplier', 'GRN', r => r.supplier), get('store_issue', 'to_kind,party,machinery,location,use_for', 'OUT', r => [r.party || (r.to_kind === 'Site work' ? 'RCL' : r.to_kind), r.machinery, r.location, r.use_for].filter(Boolean).join(' · ')), get('store_return', 'party,issue_no', 'RET', r => (r.party || '') + ' (outward ' + r.issue_no + ')')]);
-      return R.ledger(it, moves, who, p.from, p.to);
+      const nos = kind => [...new Set(moves.filter(m => m.kind === kind && m.date >= p.from).map(m => m.no))], refs = {};
+      const get = async (t, sel, kind, f) => { const l = nos(kind); for (let i = 0; i < l.length; i += 150) (await dbAll(s.site, t + '?select=' + (sel === '*' ? '*' : 'no,' + sel) + '&no=in.(' + l.slice(i, i + 150).join(',') + ')', 'no')).forEach(r => { who[kind + ':' + r.no] = f(r); if (r.ref) refs[kind + ':' + r.no] = r.ref; }); };
+      await Promise.all([get('store_grn', '*', 'GRN', r => r.supplier), get('store_issue', 'to_kind,party,machinery,location,use_for', 'OUT', r => [r.party || (r.to_kind === 'Site work' ? 'RCL' : r.to_kind), r.machinery, r.location, r.use_for].filter(Boolean).join(' · ')), get('store_return', 'party,issue_no', 'RET', r => (r.party || '') + ' (outward ' + r.issue_no + ')')]);
+      return R.ledger(it, moves, who, p.from, p.to, refs);
     }
     if (k === 'grn') { const p = period(x), g = await dbAll(s.site, 'store_grn?select=*,store_grn_lines(*)&date=gte.' + p.from + '&date=lte.' + p.to, 'no'); return R.grnRegister(g.map(r => Object.assign(r, { lines: r.store_grn_lines })), p.from, p.to, { supplier: x.supplier }); }
     if (k === 'issue' || k === 'consumption') {
@@ -530,7 +645,9 @@ const ACTIONS = {
   /* ---------- SETTINGS (the Store Admin): where the GRN and Outward numbers go on from ---------- */
   async numbers(s) {
     adminOnly(s, 'see the numbers');
-    const [nums, g, o] = await Promise.all([db(s.site, 'GET', 'store_numbers?select=kind,next_no'), db(s.site, 'GET', 'store_grn?select=no&order=no.desc&limit=1'), db(s.site, 'GET', 'store_issue?select=no&order=no.desc&limit=1')]);
+    // (28-10-2026) the last GRN number used: an old register's GRN whose GRN No was used already ("342-A", a second supplier) has a
+    // number of its own beyond 1,000,000,000 – not one the next GRN goes on from
+    const [nums, g, o] = await Promise.all([db(s.site, 'GET', 'store_numbers?select=kind,next_no'), db(s.site, 'GET', 'store_grn?select=no&no=lt.1000000000&order=no.desc&limit=1'), db(s.site, 'GET', 'store_issue?select=no&order=no.desc&limit=1')]);
     const n = {}; (nums || []).forEach(r => { n[r.kind] = Number(r.next_no); });
     return { next: { GRN: n.GRN || 1, OUT: n.OUT || 1 }, used: { GRN: g && g[0] ? Number(g[0].no) : 0, OUT: o && o[0] ? Number(o[0].no) : 0 } };
   },

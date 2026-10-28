@@ -40,7 +40,7 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
   // ---- the start: the Store's steps in S1 and T2, its tables empty ----
   const root = path.join(__dirname, '..');
   for (const db of ['rcl', 'rcl_s2']) {
-    sqlFile(db, path.join(root, 'sql', 'store_step1_items.sql')); sqlFile(db, path.join(root, 'sql', 'store_step2_work.sql'));
+    sqlFile(db, path.join(root, 'sql', 'store_step1_items.sql')); sqlFile(db, path.join(root, 'sql', 'store_step2_work.sql')); sqlFile(db, path.join(root, 'sql', 'store_step3_grn_import.sql'));      // (step 3: as every site after 28-10-2026)
     sql(db, 'truncate public.store_return_lines, public.store_return, public.store_issue_lines, public.store_issue, public.store_grn_lines, public.store_grn, public.store_opening, public.store_po, public.store_req, public.store_settings, public.items, public.store_sessions, public.store_tickets, public.store_activity cascade; ' +
       "alter sequence public.items_code_seq restart; update public.store_numbers set next_no = 1; notify pgrst, 'reload schema';");
   }
@@ -214,7 +214,7 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
   t = await rep(A, { kind: 'ledger', code: BAM, from: D10, to: today });
   ok('Item ledger of Bamboo: GRN 1 +100, Outward 1 −50 (Tushar Mandal · 539+623 · BC), Return 1 +20 – balance 70', JSON.stringify((t.rows || []).slice(1).map(x => [x[1], x[3], x[4], x[5]])) === JSON.stringify([['GRN 1', 100, '', 100], ['Outward 1', '', 50, 50], ['Return 1', 20, '', 70]]) && /Tushar Mandal · 539\+623 · BC/.test(t.rows[2][2]), t.rows);
   t = await rep(K, { kind: 'grn', from: D10, to: today });
-  ok('GRN register (his INWARD columns): 4 rows, PO No and TCS on the bill\'s first row', (t.rows || []).length === 4 && t.cols[0].h === 'GRN No' && t.rows[0][15] === PO1 && t.rows[0][13] === 10, t.rows);
+  ok('GRN register (his INWARD columns – Sr No, GRN No …): 4 rows, PO No and TCS on the bill\'s first row', (t.rows || []).length === 4 && t.cols[0].h === 'Sr No' && t.cols[1].h === 'GRN No' && t.rows[0][0] === 1 && t.rows[0][17] === PO1 && t.rows[0][14] === 10, t.rows);
   t = await rep(K, { kind: 'issue', from: D10, to: today, party: 'Tushar Mandal' });
   ok('Issue register of Tushar Mandal: 2 rows, Bamboo returnable 20 returned', (t.rows || []).length === 2 && t.rows[1][15] === 'Yes' && t.rows[1][16] === 20, t.rows);
   t = await rep(K, { kind: 'consumption', from: D10, to: today, by: 'party' });

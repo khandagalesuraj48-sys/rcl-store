@@ -14,7 +14,6 @@ const { activity } = require('../lib/activity');
 const I = require('../lib/items');
 const enc = encodeURIComponent;
 
-const { registry } = require('../lib/sites');
 // (24-10-2026) every item, page by page (lib/sites.js dbAll – the database gives at most 1,000 rows to one question)
 const own = site => dbAll(site, 'items?select=code,name,name_key,unit,category,hsn,gst_pct,min_stock,status,similar_note,created_by,updated_by,created_at,updated_at', 'code');
 // this site's items (the list, every save)
@@ -34,16 +33,8 @@ const forCheck = async site => {
   return e.p;
 };
 const changed = site => CHECK.delete(site);
-/* the codes given at every site – only for the next Item Code (one numbering for all sites). A site whose Store is not set up
- * or cannot be reached is passed over: a code it gave meanwhile is caught by codeOnce() at the save. */
-async function codesAll(site) {
-  const sites = (await registry()).filter(x => x.status === 'ready');
-  const parts = await Promise.all(sites.map(x => dbAll(x.code, 'items?select=code,created_at', 'code').then(r => (r || []).map(i => Object.assign(i, { site: x.code })))
-    .catch(e => { if (x.code === site) throw e; return []; })));
-  return [].concat(...parts);
-}
-const codeNo = c => { const m = /^ITM-(\d+)$/.exec(String(c || '')); return m ? Number(m[1]) : 0; };
-const nextCode = (list, k) => 'ITM-' + String(list.reduce((n, i) => Math.max(n, codeNo(i.code)), 0) + 1 + (k || 0)).padStart(4, '0');
+// (28-10-2026) the Item Code's one numbering for all sites: lib/itemcodes.js (the old inward register's import makes items too)
+const { codesAll, codeNo, nextCode, codeOnce } = require('../lib/itemcodes');
 const cats = list => [...new Set(list.map(x => x.category).filter(Boolean))].sort();
 const brief = x => ({ code: x.code, name: x.name, unit: x.unit, category: x.category });
 const userErr = e => { if (e && e.user) throw fail(400, e.message, 'field'); throw e; };
@@ -57,17 +48,6 @@ function look(x, list, skip) {
   const p = I.properName(x.name, list.map(i => i.name)), key = I.keyOf(x.name);
   const exact = list.find(i => i.name_key === key && i.code !== skip) || null;
   return { proper: p, exact: exact ? brief(exact) : null, similar: exact ? [] : I.similar(x.name, list, skip), cat: catOf(I.properCategory(x.category), list) };
-}
-
-/* one numbering for all sites: two sites saving at the same moment could give the same next code – the item just made here then
- * takes the next free one (it is seconds old; nothing refers to it yet) */
-async function codeOnce(site, it, have) {
-  for (let k = 0; k < 3; k++) {
-    const codes = k === 0 && have ? have : await codesAll(site), twin = codes.find(i => i.code === it.code && i.site !== site && String(i.created_at) <= String(it.created_at));
-    if (!twin) return it;
-    try { it = ((await db(site, 'PATCH', 'items?code=eq.' + enc(it.code), { code: nextCode(codes) }, 'return=representation')) || [])[0] || it; } catch (e) { if (!(e && e.code === 'duplicate')) throw e; }
-  }
-  return it;
 }
 
 // (14-10-2026) the pages the Super Admin gave a Store User in the Portal: no access to the Item Master – not even its list
