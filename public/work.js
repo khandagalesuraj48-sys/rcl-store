@@ -297,46 +297,57 @@
     $('gr_show').onclick = () => grnLoad();
     if ($('gr_new')) $('gr_new').onclick = () => grnForm(null);
     $('gr_xl').onclick = () => busy($('gr_xl'), async () => toExcel(await W('report', { kind: 'grn', from: val('gr_from'), to: val('gr_to') }), 'GRN_register'));
-    if ($('gr_imp')) { $('gr_imp').onclick = () => { $('gr_file').value = ''; $('gr_file').click(); }; $('gr_file').onchange = () => importFile('grn', $('gr_file').files[0], $('gr_impbox'), grnLoad); $('gr_tpl').onclick = () => importTemplate('grn'); }
+    // (28-10-2026) the Import of the GRNs: the register's (his inward register – any size, its own GRN No; the check first)
+    if ($('gr_imp')) { $('gr_imp').onclick = () => { $('gr_file').value = ''; $('gr_file').click(); }; $('gr_file').onchange = () => regFile($('gr_file').files[0], $('gr_impbox')); $('gr_tpl').onclick = () => importTemplate('grn'); }
     $('gr_list').onclick = e => grnClick(e);
     await boot(); await grnLoad();
   }
+  // (28-10-2026, "ji excel diley tech column mala GRN / inward madhe de") the list in the columns of his inward register: a row for each
+  // material; the GRN's own (GRN No, date, challan, invoice, vehicle, supplier, TCS, PO) once for its rows
+  const RCOLS = ['Sr No', 'GRN No', 'GRN Date', 'Challan No', 'Invoice No.', 'Invoice Date', 'Vehicle No', 'Supplier Name', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'Taxable Amount', 'GST Amount', 'TCS', 'Gross Amount', 'Remark', 'PO No'];
+  const refOf = g => String(g.ref === null || g.ref === undefined || g.ref === '' ? g.no : g.ref);
   async function grnLoad() {
     try { const r = await W('grnList', { from: val('gr_from'), to: val('gr_to') }); GR.list = r.grns;
-      $('gr_list').innerHTML = '<div class="tw"><table><thead><tr><th>GRN</th><th>Date</th><th>Supplier</th><th>Invoice</th><th>Vehicle</th><th>PO</th><th>Items</th><th class="n">Gross</th><th></th></tr></thead><tbody>' +
-        (GR.list.map(g => '<tr data-no="' + g.no + '"><td><b>' + g.no + '</b></td><td>' + dmy(g.date) + '</td><td>' + esc(g.supplier) + '</td><td>' + esc([g.invoice_no, dmy(g.invoice_date)].filter(Boolean).join(' · ')) + (g.challan_no ? '<small>Challan ' + esc(g.challan_no) + '</small>' : '') + '</td><td>' + esc(g.vehicle_no || '') + '</td><td>' + (g.po_no || '') + '</td>' +
-          '<td style="white-space:normal">' + g.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit + ' @ ' + n2(l.rate))).join('<br>') + '</td><td class="n">' + money(g.gross) + '</td><td><div class="acts"><button type="button" class="link gr-print">Print</button>' +
-          (admin() ? '<button type="button" class="link gr-edit">Change</button><button type="button" class="link del gr-del">Delete</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="9" class="empty">No GRN in these dates.</td></tr>') + '</tbody></table></div>' +
-        '<p class="count">' + GR.list.length + ' GRN(s) · ' + money(GR.list.reduce((a, g) => a + Number(g.gross || 0), 0)) + '</p>'; }
+      let sr = 0;
+      const span = (g, html, cls) => '<td rowspan="' + Math.max(1, g.lines.length) + '"' + (cls ? ' class="' + cls + '"' : '') + '>' + html + '</td>';
+      const rowsOf = g => (g.lines.length ? g.lines : [{}]).map((l, i) => '<tr data-no="' + g.no + '"><td class="n">' + (++sr) + '</td>' +
+        (i ? '' : span(g, '<b>' + esc(refOf(g)) + '</b>') + span(g, dmy(g.date)) + span(g, esc(g.challan_no || '')) + span(g, esc(g.invoice_no || '')) + span(g, dmy(g.invoice_date)) + span(g, esc(g.vehicle_no || '')) + span(g, esc(g.supplier), 'nm')) +
+        '<td style="white-space:normal;min-width:200px">' + esc(l.name || '') + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit || '') + '</td><td class="n">' + n2(l.rate) + '</td><td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst) + '</td>' +
+        (i ? '' : span(g, Number(g.tcs) ? n2(g.tcs) : '', 'n')) + '<td class="n">' + n2(l.gross) + '</td><td style="white-space:normal">' + esc(l.remark || (i ? '' : g.remark) || '') + '</td>' +
+        (i ? '' : span(g, g.po_no || '') + span(g, '<div class="acts"><button type="button" class="link gr-print">Print</button>' + (admin() ? '<button type="button" class="link gr-edit">Change</button><button type="button" class="link del gr-del">Delete</button>' : '') + '</div>')) + '</tr>').join('');
+      $('gr_list').innerHTML = '<div class="tw"><table><thead><tr>' + RCOLS.map(h => '<th' + (/Qty|Rate|Amount|^TCS|Sr No/.test(h) ? ' class="n"' : '') + '>' + esc(h) + '</th>').join('') + '<th></th></tr></thead><tbody>' +
+        (GR.list.map(rowsOf).join('') || '<tr><td colspan="19" class="empty">No GRN in these dates.</td></tr>') + '</tbody></table></div>' +
+        '<p class="count">' + GR.list.length + ' GRN(s) · ' + sr + ' row(s) · ' + money(GR.list.reduce((a, g) => a + Number(g.gross || 0), 0)) + '</p>'; }
     catch (e) { failed(e); }
   }
   async function grnClick(e) {
     const b = e.target.closest('button'), tr = e.target.closest('tr[data-no]'); if (!b || !tr) return; const g = GR.list.find(x => x.no === Number(tr.dataset.no)); if (!g) return;
-    if (b.classList.contains('gr-print')) return printHtml('GRN ' + g.no, head('Goods Received Note – GRN ' + g.no, dmy(g.date)) + '<p><b>Supplier:</b> ' + esc(g.supplier) + (g.invoice_no ? ' · Invoice ' + esc(g.invoice_no) + ' ' + dmy(g.invoice_date) : '') + (g.challan_no ? ' · Challan ' + esc(g.challan_no) : '') + (g.vehicle_no ? ' · Vehicle ' + esc(g.vehicle_no) : '') + (g.po_no ? ' · PO ' + g.po_no : '') + '</p>' +
-      '<table><thead><tr><th>#</th><th>Material</th><th class="n">Received Qty</th><th>UOM</th><th class="n">Basic Rate</th><th class="n">Taxable</th><th class="n">GST %</th><th class="n">GST</th><th class="n">Gross</th></tr></thead><tbody>' + g.lines.map((l, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td><td class="n">' + n2(l.rate) + '</td><td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.gross) + '</td></tr>').join('') +
-      (Number(g.tcs) ? '<tr><td colspan="8">TCS</td><td class="n">' + n2(g.tcs) + '</td></tr>' : '') + '<tr><td colspan="8"><b>Gross</b></td><td class="n"><b>' + n2(g.gross) + '</b></td></tr></tbody></table>' + (g.remark ? '<p>' + esc(g.remark) + '</p>' : '') + '<div class="sign"><div>Received by: ' + esc(g.created_name || '') + '</div><div>Store in-charge</div></div>');
+    if (b.classList.contains('gr-print')) return printHtml('GRN ' + refOf(g), head('Goods Received Note – GRN ' + refOf(g), dmy(g.date)) + '<p><b>Supplier:</b> ' + esc(g.supplier) + (g.invoice_no ? ' · Invoice ' + esc(g.invoice_no) + ' ' + dmy(g.invoice_date) : '') + (g.challan_no ? ' · Challan ' + esc(g.challan_no) : '') + (g.vehicle_no ? ' · Vehicle ' + esc(g.vehicle_no) : '') + (g.po_no ? ' · PO ' + g.po_no : '') + '</p>' +
+      '<table><thead><tr><th>#</th><th>Material</th><th class="n">Received Qty</th><th>UOM</th><th class="n">Basic Rate</th><th class="n">Taxable</th><th class="n">GST %</th><th class="n">GST</th><th class="n">Gross</th><th>Remark</th></tr></thead><tbody>' + g.lines.map((l, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td><td class="n">' + n2(l.rate) + '</td><td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.gross) + '</td><td>' + esc(l.remark || '') + '</td></tr>').join('') +
+      (Number(g.tcs) ? '<tr><td colspan="8">TCS</td><td class="n">' + n2(g.tcs) + '</td><td></td></tr>' : '') + '<tr><td colspan="8"><b>Gross</b></td><td class="n"><b>' + n2(g.gross) + '</b></td><td></td></tr></tbody></table>' + (g.remark ? '<p>' + esc(g.remark) + '</p>' : '') + '<div class="sign"><div>Received by: ' + esc(g.created_name || '') + '</div><div>Store in-charge</div></div>');
     if (b.classList.contains('gr-edit')) return grnForm(g);
-    if (b.classList.contains('gr-del')) { if (!await ask('Delete GRN ' + g.no + '?', '<p>Its material goes out of the stock (refused if it was issued already).</p><p class="mr">हा GRN डिलीट होईल.</p>', [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, bad: true }])) return; return busy(b, async () => { await W('grnDelete', { no: g.no }); toast('GRN ' + g.no + ' deleted.'); B = null; await boot(); grnLoad(); }); }
+    if (b.classList.contains('gr-del')) { if (!await ask('Delete GRN ' + refOf(g) + '?', '<p>Its material goes out of the stock (refused if it was issued already).</p><p class="mr">हा GRN डिलीट होईल.</p>', [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, bad: true }])) return; return busy(b, async () => { await W('grnDelete', { no: g.no }); toast('GRN ' + refOf(g) + ' deleted.'); B = null; await boot(); grnLoad(); }); }
   }
   async function grnForm(g) {
     const f = $('gr_form'); f.hidden = false; f.innerHTML = '<p class="muted">Loading…</p>';
     try { await boot(); } catch (e) { failed(e); f.hidden = true; return; }      // (pressed before the page had its lists)
     let pos = []; try { pos = (await W('poOpen')).pos; } catch (e) { pos = []; }
     if (g && g.po_no && !pos.some(p => p.no === Number(g.po_no))) pos.push({ no: Number(g.po_no), vendor: g.supplier, lines: [] });
-    f.innerHTML = '<h2>' + (g ? 'Change GRN ' + g.no : 'New GRN') + '</h2><div class="grid" style="margin-top:10px">' +
+    f.innerHTML = '<h2>' + (g ? 'Change GRN ' + esc(refOf(g)) : 'New GRN') + '</h2><div class="grid" style="margin-top:10px">' +
       field('gr_po', 'Against PO', sel('gr_po', [['', 'Direct (no PO)']].concat(pos.map(p => [p.no, 'PO ' + p.no + ' – ' + p.vendor + (p.lines.length ? ' (' + p.lines.filter(l => l.left > 0).map(l => l.name + ' ' + n2(l.left)).join(', ') + ')' : '')])), g ? g.po_no || '' : ''), 'wide') +
       field('gr_date', 'GRN date *', inp('gr_date', g ? g.date : today(), ' type="date"')) + field('gr_sup', 'Supplier *', inp('gr_sup', g ? g.supplier : '', ' list="dl_wsuppliers" maxlength="80" autocomplete="off"'), 'wide') +
       field('gr_ch', 'Challan No', inp('gr_ch', g ? g.challan_no : '', ' maxlength="40"')) + field('gr_inv', 'Invoice No', inp('gr_inv', g ? g.invoice_no : '', ' maxlength="40"')) + field('gr_invd', 'Invoice date', inp('gr_invd', g ? g.invoice_date : '', ' type="date"')) +
       field('gr_veh', 'Vehicle No', inp('gr_veh', g ? g.vehicle_no : '', ' maxlength="20"')) + field('gr_tcs', 'TCS ₹', inp('gr_tcs', g ? g.tcs : '', ' inputmode="decimal"')) + field('gr_rem', 'Remark', inp('gr_rem', g ? g.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="gr_lines"></div>' +
       '<div class="bar"><button type="button" class="btn primary" id="gr_save">Save GRN</button><button type="button" class="btn" id="gr_x">Cancel</button></div>';
-    const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }); return '<td colspan="5">Total' + (num(val('gr_tcs')) ? ' (+ TCS ' + money(num(val('gr_tcs'))) + ')' : '') + '</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all + num(val('gr_tcs'))) + '</td><td></td>'; };
+    const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }); return '<td colspan="5">Total' + (num(val('gr_tcs')) ? ' (+ TCS ' + money(num(val('gr_tcs'))) + ')' : '') + '</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all + num(val('gr_tcs'))) + '</td><td></td><td></td>'; };
     const cols = [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'qty', h: 'Received Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') }, { k: 'rate', h: 'Basic Rate ₹', type: 'num' }, { k: 'gst_pct', h: 'GST %', type: 'num' },
-      { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).t) : '' }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).g) : '' }, { k: 'ax', h: 'Gross', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).all) : '' }];
+      { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).t) : '' }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).g) : '' }, { k: 'ax', h: 'Gross', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).all) : '' },
+      { k: 'remark', h: 'Remark', type: 'text', w: 160 }];
     const picked = (r, i) => { if (r.gst_pct === '' && i.gst_pct !== null && i.gst_pct !== undefined) r.gst_pct = i.gst_pct; };
     let L = null;
     const fromPo = () => {
       const p = pos.find(z => z.no === Number(val('gr_po')));
-      const rows = g && Number(g.po_no || 0) === Number(val('gr_po') || 0) ? g.lines.map(l => ({ code: l.code, name: l.name, unit: l.unit, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line, fixedItem: !!l.po_line }))
+      const rows = g && Number(g.po_no || 0) === Number(val('gr_po') || 0) ? g.lines.map(l => ({ code: l.code, name: l.name, unit: l.unit, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line, remark: l.remark || '', fixedItem: !!l.po_line }))
         : p ? p.lines.filter(l => l.left > 0).map(l => ({ code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: l.rate, gst_pct: l.gst_pct, po_line: l.line, fixedItem: true })) : [];
       if (p && !g && !val('gr_sup')) $('gr_sup').value = p.vendor;
       L = Lines($('gr_lines'), cols, rows, { total: tot, picked: picked });
@@ -346,7 +357,7 @@
     $('gr_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Pick each item from the list (as it is in the Item Master).');
       const x = { no: g ? g.no : undefined, grn: { po_no: val('gr_po') || undefined, date: val('gr_date'), supplier: val('gr_sup'), challan_no: val('gr_ch'), invoice_no: val('gr_inv'), invoice_date: val('gr_invd'), vehicle_no: val('gr_veh'), tcs: val('gr_tcs'), remark: val('gr_rem'),
-        lines: lines.map(l => ({ code: l.code, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line || undefined })) } };
+        lines: lines.map(l => ({ code: l.code, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line || undefined, remark: l.remark || undefined })) } };
       const r = await saveAsk('grnSave', x); if (!r) return;
       toast('GRN ' + r.no + ' saved – ' + money(r.gross) + '.'); f.hidden = true; B = null; await boot(); grnLoad();
     });
@@ -440,7 +451,8 @@
 
   /* ====================== EXCEL IMPORT (the Store Admin) – his INWARD / OUTWORD columns ====================== */
   const IMP = {
-    grn: { head: ['GRN No', 'GRN Date', 'Challan No', 'Invoice No.', 'Invoice Date', 'Vehicle No', 'Supplier Name', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'GST %', 'TCS', 'Remark'],
+    // (28-10-2026) the GRN's format: his inward register's columns (read by regFile – the same as his file)
+    grn: { head: ['Sr No', 'GRN No', 'GRN Date', 'Challan No', 'Invoice No.', 'Invoice Date', 'Vehicle No', 'Supplier Name', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'Taxable Amount', 'GST Amount', 'TCS', 'Gross Amount', 'Remark'],
       map: { ref: /^grn\s*no/, date: /^grn\s*date|^date$/, challan_no: /challan/, invoice_no: /^invoice\s*no/, invoice_date: /^invoice\s*date|^invoive/, vehicle_no: /vehicle/, party: /supplier|party/, item: /material|item/, qty: /received\s*qty|^qty|inward\s*qty/, rate: /basic\s*rate|^rate/, gst_pct: /gst\s*%|gst\s*rate/, tcs: /^tcs/, remark: /remark/ } },
     issue: { head: ['Date', 'Outward No', 'Party Name', 'Sub Contractor Name', 'Machinery', 'Reading', 'Material', 'Qty', 'UOM', 'Location', 'Side', 'Use For', 'Receiver Name', 'Returnable', 'Serial No', 'Remark'],
       map: { date: /^date$|issue\s*date/, ref: /out\s*w(o|a)rd\s*no|outward\s*no/, party: /sub\s*contractor/, party0: /^party/, machinery: /machinery|vehicle/, reading: /reading/, item: /^material|item/, qty: /^qty|issued?\s*qty/, location: /location/, side: /^side/, use_for: /use\s*for|work\s*desc/, receiver: /receiver/, returnable: /returnable/, serial: /serial|battery\s*no|tyre\s*no/, remark: /remark/ } },
@@ -467,6 +479,209 @@
       $('im_go').onclick = e => busy(e.target, async () => { const z = await go(false); toast(z.saved + ' imported (' + (kind === 'grn' ? 'GRN ' : 'Outward ') + z.nos.join(', ') + ').'); box.hidden = true; B = null; await boot(); reload(); });
       box.scrollIntoView({ block: 'nearest' });
     } catch (e) { failed(e); }
+  }
+
+  /* ====================== THE OLD INWARD REGISTER (28-10-2026, the Store Admin) ======================
+   * His "INWARD UPTO GRN … .xlsx" – or any file with the register's headings: every sheet is read and the register's taken (grnreg.js:
+   * the sheet with GRN No · Material · Qty and the most rows). The check first – nothing saved: the new suppliers and items, the names
+   * the AI finds written in more than one way (he ticks), the same row twice (he deletes what he wants; kept when he does not), the
+   * rows to look at (corrected here, else left out), the notes. Then Import a part at a time – suppliers (the Vendor Master, "Material
+   * Supplier"), items (the Item Master), GRNs with the file's GRN No. A GRN already in the Store is never saved twice: Import again
+   * goes on from where it stopped. What he chose is kept in this browser for this file until the import is done. */
+  const RGI = {};
+  const G2 = () => window.RSG;
+  const pause = () => new Promise(r => setTimeout(r, 30));
+  const n0 = v => Number(v || 0).toLocaleString('en-IN');
+  const memKey = () => 'rs_reg:' + ((K().S.me || {}).site || '') + ':' + RGI.file.name + ':' + RGI.file.size;
+  const memGet = () => { try { return JSON.parse(localStorage.getItem(memKey()) || 'null'); } catch (e) { return null; } };
+  const memPut = () => { try { localStorage.setItem(memKey(), JSON.stringify({ ch: RGI.ch, ai: RGI.ai })); } catch (e) { /* a private window: kept on this page only */ } };
+  const memDrop = () => { try { localStorage.removeItem(memKey()); } catch (e) { /* nothing kept */ } };
+  const AIL = { party: ['supplier', 'Suppliers'], item: ['item', 'Items'], category: ['category', 'Categories'] };
+
+  async function regFile(file, box) {
+    if (!file) return;
+    Object.assign(RGI, { box: box, file: file, run: null }); box.hidden = false;
+    box.innerHTML = '<h2>Import the inward register</h2><p class="muted">Reading ' + esc(file.name) + ' … (a big file takes a few seconds)</p>';
+    box.scrollIntoView({ block: 'nearest' });
+    try {
+      const X = await K().xlsx(); await pause();
+      const wb = X.read(await file.arrayBuffer(), { type: 'array' });      // (numbers as they are: a date is Excel's day number – grnreg.js reads it)
+      const sheets = wb.SheetNames.map(n => { const ws = wb.Sheets[n]; let r0 = 0; try { r0 = ws['!ref'] ? X.utils.decode_range(ws['!ref']).s.r : 0; } catch (e) { r0 = 0; }
+        return { name: n, r0: r0, aoa: X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }) }; });
+      const sh = G2().pickSheet(sheets);
+      if (!sh) throw new Error('No sheet of this file has the inward register\'s headings (GRN No or GRN Date, Supplier Name, Material Description, Received Qty) – see "Import format".');
+      const rows = G2().readRows(sh);
+      if (!rows.length) throw new Error('The sheet "' + sh.name + '" has no rows under its headings.');
+      box.innerHTML = '<h2>Import the inward register</h2><p class="muted">' + n0(rows.length) + ' rows read – checking them with the Store …</p>';
+      const info = await W('regInfo');
+      Object.assign(RGI, { sheet: sh.name, others: sh.others, rows: rows, info: info, ch: { fix: { party: {}, item: {}, category: {} }, gone: {}, edit: {} }, ai: null, q: {} });
+      const m = memGet(); if (m && m.ch) { RGI.ch = Object.assign(RGI.ch, m.ch); RGI.ai = m.ai || null; }
+      regPlan(); regDraw();
+    } catch (e) { failed(e); box.innerHTML = '<h2>Import the inward register</h2><div class="errbox">' + esc(e.message) + '</div><div class="bar"><button type="button" class="btn" id="rg_x">Close</button></div>'; $('rg_x').onclick = () => { box.hidden = true; }; }
+  }
+  const regPlan = () => { RGI.p = G2().plan(RGI.rows, RGI.info, RGI.ch, RGI.info.today); };
+
+  // a list that can be long: the first 300 rows that have what is typed in its search box
+  function regList(id, head, rows, cells, empty) {
+    const q = String(RGI.q[id] || '').toLowerCase(), got = q ? rows.filter(r => JSON.stringify(r).toLowerCase().indexOf(q) > -1) : rows;
+    return '<div class="bar" style="margin:8px 0">' + (rows.length > 12 ? '<div class="field grow" style="margin:0"><input class="rg-q" data-l="' + id + '" value="' + esc(RGI.q[id] || '') + '" placeholder="Search in this list"></div>' : '') +
+      (rows.length > 12 ? '<span class="count">' + (q ? n0(got.length) + ' of ' : '') + n0(rows.length) + (got.length > 300 ? ' – the first 300 shown (all of them in "Excel of the check")' : '') + '</span>' : '') + '</div>' +
+      '<div class="tw rgsc" id="rgs_' + id + '" style="max-height:420px;overflow:auto"><table class="lines"><thead><tr>' + head.map(h => '<th' + (/^(Qty|Rows|GST %|Gross ₹|Line|Same as line)$/.test(h) ? ' class="n"' : '') + '>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
+      (got.slice(0, 300).map(cells).join('') || '<tr><td colspan="' + head.length + '" class="empty">' + esc(empty || 'None.') + '</td></tr>') + '</tbody></table></div>';
+  }
+
+  function regDraw() {
+    const p = RGI.p, info = RGI.info, b = RGI.box, run = RGI.run;
+    const keep = {}; b.querySelectorAll('.rgsc').forEach(e => { keep[e.id] = e.scrollTop; });
+    const open = {}; b.querySelectorAll('details[id]').forEach(e => { open[e.id] = e.open; });
+    const isOpen = (id, d) => (open[id] === undefined ? d : open[id]) ? ' open' : '';
+    const tile = (cls, l, n, s) => '<div class="tile ' + cls + '"><small>' + esc(l) + '</small><b>' + n + '</b><span>' + esc(s) + '</span></div>';
+    const sec = (id, t, n, body, d) => '<details id="' + id + '"' + isOpen(id, d) + ' style="margin-top:12px"><summary style="cursor:pointer;font-weight:700;font-size:16px">' + esc(t) + ' <span class="tag' + (n ? ' warn' : ' off') + '">' + n0(n) + '</span></summary>' + body + '</details>';
+    const dupCut = p.dups.filter(d => !d.gone).length, ai = RGI.ai;
+    const aiRows = l => ((ai && ai[l]) || []).map(z => ({ from: z[0], to: z[1], rows: z[2], on: RGI.ch.fix[l][z[0]] === z[1] }));
+    const aiN = ai ? Object.keys(AIL).reduce((a, l) => a + ((ai[l] || []).length), 0) : 0, aiOn = Object.keys(AIL).reduce((a, l) => a + Object.keys(RGI.ch.fix[l] || {}).length, 0);
+    const ranges = (p.from ? dmy(p.from) + ' to ' + dmy(p.to) : '');
+    b.innerHTML = '<h2>Import the inward register – check</h2>' +
+      '<p class="muted" style="margin:2px 0 10px">' + esc(RGI.file.name) + ' · sheet "' + esc(RGI.sheet) + '" – ' + n0(RGI.rows.length) + ' rows' + (RGI.others.length ? ' (the other sheets – ' + esc(RGI.others.slice(0, 6).join(', ')) + (RGI.others.length > 6 ? ' …' : '') + ' – are not the register)' : '') + '. Nothing is saved until Import.</p>' +
+      '<p class="mr muted" style="margin:0 0 10px">काहीही save झालेले नाही – खालची यादी तपासा, मग Import दाबा.</p>' +
+      (info.step3 ? '' : '<div class="errbox">The Store\'s database step 3 is not run in this site yet: the Admin runs <b>sql/store_step3_grn_import.sql</b> once in Supabase → SQL Editor (in every site). Until then the check can be seen, Import cannot be done.</div>') +
+      '<div class="tiles">' + tile('g', 'GRNs to import', n0(p.docs.length), n0(p.lines) + ' lines · ' + money(p.gross).replace(/\.\d\d$/, '') + (ranges ? ' · ' + ranges : '')) +
+      tile('m', 'Already in the Store', n0(p.already.length), 'left out – never twice') + tile('b', 'New suppliers', n0(p.newSup.length), 'into the Vendor Master (Material Supplier)') +
+      tile('b', 'New items', n0(p.newItems.length), 'into the Item Master') + tile(dupCut ? 'a' : 'm', 'Duplicate rows', n0(p.dups.length), dupCut + ' kept (imported) · ' + (p.dups.length - dupCut) + ' deleted') +
+      tile(p.look.length ? 'a' : 'm', 'Rows to look at', n0(p.look.length), 'left out until corrected') + tile('g', 'Next new GRN', p.next, 'goes on after the file\'s ' + (p.maxRef || '–')) + '</div>' +
+      (p.noRef ? '<p class="note2">' + p.noRef + ' GRN(s) of the file have no GRN No – they get the numbers ' + p.first + (p.noRef > 1 ? ' to ' + (p.first + p.noRef - 1) : '') + '.</p>' : '') +
+      (p.empty.length ? '<p class="count">' + n0(p.empty.length) + ' row(s) have only a GRN No, date or supplier (no material, quantity or amount) – nothing to import there.</p>' : '') +
+      sec('rgd_look', 'Rows to look at – correct here, else they are left out', p.look.length, '<p class="muted">Type what is missing (the row is then checked again). तपासायच्या ओळी – इथेच दुरुस्त करा, नाहीतर त्या import होणार नाहीत.</p>' +
+        regList('look', ['Line', 'GRN No', 'GRN Date', 'Supplier', 'Material', 'Qty', 'Why'], p.look, l => { const e = RGI.ch.edit[l.line] || {};
+          return '<tr data-line="' + l.line + '"><td class="n">' + l.line + '</td><td>' + esc(l.ref || '') + '</td><td><input type="date" class="rg-e" data-k="date" value="' + esc(e.date || l.date || '') + '" style="width:150px"></td>' +
+            '<td><input class="rg-e" data-k="party" value="' + esc(e.party || l.party || '') + '" list="dl_wsuppliers" style="width:200px"></td><td><input class="rg-e" data-k="item" value="' + esc(e.item || l.item || '') + '" style="width:240px"></td>' +
+            '<td><input class="rg-e q" data-k="qty" inputmode="decimal" value="' + esc(e.qty !== undefined ? e.qty : l.qty || '') + '"></td><td style="white-space:normal;min-width:220px">' + l.why.map(w => tag(w, 'bad')).join(' ') + '</td></tr>'; }, 'No row to look at.'), !!p.look.length) +
+      sec('rgd_dup', 'Duplicate rows – the same row twice in the file', p.dups.length, '<p class="muted">Every column the same as an earlier row. Delete what is a mistake; what you do not delete is imported as it is. Duplicate ओळी – चुकीची असेल ती Delete करा; Delete न केलेली तशीच save होईल.</p>' +
+        '<div class="bar" style="margin:6px 0"><button type="button" class="btn small bad" id="rg_dupall">Delete all duplicates</button><button type="button" class="btn small" id="rg_dupnone">Keep all</button></div>' +
+        regList('dup', ['Line', 'Same as line', 'GRN No', 'GRN Date', 'Supplier', 'Material', 'Qty', 'Gross ₹', ''], p.dups, d => '<tr data-line="' + d.line + '"' + (d.gone ? ' class="off"' : '') + '><td class="n">' + d.line + '</td><td class="n">' + d.first + '</td><td>' + esc(d.row.ref || d.row.refText || '') + '</td><td>' + dmy(d.row.date) + '</td><td>' + esc(d.row.party) + '</td><td>' + esc(d.row.item) + '</td><td class="n">' + esc(d.row.qty) + '</td><td class="n">' + esc(d.row.gross === '' ? '' : n2(d.row.gross)) + '</td>' +
+          '<td>' + (d.gone ? tag('Deleted', 'off') + ' <button type="button" class="link rg-dup" data-v="0">Undo</button>' : '<button type="button" class="link del rg-dup" data-v="1">Delete</button>') + '</td></tr>', 'No row twice.'), !!p.dups.length) +
+      sec('rgd_ai', 'Names written in more than one way (the AI) – tick what is the same', aiN, !info.ai ? '<p class="note2">The AI is not set up for the Store (ANTHROPIC_API_KEY in Vercel → rcl-store → Environment Variables) – the names stay as in the file (a name with the same letters – "Oil-Filter", "OIL FILTER" – is one already).</p>' :
+        '<p class="muted">The AI reads the suppliers, items and categories of the file and lists the ones written differently. Tick (✓) what is the same thing – it is then saved with the right spelling. What is not ticked stays as in the file. ' + (aiN ? aiOn + ' ticked.' : '') + '</p>' +
+        '<div class="bar" style="margin:6px 0">' + (RGI.aiRun ? '<span class="tag warn">' + esc(RGI.aiRun) + '</span><button type="button" class="btn small" id="rg_aistop">Stop</button>' : '<button type="button" class="btn small primary" id="rg_ai">' + (ai && ai.parts ? (ai.left ? 'Go on with the AI (' + ai.left + ' parts left)' : 'Ask the AI again') : 'Find them with the AI') + '</button>') + (ai && ai.err ? '<span class="tag bad">' + esc(ai.err) + '</span>' : '') + '</div>' +
+        Object.keys(AIL).map(l => !(ai && ai[l] && ai[l].length) ? '' : '<h3 style="margin:12px 0 0;font-size:15px">' + AIL[l][1] + ' <span class="count">' + ai[l].length + '</span> <button type="button" class="link rg-aiall" data-l="' + l + '" data-v="1">✓ all</button> · <button type="button" class="link rg-aiall" data-l="' + l + '" data-v="0">none</button></h3>' +
+          regList('ai_' + l, ['✓', 'In the file', 'Right spelling', 'Rows'], aiRows(l), z => '<tr><td><input type="checkbox" class="rg-ai" data-l="' + l + '" data-f="' + esc(z.from) + '" data-t="' + esc(z.to) + '"' + (z.on ? ' checked' : '') + ' style="width:auto;min-height:0"></td><td style="white-space:normal">' + esc(z.from) + '</td><td style="white-space:normal"><b>' + esc(z.to) + '</b></td><td class="n">' + n0(z.rows) + '</td></tr>')).join(''), false) +
+      sec('rgd_sup', 'New suppliers – into the Vendor Master as "Material Supplier" (GST, PAN, Aadhaar to fill later)', p.newSup.length, regList('sup', ['Supplier', 'Rows'], p.newSup, s => '<tr><td>' + esc(s.name) + '</td><td class="n">' + n0(s.rows) + '</td></tr>'), false) +
+      sec('rgd_items', 'New items – into the Item Master', p.newItems.length, '<p class="muted">Unit: the one most of its rows have; category: its Remark when that is used in 20 rows or more, else General; GST %: the usual one of its rows. All can be changed later in the Item Master.</p>' +
+        regList('items', ['Item', 'Unit', 'Category', 'GST %', 'Rows'], p.newItems, i => '<tr><td style="white-space:normal">' + esc(i.name) + '</td><td>' + esc(i.unit) + '</td><td>' + esc(i.category) + '</td><td class="n">' + esc(i.gst) + '</td><td class="n">' + n0(i.rows) + '</td></tr>'), false) +
+      sec('rgd_notes', 'Notes – imported as the file has them', p.notes.length, regList('notes', ['Line', 'GRN No', 'Note'], p.notes, z => '<tr><td class="n">' + z.line + '</td><td>' + esc(z.ref || '') + '</td><td style="white-space:normal">' + (z.big ? tag('Check', 'warn') + ' ' : '') + esc(z.msg) + '</td></tr>'), false) +
+      sec('rgd_have', 'Already in the Store – left out', p.already.length, regList('have', ['GRN No', 'GRN Date', 'Supplier', 'Invoice'], p.already, d => '<tr><td>' + esc(d.ref) + '</td><td>' + dmy(d.date) + '</td><td>' + esc(d.supplier) + '</td><td>' + esc(d.invoice_no || '') + '</td></tr>'), false) +
+      (run ? regRunHtml() : '') +
+      '<div class="bar"><button type="button" class="btn primary" id="rg_go"' + (!info.step3 || !p.docs.length || (run && run.busy) || RGI.aiRun ? ' disabled' : '') + '>Import ' + n0(p.docs.length) + ' GRN</button><button type="button" class="btn" id="rg_xl">Excel of the check</button><button type="button" class="btn" id="rg_x"' + (run && run.busy ? ' disabled' : '') + '>Close</button></div>';
+    Object.keys(keep).forEach(id => { const e = $(id); if (e) e.scrollTop = keep[id]; });
+    regWire();
+  }
+  function regRunHtml() {
+    const r = RGI.run, bar = (t, a, n) => '<div style="margin:6px 0"><div class="count">' + esc(t) + ' – ' + n0(a) + ' of ' + n0(n) + '</div><div style="height:8px;background:#EEF0F2;border-radius:6px;overflow:hidden"><div style="height:8px;width:' + (n ? Math.round(a / n * 100) : 100) + '%;background:var(--good)"></div></div></div>';
+    return '<section class="note2" style="margin-top:14px"><b>' + (r.busy ? 'Importing … (keep this page open)' : r.stopped ? 'Stopped' : 'Imported') + '</b>' + bar('Suppliers', r.supDone, r.supOf) + bar('Items', r.itemDone, r.itemOf) + bar('GRNs', r.grnDone, r.grnOf) +
+      '<div>' + n0(r.sup) + ' supplier(s) and ' + n0(r.items) + ' item(s) made · ' + n0(r.saved) + ' GRN saved' + (r.skipped ? ' · ' + n0(r.skipped) + ' already in the Store (left out)' : '') + (r.errors.length ? ' · <b style="color:var(--bad)">' + r.errors.length + ' GRN with a mistake (not saved)</b>' : '') + '</div>' +
+      (r.stopped ? '<div class="errbox">' + esc(r.stopped) + ' – press Import again: what is saved already is left (never twice), the rest goes on.</div>' : '') +
+      (r.errors.length ? '<div class="tw" style="max-height:220px;overflow:auto;margin-top:6px"><table><thead><tr><th>GRN No</th><th>Mistake</th></tr></thead><tbody>' + r.errors.slice(0, 300).map(z => '<tr><td>' + esc(z.ref) + '</td><td style="white-space:normal">' + esc(z.msg) + '</td></tr>').join('') + '</tbody></table></div>' : '') +
+      (r.bad.length ? '<div class="count">Items not made: ' + esc(r.bad.slice(0, 10).map(z => z.name + ' (' + z.msg + ')').join('; ')) + '</div>' : '') + '</section>';
+  }
+  function regWire() {
+    const b = RGI.box, again = () => { memPut(); regPlan(); regDraw(); };
+    b.querySelectorAll('.rg-q').forEach(e => { e.oninput = () => { RGI.q[e.dataset.l] = e.value; clearTimeout(RGI.qt); RGI.qt = setTimeout(() => { regDraw(); const n = b.querySelector('.rg-q[data-l="' + e.dataset.l + '"]'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); }; });
+    b.querySelectorAll('.rg-e').forEach(e => { e.onchange = () => { const line = e.closest('tr').dataset.line, x = RGI.ch.edit[line] = RGI.ch.edit[line] || {}; x[e.dataset.k] = e.value.trim(); again(); }; });
+    b.querySelectorAll('.rg-dup').forEach(e => { e.onclick = () => { const line = e.closest('tr').dataset.line; if (e.dataset.v === '1') RGI.ch.gone[line] = true; else delete RGI.ch.gone[line]; again(); }; });
+    if ($('rg_dupall')) $('rg_dupall').onclick = async () => { if (!await ask('Delete all ' + RGI.p.dups.length + ' duplicate rows?', '<p>Each row that is the same as an earlier row is left out of the import (the earlier one is imported).</p><p class="mr">सर्व duplicate ओळी वगळल्या जातील.</p>', [{ label: 'Cancel', value: false }, { label: 'Delete all', value: true, bad: true }])) return; RGI.p.dups.forEach(d => { RGI.ch.gone[d.line] = true; }); again(); };
+    if ($('rg_dupnone')) $('rg_dupnone').onclick = () => { RGI.ch.gone = {}; again(); };
+    b.querySelectorAll('.rg-ai').forEach(e => { e.onchange = () => { const f = RGI.ch.fix[e.dataset.l]; if (e.checked) f[e.dataset.f] = e.dataset.t; else delete f[e.dataset.f]; again(); }; });
+    b.querySelectorAll('.rg-aiall').forEach(e => { e.onclick = () => { const l = e.dataset.l, f = RGI.ch.fix[l] = {}; if (e.dataset.v === '1') (RGI.ai[l] || []).forEach(z => { f[z[0]] = z[1]; }); again(); }; });
+    if ($('rg_ai')) $('rg_ai').onclick = () => regAi();
+    if ($('rg_aistop')) $('rg_aistop').onclick = () => { RGI.aiStop = true; };
+    $('rg_go').onclick = () => regImport();
+    $('rg_xl').onclick = e => busy(e.target, regExcel);
+    $('rg_x').onclick = () => { b.hidden = true; };
+  }
+
+  /* the AI: the names of the file in parts (sorted – the same name written differently is mostly near), 4 parts at a time; each part
+   * with the names already saved near it. A part done is kept: "Go on" asks only the rest. */
+  async function regAi() {
+    if (RGI.ai && RGI.ai.parts && !RGI.ai.left) RGI.ai = null;      // all asked before: asked again from the start
+    const names = G2().namesOf(RGI.rows), info = RGI.info, ai = RGI.ai = (RGI.ai && RGI.ai.parts) ? RGI.ai : { party: [], item: [], category: [], parts: 0, done: {} };
+    const saved = { party: info.vendors || [], item: (info.items || []).map(i => i[1]), category: [...new Set((info.items || []).map(i => i[3]).filter(Boolean))] };
+    const SIZE = { party: 250, item: 200, category: 400 }, jobs = [];
+    Object.keys(AIL).forEach(l => {
+      const list = Object.keys(names[l]).sort((a, b) => G2().keyOf(a).localeCompare(G2().keyOf(b))).map(n => [n, names[l][n]]);
+      const sv = saved[l].map(n => [G2().keyOf(n), n]).sort((a, b) => a[0].localeCompare(b[0]));
+      for (let i = 0; i < list.length; i += SIZE[l]) {
+        const part = list.slice(i, i + SIZE[l]); if (part.length < 2) continue;
+        const k1 = G2().keyOf(part[0][0]), k2 = G2().keyOf(part[part.length - 1][0]);
+        jobs.push({ id: l + ':' + i, l: l, names: part, saved: sv.filter(z => z[0] >= k1 && z[0] <= k2).slice(0, 300).map(z => z[1]) });
+      }
+    });
+    ai.parts = jobs.length; ai.err = '';
+    const todo = jobs.filter(j => !ai.done[j.id]); ai.left = todo.length;
+    RGI.aiStop = false; let n = 0, stop = '';
+    const show = () => { RGI.aiRun = 'The AI is reading the names – part ' + (jobs.length - ai.left) + ' of ' + jobs.length; regDraw(); };
+    show();
+    const one = async j => {
+      for (let t = 0; t < 2; t++) {
+        try { const r = await W('regNames', { list: AIL[j.l][0], names: j.names, saved: j.saved }); const rows = {}; j.names.forEach(a => { rows[a[0]] = a[1]; });
+          (r.fixes || []).forEach(z => { ai[j.l].push([z[0], z[1], rows[z[0]] || 0]); }); ai.done[j.id] = true; ai.left--; return; }
+        catch (e) { if (t || /not accept its key|no credit|not set up/i.test(String(e.message))) throw e; await new Promise(r => setTimeout(r, 4000)); }
+      }
+    };
+    const worker = async () => { while (todo.length && !RGI.aiStop && !stop) { const j = todo.shift(); try { await one(j); } catch (e) { stop = e.message; } n++; memPut(); show(); } };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    RGI.aiRun = ''; ai.err = stop || (RGI.aiStop ? 'Stopped – press Go on for the rest' : '');
+    memPut(); regDraw();
+    if (!stop && !RGI.aiStop) toast('The AI found ' + Object.keys(AIL).reduce((a, l) => a + ai[l].length, 0) + ' name(s) written differently – tick what is the same.');
+  }
+
+  /* IMPORT: the suppliers (500 a part), the items (1,000 a part), then the GRNs (150 or 3,000 lines a part) – each part saved whole or
+   * not at all; a stop (no internet, the server busy) is said, and Import again goes on (nothing is saved twice) */
+  async function regImport() {
+    const p = RGI.p, d0 = p.dups.filter(d => !d.gone).length;
+    if (!p.docs.length) return toast('Nothing to import.');
+    if (!await ask('Import ' + n0(p.docs.length) + ' GRN?', '<ul><li>' + n0(p.lines) + ' lines, ' + money(p.gross) + ' (' + dmy(p.from) + ' to ' + dmy(p.to) + ') – counted in the stock</li>' +
+      '<li>' + n0(p.newSup.length) + ' new supplier(s) into the Vendor Master ("Material Supplier"), ' + n0(p.newItems.length) + ' new item(s) into the Item Master</li>' +
+      '<li>GRN No as in the file; the next new GRN: ' + p.next + '</li>' + (d0 ? '<li>' + d0 + ' duplicate row(s) kept (imported as they are)</li>' : '') + (p.look.length ? '<li>' + p.look.length + ' row(s) to look at are left out</li>' : '') +
+      (p.already.length ? '<li>' + n0(p.already.length) + ' GRN already in the Store – left out</li>' : '') + '</ul><p class="mr">हे सर्व Store मध्ये save होईल. मोठी फाईल असल्याने काही मिनिटे लागतील – page बंद करू नका.</p>',
+      [{ label: 'Cancel', value: false }, { label: 'Import', value: true, primary: true }])) return;
+    const r = RGI.run = { busy: true, supDone: 0, supOf: p.newSup.length, itemDone: 0, itemOf: p.newItems.length, grnDone: 0, grnOf: p.docs.length, sup: 0, items: 0, saved: 0, skipped: 0, errors: [], bad: [], stopped: '' };
+    regDraw();
+    try {
+      for (let i = 0; i < p.newSup.length; i += 500) { const z = await W('regVendors', { names: p.newSup.slice(i, i + 500).map(x => x.name) }); r.sup += z.added; r.supDone = Math.min(p.newSup.length, i + 500); regDraw(); }
+      for (let i = 0; i < p.newItems.length; i += 1000) { const z = await W('regItems', { items: p.newItems.slice(i, i + 1000).map(x => ({ name: x.name, unit: x.unit, category: x.category, gst: x.gst })) }); r.items += z.added.length; r.bad.push(...(z.bad || [])); r.itemDone = Math.min(p.newItems.length, i + 1000); regDraw(); }
+      let part = [], lines = 0;
+      const send = async () => {
+        const z = await W('regGrns', { docs: part.map(d => ({ ref: d.ref, date: d.date, supplier: d.supplier, challan_no: d.challan_no, invoice_no: d.invoice_no, invoice_date: d.invoice_date, vehicle_no: d.vehicle_no,
+          lines: d.lines.map(l => ({ line: l.line, item: l.item, qty: l.qty, unit: l.unit, rate: l.rate, taxable: l.taxable, gst: l.gst, gst_pct: l.gst_pct, tcs: l.tcs, remark: l.remark })) })) });
+        r.saved += (z.saved || []).length; r.skipped += (z.skipped || []).length; r.errors.push(...(z.errors || [])); r.grnDone += part.length; part = []; lines = 0; regDraw();
+      };
+      for (const d of p.docs) { if (part.length && (part.length >= 150 || lines + d.lines.length > 3000)) await send(); part.push(d); lines += d.lines.length; }
+      if (part.length) await send();
+      memDrop();
+      toast(n0(r.saved) + ' GRN imported' + (r.skipped ? ', ' + n0(r.skipped) + ' already there' : '') + (r.errors.length ? ', ' + r.errors.length + ' with a mistake' : '') + '.');
+    } catch (e) { r.stopped = e.message || String(e); failed(e); }
+    r.busy = false; B = null;
+    try { RGI.info = await W('regInfo'); regPlan(); } catch (e) { /* the check stays as it was */ }
+    regDraw();
+    if ($('gr_from') && p.from) { $('gr_from').value = p.to.slice(0, 8) + '01'; $('gr_to').value = today(); }
+    boot().then(grnLoad).catch(() => {});
+  }
+
+  // the check as an Excel file: the GRNs to import in the register's columns, the rows to look at, the duplicates, the notes, the
+  // new suppliers and items, the AI's names
+  async function regExcel() {
+    const X = await K().xlsx(), p = RGI.p, wb = X.utils.book_new(), add = (name, aoa, w) => { const ws = X.utils.aoa_to_sheet(aoa); if (w) ws['!cols'] = w.map(x => ({ wch: x })); X.utils.book_append_sheet(wb, ws, name); };
+    let sr = 0; const grn = [G2().HEAD.concat(['Excel line'])];
+    p.docs.forEach(d => d.lines.forEach((l, i) => grn.push([++sr, d.ref, dmy(d.date), i ? '' : d.challan_no, i ? '' : d.invoice_no, i ? '' : dmy(d.invoice_date), i ? '' : d.vehicle_no, d.supplier, l.item, l.qty, G2().unitOf(l.unit).unit, l.rate === null ? '' : l.rate, l.taxable, l.gst, l.tcs === null ? '' : l.tcs, r2(l.taxable + l.gst + (l.tcs || 0)), l.remark, l.line])));
+    add('GRNs to import', grn, [7, 9, 11, 12, 14, 11, 13, 30, 40, 10, 7, 10, 13, 12, 8, 13, 22, 9]);
+    add('Rows to look at', [['Excel line', 'GRN No', 'GRN Date', 'Supplier', 'Material', 'Qty', 'Why']].concat(p.look.map(l => [l.line, l.ref, dmy(l.date), l.party, l.item, l.qty, l.why.join('; ')])), [9, 9, 11, 30, 40, 9, 50]);
+    add('Duplicate rows', [['Excel line', 'Same as line', 'GRN No', 'GRN Date', 'Supplier', 'Material', 'Qty', 'Gross', 'Deleted']].concat(p.dups.map(d => [d.line, d.first, d.row.ref, dmy(d.row.date), d.row.party, d.row.item, d.row.qty, d.row.gross, d.gone ? 'Yes' : ''])), [9, 11, 9, 11, 30, 40, 9, 12, 8]);
+    add('Notes', [['Excel line', 'GRN No', 'Note']].concat(p.notes.map(z => [z.line, z.ref, z.msg])), [9, 9, 90]);
+    add('New suppliers', [['Supplier', 'Rows']].concat(p.newSup.map(s => [s.name, s.rows])), [45, 8]);
+    add('New items', [['Item', 'Unit', 'Category', 'GST %', 'Rows']].concat(p.newItems.map(i => [i.name, i.unit, i.category, i.gst, i.rows])), [50, 8, 22, 7, 8]);
+    if (RGI.ai) add('Names (AI)', [['List', 'In the file', 'Right spelling', 'Rows', 'Ticked']].concat(...Object.keys(AIL).map(l => (RGI.ai[l] || []).map(z => [AIL[l][1], z[0], z[1], z[2], RGI.ch.fix[l][z[0]] === z[1] ? 'Yes' : '']))), [11, 45, 45, 7, 7]);
+    add('Already in the Store', [['GRN No', 'GRN Date', 'Supplier', 'Invoice No']].concat(p.already.map(d => [d.ref, dmy(d.date), d.supplier, d.invoice_no])), [9, 11, 40, 16]);
+    X.writeFile(wb, 'Inward_register_check_' + today() + '.xlsx');
   }
 
   /* ====================== STOCK & REPORTS ====================== */
@@ -561,7 +776,7 @@
         (d.grn ? tile('g', 'GRN today', d.grn.today, money(d.grn.todayValue) + ' · month ' + d.grn.month) : '') + (d.issue ? tile('b', 'Issues today', d.issue.today, money(d.issue.todayValue) + ' · month ' + d.issue.month) : '');
       if (d.req) { B.waiting = d.req.mine; lists(); }
       const parts = [];
-      if (d.grn) parts.push('<section class="panel"><h2>Recent GRN</h2><div class="tw" style="margin-top:10px"><table><thead><tr><th>GRN</th><th>Date</th><th>Supplier</th><th class="n">Gross</th></tr></thead><tbody>' + (d.grn.recent.map(g => '<tr><td>' + g.no + '</td><td>' + dmy(g.date) + '</td><td>' + esc(g.supplier) + '</td><td class="n">' + money(g.gross) + '</td></tr>').join('') || '<tr><td colspan="4" class="empty">None this month.</td></tr>') + '</tbody></table></div></section>');
+      if (d.grn) parts.push('<section class="panel"><h2>Recent GRN</h2><div class="tw" style="margin-top:10px"><table><thead><tr><th>GRN</th><th>Date</th><th>Supplier</th><th class="n">Gross</th></tr></thead><tbody>' + (d.grn.recent.map(g => '<tr><td>' + esc(refOf(g)) + '</td><td>' + dmy(g.date) + '</td><td>' + esc(g.supplier) + '</td><td class="n">' + money(g.gross) + '</td></tr>').join('') || '<tr><td colspan="4" class="empty">None this month.</td></tr>') + '</tbody></table></div></section>');
       if (d.issue) parts.push('<section class="panel"><h2>Recent issues</h2><div class="tw" style="margin-top:10px"><table><thead><tr><th>Outward</th><th>Date</th><th>To</th><th class="n">Amount</th></tr></thead><tbody>' + (d.issue.recent.map(i => '<tr><td>' + i.no + '</td><td>' + dmy(i.date) + '</td><td>' + esc(toWho(i)) + '</td><td class="n">' + money(i.amount) + '</td></tr>').join('') || '<tr><td colspan="4" class="empty">None this month.</td></tr>') + '</tbody></table></div></section>');
       $('db_work2').hidden = !parts.length; $('db_work2').innerHTML = parts.join('');
     } catch (e) { if (e && e.code === 'notinstalled') { $('db_work').hidden = false; $('db_work').innerHTML = '<div class="note2">' + esc(e.message) + '</div>'; } }

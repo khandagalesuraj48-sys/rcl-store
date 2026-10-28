@@ -247,3 +247,91 @@ test('step 2 – the database step: only adds; every table locked to the server;
   for (const t of ['store_req', 'store_po', 'store_grn', 'store_issue', 'store_return', 'store_opening']) assert.ok(new RegExp("'" + t + "'").test(sql), t + ' locked to the server');
   assert.ok(/perform public\.store_short\(v_old \|\| v_new\)/.test(sql) && /raise exception 'STORE_SHORT/.test(sql));
 });
+
+/* ---------- (28-10-2026) THE OLD INWARD REGISTER: the page's reading (public/grnreg.js) and the server's check (lib/grnimport.js) ---------- */
+const RG = require('../public/grnreg'), GI = require('../lib/grnimport');
+// a register as his file has it: a Summary sheet first, the heading on row 4 written on two lines, a GRN's details on its first row only
+const REG_HEAD = ['Sr No ', 'GRN\r\n No', 'GRN Date ', 'Challan No ', 'Invoice No.', 'Invoice Date', 'Vehicle No', 'Supplier Name ', 'Material Description', 'Received\r\nQty', 'UOM', 'Basic\r\nRate ', 'Taxable \r\nAmount', 'GST\r\n Amount', 'TCS', 'Gross \r\nAmount', 'Remark'];
+const regSheet = rows => ({ name: 'MAIN SHEET INWARD1', aoa: [['INWARD REGISTER'], [], [], REG_HEAD].concat(rows) });
+test('register – the sheet with the register\'s heading is taken (not the Summary), its columns found, a GRN\'s details carried to its rows', () => {
+  const summary = { name: 'Summary', aoa: [['Material', 'Qty'], ['Cement', 10]] };
+  const sh = RG.pickSheet([summary, regSheet([[1, 7, 44864, '', 'INV/1', 44863, 'MH-04-AB-1234', 'Shree Traders', 'Cement OPC 53', 10, 'bags', 350, 3500, 980, '', 4480, 'Cement'], [2, 7, '', '', '', '', '', '', 'Binding Wire', 25, 'kgs', 80, 2000, 360, '', 2360, 'Hardware']])]);
+  assert.strictEqual(sh.name, 'MAIN SHEET INWARD1'); assert.deepStrictEqual(sh.others, ['Summary']); assert.strictEqual(sh.hi, 3);
+  assert.deepStrictEqual([sh.col.ref, sh.col.date, sh.col.party, sh.col.item, sh.col.qty, sh.col.uom, sh.col.rate, sh.col.taxable, sh.col.gst, sh.col.tcs, sh.col.gross, sh.col.remark], [1, 2, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  const rows = RG.readRows(sh);
+  assert.deepStrictEqual(rows.map(r => [r.line, r.ref, r.date, r.party, r.invoice_no, r.vehicle_no]), [[5, '7', '2022-10-30', 'Shree Traders', 'INV/1', 'MH-04-AB-1234'], [6, '7', '2022-10-30', 'Shree Traders', 'INV/1', 'MH-04-AB-1234']]);
+  assert.strictEqual(RG.pickSheet([summary]), null, 'no register heading – none');
+});
+test('register – dates, numbers and GRN Nos as his file writes them', () => {
+  assert.strictEqual(RG.dayIn(44864), '2022-10-30'); assert.strictEqual(RG.dayIn(44864.75), '2022-10-30'); assert.strictEqual(RG.dayIn('30-Nov-2022'), '2022-11-30'); assert.strictEqual(RG.dayIn('30/11/2022'), '2022-11-30');
+  assert.strictEqual(RG.dayIn('2022-11-30'), '2022-11-30'); assert.strictEqual(RG.dayIn('14-04-205'), ''); assert.strictEqual(RG.dayIn('31-02-2023'), ''); assert.strictEqual(RG.dayIn(''), '');
+  assert.strictEqual(RG.refIn(8029), '8029'); assert.strictEqual(RG.refIn('8029`'), '8029'); assert.strictEqual(RG.refIn('342 B'), '342 B'); assert.strictEqual(RG.refIn('`'), ''); assert.strictEqual(RG.refIn('x'), '');
+  assert.strictEqual(RG.numIn('1,180.00'), 1180); assert.strictEqual(RG.numIn('₹ 650'), 650); assert.strictEqual(RG.numIn('4 nos'), null); assert.strictEqual(RG.numIn(''), null);
+});
+test('register – the page and the server read a unit, a GST % and a GRN\'s key the same way', () => {
+  for (const w of ['nos', 'No.', 'Nos ', 'pcs', 'kgs', 'rmtr', 'jab', 'Ltrs', 'bkt', 'Sq.M', 'cum', 'Brass', 'MT', '5x5', '']) assert.deepStrictEqual(RG.unitOf(w), GI.unitOf(w), w);
+  assert.deepStrictEqual([GI.unitOf('nos').unit, GI.unitOf('kgs').unit, GI.unitOf('rmtr').unit, GI.unitOf('jab').unit, GI.unitOf('5x5').unit], ['Nos', 'Kg', 'Mtr', 'Job', 'Nos']);
+  assert.ok(/taken as Nos/.test(GI.unitOf('5x5').note));
+  for (const [t, g] of [[3500, 980], [1000, 180], [999, 50], [1000, 133]]) assert.strictEqual(RG.gstPctOf(t, g), GI.gstPctOf(t, g));
+  assert.deepStrictEqual([GI.gstPctOf(3500, 980), GI.gstPctOf(999, 50), GI.gstPctOf(1000, 133)], [28, 5, 13.3]);
+  assert.strictEqual(RG.docKey('342-a', '2022-12-24', 'Shree Traders', 'INV/1'), GI.docKey('342-a', '2022-12-24', 'SHREE TRADERS ', 'inv-1'));
+  const I2 = require('../lib/items'); Object.values(GI.UNIT_OF).forEach(u => assert.ok(I2.UNITS.includes(u), u + ' is a unit of the Item Master'));
+});
+test('register – the check: one GRN per GRN No + date + supplier + invoice; the same row twice shown (kept unless deleted); rows to look at; what he typed', () => {
+  const R0 = [[1, 10, 44864, '', 'A1', '', '', 'Shree Traders', 'Cement OPC 53', 10, 'bags', 350, 3500, 980, '', 4480, ''],
+    [2, 10, 44864, '', 'A1', '', '', 'Shree Traders', 'Cement OPC 53', 10, 'bags', 350, 3500, 980, '', 4480, ''],            // the same row again
+    [3, 10, 44865, '', 'B7', '', '', 'Om Hardware', 'Binding Wire', 25, 'kgs', 80, '', '', '', '', 'Hardware'],              // GRN No 10 again – another supplier, day, invoice: its own GRN
+    [4, 11, 44865, '', 'C2', '', '', 'Om Hardware', 'Bolt M16', '', 'nos', '', '', '', '', '', ''],                         // no quantity, no amount: to look at
+    [5, 12, '14-04-205', '', 'C3', '', '', 'Om Hardware', 'Nut M16', 4, 'nos', 10, 40, 7.2, '', 47.2, ''],                  // not a date
+    [6, '', 44866, '', 'D1', '', '', 'TCI Express', 'Transporting', 1, 'trip', 900, 900, 162, '', 1062, ''],                 // no GRN No: the next number
+    [7, 13, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']];                                                   // only a GRN No: nothing
+  const rows = RG.readRows(RG.pickSheet([regSheet(R0)])), info = { items: [['ITM-0001', 'Cement OPC-53', 'Bag', 'Cement']], vendors: ['SHREE TRADERS'], grns: [], next: 1 };
+  let p = RG.plan(rows, info, {}, '2026-10-28');
+  assert.deepStrictEqual(p.docs.map(d => [d.ref, d.date, d.supplier, d.lines.length]), [['10', '2022-10-30', 'SHREE TRADERS', 2], ['10', '2022-10-31', 'Om Hardware', 1], ['', '2022-11-01', 'TCI Express', 1]]);
+  assert.strictEqual(p.docs[0].lines[0].item, 'Cement OPC-53', 'an item already in the Item Master: its name there');
+  assert.deepStrictEqual(p.dups.map(d => [d.line, d.first, d.gone]), [[6, 5, false]]);
+  assert.deepStrictEqual(p.look.map(l => [l.line, l.why]), [[8, ['no quantity']], [9, ['GRN date "14-04-205" is not a date']]]);
+  assert.deepStrictEqual(p.empty, [11]);
+  assert.deepStrictEqual(p.newSup.map(s => s.name), ['Om Hardware', 'TCI Express']);
+  assert.deepStrictEqual(p.newItems.map(i => [i.name, i.unit, i.gst]), [['Binding Wire', 'Kg', ''], ['Transporting', 'Trip', 18]]);
+  assert.deepStrictEqual([p.maxRef, p.first, p.next, p.noRef], [10, 11, 12, 1]);
+  const bw = p.docs[1].lines[0]; assert.deepStrictEqual([bw.taxable, bw.gst], [2000, 0], 'no Taxable Amount in the file: Qty × Rate');
+  // he deletes the duplicate, types the quantity and the date: the rows go in
+  p = RG.plan(rows, info, { gone: { 6: true }, edit: { 8: { qty: '6' }, 9: { date: '2023-04-14' } } }, '2026-10-28');
+  assert.deepStrictEqual([p.docs[0].lines.length, p.look.length, p.dups[0].gone], [1, 0, true]);
+  assert.deepStrictEqual(p.docs.map(d => d.ref), ['10', '10', '11', '12', '']);
+  // a GRN already in the Store (its key) is left out – never twice; one without a GRN No: its date, supplier and invoice
+  p = RG.plan(rows, Object.assign({}, info, { grns: [[RG.docKey('10', '2022-10-31', 'Om Hardware', 'B7'), '10', 10, '2022-10-31', 'Om Hardware'], [RG.docKey('14', '2022-11-01', 'TCI Express', 'D1'), '14', 14, '2022-11-01', 'TCI Express']] }), {}, '2026-10-28');
+  assert.deepStrictEqual([p.docs.length, p.already.length], [1, 2]);
+});
+test('register – a date far from the GRNs around it, the names he ticked (the AI\'s) followed, a heading or a number for a material', () => {
+  const R0 = [];
+  for (let n = 1; n <= 12; n++) R0.push([n, n, 45800 + n, '', 'I' + n, '', '', 'Shree Traders', 'Item ' + String.fromCharCode(64 + n), 1, 'nos', 100, 100, 18, '', 118, '']);
+  R0[5][2] = 38558 + 6;      // 2005 for 2025
+  R0.push([13, 13, 45813, '', 'I13', '', '', 'Shree Traderss', 'Description', 1, 'nos', 10, 10, 0, '', 10, '']);
+  R0.push([14, 14, 45814, '', 'I14', '', '', 'Shree Traderss', '45706', 1, 'nos', 10, 10, 0, '', 10, '']);
+  const rows = RG.readRows(RG.pickSheet([regSheet(R0)]));
+  let p = RG.plan(rows, {}, {}, '2026-10-28');
+  assert.deepStrictEqual(p.look.map(l => [l.ref, l.why[0].replace(/ –.*/, '')]), [['6', 'GRN date 31-07-2005'], ['13', 'material "Description" is not a name'], ['14', 'material "45706" is not a name']]);
+  p = RG.plan(rows, {}, { edit: { 10: { date: '2025-05-31' } }, fix: { party: { 'Shree Traderss': 'Shree Trader', 'Shree Trader': 'Shree Traders' } } }, '2026-10-28');
+  assert.ok(!p.look.some(l => l.ref === '6'), 'the date he typed is his');
+  assert.deepStrictEqual(p.newSup.map(s => s.name), ['Shree Traders'], 'a name ticked to a name ticked again: the last one');
+});
+test('register – the server checks each GRN again: its items in the Item Master, its amounts, its TCS; a mistake said with its GRN No', () => {
+  const byKey = { cementopc53: { code: 'ITM-0001', name: 'Cement OPC 53' }, bindingwire: { code: 'ITM-0002', name: 'Binding Wire' } };
+  const g = GI.checkDoc({ ref: '342-A', date: '2022-12-24', supplier: ' Shree  Traders ', invoice_no: 'A1', vehicle_no: 'mh 04 ab 1234', lines: [{ line: 5, item: 'CEMENT OPC-53', qty: 10, unit: 'bags', rate: 350, taxable: 3500, gst: 980, tcs: 4.5 },
+    { line: 6, item: 'Binding Wire', qty: '25', unit: 'kgs', rate: 80, gst_pct: 18 }] }, byKey, '2026-10-28');
+  assert.deepStrictEqual(g.head, { ref: '342-A', date: '2022-12-24', supplier: 'Shree Traders', challan_no: null, invoice_no: 'A1', invoice_date: null, vehicle_no: 'MH04AB1234', po_no: null, taxable: 5500, gst: 1340, tcs: 4.5, gross: 6844.5, remark: null });
+  assert.deepStrictEqual(g.lines.map(l => [l.line, l.code, l.unit, l.qty, l.rate, l.taxable, l.gst_pct, l.gst, l.gross]), [[1, 'ITM-0001', 'Bag', 10, 350, 3500, 28, 980, 4480], [2, 'ITM-0002', 'Kg', 25, 80, 2000, 18, 360, 2360]]);
+  assert.strictEqual(g.key, GI.docKey('342-A', '2022-12-24', 'Shree Traders', 'A1'));
+  assert.throws(() => GI.checkDoc({ ref: '9', date: '2022-12-24', supplier: 'Om', lines: [{ item: 'Bolt', qty: 1 }] }, byKey, '2026-10-28'), /GRN 9 \(2022-12-24\), row 1: "Bolt" is not in the Item Master/);
+  assert.throws(() => GI.checkDoc({ ref: '9', date: '2027-01-01', supplier: 'Om', lines: [{ item: 'Binding Wire', qty: 1 }] }, byKey, '2026-10-28'), /after today/);
+  assert.throws(() => GI.checkDoc({ ref: '9', date: '2022-12-24', supplier: 'Om', lines: [{ item: 'Binding Wire', qty: 0 }] }, byKey, '2026-10-28'), /no quantity/);
+});
+test('register – the database step 3 only adds (a column, an index, a function); the GRN save keeps its number as its GRN No', () => {
+  const sql = fs.readFileSync(path.join(root, 'sql', 'store_step3_grn_import.sql'), 'utf8').replace(/^--.*$/gm, '');
+  assert.ok(!/\b(drop\s+table|truncate|drop\s+column)\b/i.test(sql) && !/delete\s+from\s+public\.(store_grn|items|vendors)\b/i.test(sql), 'nothing dropped or deleted');
+  assert.ok(/add column if not exists ref text/.test(sql) && /grant execute on function public\.store_grn_import\(jsonb, text, text\) to service_role/.test(sql) && /revoke all on function public\.store_grn_import/.test(sql));
+  assert.ok(/values \(v_no, v_no::text,/.test(sql), 'a new GRN: its GRN No is its number');
+  assert.ok(/update public\.store_numbers set next_no = greatest\(next_no, v_max \+ 1\)/.test(sql), 'the next GRN goes on after the file\'s highest GRN No');
+});

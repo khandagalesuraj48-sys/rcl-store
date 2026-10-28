@@ -60,11 +60,43 @@ Reports, Opening stock & Numbers. The phone app has the same as its own screens 
 * **The stock never goes below zero on any date** (checked inside the database – one save at a time on a site).
 * **Reports:** stock (on a date), stock statement (a day / month / period), item ledger, GRN register, issue register, consumption
   (by party / machinery / use / location / item), returnable out, requirements, purchase orders – shown, Excel, print.
-* **Excel import (Store Admin):** his INWARD (GRN) and OUTWORD (Issue) registers in his columns – every row checked first, then all
-  or nothing; the opening stock (Item, Qty, Rate, Date).
+* **Excel import (Store Admin):** his OUTWORD (Issue) register in his columns – every row checked first, then all or nothing; the
+  opening stock (Item, Qty, Rate, Date). His INWARD (GRN) register: the register's import (step 3, below).
 * **Numbers:** where the GRN and Outward numbers go on from (only higher than the last one used).
 * Files: `api/work.js` (every action and its check), `lib/work.js` (the rules), `lib/sreport.js` (the reports),
   `public/work.js` (the pages), `api/portal.js` (who approves – from the Portal), `sql/store_step2_work.sql`.
+
+## The old inward register (step 3 – `sql/store_step3_grn_import.sql`, run once in EVERY site's Supabase; 28-10-2026)
+His "INWARD UPTO GRN … .xlsx" (or any file with the register's headings) – Inward (GRN) → **Import from Excel** (Store Admin):
+* **The sheet:** every sheet of the file is read; the register's is the one with GRN No / GRN Date, Supplier Name, Material
+  Description, Received Qty … and the most rows (the Summary and the material sheets are left). A heading of two lines in a cell is
+  read as one. A GRN's date, supplier, invoice, challan and vehicle are on its first row only – the rows under it of the same GRN No
+  take them. Dates as Excel writes them or typed (30-11-2022, 30-Nov-2022).
+* **The check (nothing saved):** the GRNs to import (a GRN No + date + supplier + invoice is one GRN; the same GRN No of another
+  supplier / day / invoice is a GRN of its own), those already in the Store (left out – never twice), the new suppliers, the new items,
+  the next new GRN.
+  * **Duplicate rows** (every column the same as an earlier row): shown; he deletes what is a mistake; what he does not delete is
+    imported as it is.
+  * **Rows to look at** (no material, no quantity, not a date, after today, a date far from the GRNs around it): corrected on the page
+    (date, supplier, material, qty), else left out.
+  * **Names written in more than one way:** the AI (Claude – `ANTHROPIC_API_KEY` of this project) reads the suppliers, items and
+    categories in parts and lists the same name written differently; he ticks what is the same – saved with the right spelling.
+    Without the key the names stay as in the file (the same letters – "Oil-Filter", "OIL FILTER" – are one name always).
+  * **Notes** (imported as the file has them): an amount that does not add up, a unit not known (Nos), a row in another unit than its
+    item's, an amount above ₹1 crore (check the qty and rate), a row without a GRN No joined to its GRN.
+  * What he chose is kept in this browser for this file until the import is done. **Excel of the check** – every list.
+* **Import** – a part at a time, each part whole or not at all: the suppliers (into the site's Vendor Master – Mechanical's – as
+  "Material Supplier", GST / PAN / Aadhaar to be filled later), the items (Item Master codes; unit – the one most rows have; category –
+  the Remark when 20 rows or more have it, else General; GST % – the usual one of its rows), then the GRNs (150 or 3,000 lines a part).
+  A stop is said – Import again goes on (what is saved is never saved twice).
+* **GRN No as in the file** ("342-A" too): a whole number not used yet is the GRN's number; else the GRN has a number of its own beyond
+  1,000,000,000 and shows the file's GRN No. A GRN without a GRN No gets the next numbers. **The next new GRN goes on after the file's
+  highest GRN No.** Counted in the stock (the Issue register next).
+* **The GRN page** shows his register's columns (Sr No, GRN No, GRN Date, Challan No, Invoice No., Invoice Date, Vehicle No, Supplier
+  Name, Material Description, Received Qty, UOM, Basic Rate, Taxable Amount, GST Amount, TCS, Gross Amount, Remark, PO No); the
+  GRN register (Excel), the print, the ledger and the Dashboard show the GRN No. A line has its Remark.
+* Files: `public/grnreg.js` (the page's reading and check – pure), `lib/grnimport.js` (the server's check of each GRN – pure),
+  `lib/ai.js`, `lib/itemcodes.js`, `api/work.js` (`regInfo`, `regNames`, `regVendors`, `regItems`, `regGrns`), `public/work.js`.
 
 ## Parts
 | Part | File |
@@ -75,7 +107,7 @@ Reports, Opening stock & Numbers. The phone app has the same as its own screens 
 | The rules of an item (names, near names, suggestions, fields) | `lib/items.js` |
 | Which database is a site's | `lib/sites.js` (Mechanical's list of sites, `rcl_sites`) |
 | Ticket check, sign-ins, activity record | `lib/portal.js`, `lib/session.js`, `lib/activity.js` |
-| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql` |
+| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql`, `sql/store_step3_grn_import.sql` |
 | The Store's work (step 2) | `api/work.js`, `lib/work.js`, `lib/sreport.js`, `public/work.js`, `api/portal.js` |
 
 ## Settings (Vercel → the Store project → Settings → Environment Variables – never in a file)
@@ -85,6 +117,7 @@ Reports, Opening stock & Numbers. The phone app has the same as its own screens 
 | `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | the FIRST site's (VTR) – the same values as in the Mechanical project |
 | `SITE_<CODE>_KEY` | each other site's secret key, e.g. `SITE_18B_KEY` – the same as in the Mechanical project |
 | `RCL_SITES_KEY` | only if a site's key is kept locked in Mechanical's list (update-90 sites) |
+| `ANTHROPIC_API_KEY` | the AI of the old inward register's import (the same key as Mechanical's); `ANTHROPIC_MODEL` only to fix the model |
 
 ## Tests (local test rig only – never the live databases)
 ```
@@ -94,6 +127,9 @@ timeout 400 node test/browser.test.js         # rig + Chromium; pictures in test
 timeout 300 node test/paging155.test.js       # rig: 2,500 items, an import, lost answers (starts its own Store on :3021; SRC=<tree>)
 timeout 600 node test/work.test.js            # rig: the Store's work – requirements, approvals, POs, GRN, issues, returns, reports
 timeout 600 node test/work.browser.test.js    # rig + Chromium: the work pages (also on a phone's width)
+timeout 900 node test/grnreg.test.js          # rig: the old inward register (a made one; REG_FILE=<his file> for his own) – the
+                                              # Store started with ANTHROPIC_API_KEY=test-key-s ANTHROPIC_API_BASE=http://127.0.0.1:3996
+timeout 600 node test/grnreg.browser.test.js  # rig + Chromium: the register's check and import on the page
 ```
 
 ## Fewer reads, every item, no second copy (24-10-2026, with Mechanical's update-155)
