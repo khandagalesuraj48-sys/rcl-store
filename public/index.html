@@ -142,6 +142,56 @@
   .formbox { border: 2px solid var(--hivis); }
   .rpt th.n, .rpt td.n { text-align: right; }
   .note2 { background: #F6F8FB; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; }
+  /* (28-10-2026, his picture) INWARD (GRN): the page's head with its sign; the form in two cards – GRN Details (Clear and the GRN date
+     at its top right), Items (+ Add Row; the item's search box, the unit, the worked-out amounts in grey boxes, a bin on each row) */
+  textarea { font: inherit; width: 100%; padding: 10px 12px; border: 1px solid #B8C0CC; border-radius: 8px; resize: vertical; color: var(--ink); background: #fff; }
+  textarea:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .pghead { display: flex; align-items: center; gap: 16px; margin: 4px 0 16px; }
+  .pgico { flex: 0 0 56px; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: #FFF4D1; color: #C98A00; box-shadow: inset 0 0 0 1px #F6DE95; }
+  .pgico svg { width: 30px; height: 30px; }
+  .pghead h2 { margin: 0; font-size: 26px; line-height: 1.15; font-weight: 700; letter-spacing: -.01em; }
+  .pghead p { margin: 3px 0 0; color: var(--muted); }
+  .gcard { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 20px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(16,24,40,.05); }
+  .ghead { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; margin-bottom: 14px; }
+  .ghead h3 { margin: 0; font-size: 19px; font-weight: 700; }
+  .gico { width: 26px; height: 26px; flex: 0 0 26px; color: #3B4A55; } .gico.blue { color: var(--blue); }
+  .ghead .gsub { font-size: 13px; font-weight: 600; color: #8A6100; background: #FFF3CD; border-radius: 999px; padding: 2px 10px; }
+  .ghead .gact { margin-left: auto; display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+  .ghead .gact .field { margin: 0; width: 210px; }
+  .ggrid { display: grid; gap: 14px 18px; margin-bottom: 14px; }
+  .ggrid.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } .ggrid.g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .ggrid .field, .gcard > .field { margin: 0; }
+  .gcard .field label { color: #2A3540; font-size: 13.5px; }
+  .gcard input, .gcard select, .gcard textarea { min-height: 44px; border-color: #C5CDD6; border-radius: 9px; }
+  .gcard input::placeholder, .gcard textarea::placeholder { color: #8C98A4; }
+  .ib { position: relative; } .ib input { padding-right: 36px; }
+  .ib svg { position: absolute; right: 11px; top: 50%; width: 17px; height: 17px; transform: translateY(-50%); color: #6B7782; pointer-events: none; }
+  .ib input::-webkit-calendar-picker-indicator { opacity: 0; }
+  .btn svg { width: 18px; height: 18px; flex: 0 0 18px; }
+  .btn.blue { background: var(--blue); border-color: var(--blue); color: #fff; } .btn.blue:hover { background: #1747C2; }
+  .btn.big { min-height: 48px; padding: 10px 22px; font-size: 16px; }
+  .gbtns { display: flex; flex-wrap: wrap; gap: 12px; margin: 4px 0 18px; }
+  .lines.boxes th { padding: 10px; font-size: 12px; } .lines.boxes td { padding: 8px; }
+  .lines.boxes input { min-height: 40px; border-radius: 8px; }
+  .lines.boxes .it { min-width: 320px; } .lines.boxes .q { width: 104px; } .lines.boxes .s { width: 100%; min-width: 160px; }
+  .lines.boxes [data-k="gst_pct"] { width: 76px; } .lines.boxes td:nth-child(2) { width: 34%; }
+  .lines.boxes th.x, .lines.boxes td.x { width: 64px; text-align: center; }
+  .rob { min-height: 40px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; background: #EEF1F4; color: #4A5763; min-width: 88px; font-variant-numeric: tabular-nums; }
+  .rob.n { justify-content: flex-end; }
+  .lines.boxes .tot td { padding: 12px 8px; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .binb { border: 0; background: none; color: var(--bad); cursor: pointer; padding: 7px; border-radius: 8px; display: inline-grid; place-items: center; }
+  .binb:hover { background: #FDECEA; } .binb svg { width: 20px; height: 20px; }
+  /* the Items card narrower than the picture's (a laptop; the Store's own menu beside it): the boxes closer, the table still whole */
+  .gcard.gitems { container-type: inline-size; }
+  @container (max-width: 1400px) { .lines.boxes td { padding: 7px 5px; } .lines.boxes th { padding: 10px 6px; } .lines.boxes .it { min-width: 230px; } .lines.boxes .q { width: 88px; } .lines.boxes [data-k="gst_pct"] { width: 62px; }
+    .lines.boxes .s { min-width: 110px; } .rob { min-width: 74px; padding: 0 8px; } .lines.boxes th.x, .lines.boxes td.x { width: 52px; } }
+  @media (max-width: 1100px) { .ggrid.g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 860px) { .ggrid.g3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pghead h2 { font-size: 22px; } }
+  @media (max-width: 560px) {
+    .ggrid.g3, .ggrid.g4 { grid-template-columns: 1fr; } .gcard { padding: 14px; }
+    .ghead .gact { margin-left: 0; width: 100%; } .ghead .gact .field { flex: 1 1 150px; width: auto; }
+    .gbtns .btn { flex: 1 1 0; } .pgico { flex-basis: 46px; width: 46px; height: 46px; } .pgico svg { width: 24px; height: 24px; } .lines.boxes .it { min-width: 210px; }
+  }
   /* INSIDE ANOTHER MODULE'S SCREEN (13-10-2026: "Store open kel tri Mechanical sarkha view – fkt tab change"): Mechanical shows
    * this page in its middle part – its own dark menu, top bar and Logout stay hidden here, Mechanical's are on the screen */
   html.embed, html.embed body { background: transparent; }

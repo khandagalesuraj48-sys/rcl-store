@@ -69,8 +69,24 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     // a direct GRN
     await K.click('#grp_store [data-page="grn"]'); await wait(1500);
     await K.click('#gr_new'); await wait(1200);
+    // (28-10-2026, his picture) the form in two cards: GRN Details (Clear and the GRN Date at its top right), Items (+ Add Row, a bin on each row)
+    st = await K.evaluate(() => ({ heads: [...document.querySelectorAll('#gr_form .gcard h3')].map(h => h.textContent), date: !!document.querySelector('#gr_form .ghead .gact #gr_date'), clear: !!document.querySelector('#gr_form .ghead #gr_clr'),
+      grid: [...document.querySelectorAll('#gr_form .ggrid label')].map(l => l.textContent), rem: (document.getElementById('gr_rem') || {}).tagName, add: !!document.querySelector('#gr_form #gr_add'), rows: document.querySelectorAll('#gr_lines tbody tr[data-i]').length,
+      th: [...document.querySelectorAll('#gr_lines thead th')].map(t => t.textContent), bins: document.querySelectorAll('#gr_lines .binb').length, ph: (document.querySelector('#gr_lines [data-k="item"]') || {}).placeholder }));
+    ok('the GRN form of his picture: GRN Details (Clear, GRN Date at the top right; PO / Supplier / Challan No; Invoice No / Invoice Date / Vehicle No / TCS; the Remark box), Items (+ Add Row; one row, its bin; "Search item…")',
+      JSON.stringify(st.heads) === '["GRN Details","Items"]' && st.date && st.clear && JSON.stringify(st.grid) === JSON.stringify(['Against PO', 'Supplier *', 'Challan No', 'Invoice No', 'Invoice Date', 'Vehicle No', 'TCS ₹']) && st.rem === 'TEXTAREA' && st.add && st.rows === 1 && st.bins === 1 && st.ph === 'Search item…' &&
+      JSON.stringify(st.th) === JSON.stringify(['#', 'Item *', 'Received Qty *', 'Unit', 'Basic Rate ₹', 'GST %', 'Taxable', 'GST', 'Gross', 'Remark', 'Action']), st);
     await set(K, 'gr_sup', 'Shree Auto Spares'); await set(K, 'gr_inv', 'SA-77'); await set(K, 'gr_veh', 'mh12 xy 4455');
     await line(K, 'gr_lines', 0, 'item', label(OIL)); await line(K, 'gr_lines', 0, 'qty', '6'); await line(K, 'gr_lines', 0, 'rate', '335');
+    await K.click('#gr_add'); await wait(300);
+    st = await K.evaluate(() => ({ rows: document.querySelectorAll('#gr_lines tbody tr[data-i]').length, focus: document.activeElement && document.activeElement.dataset.k, row: document.activeElement && document.activeElement.closest('tr').dataset.i, unit: [...document.querySelectorAll('#gr_lines tr[data-i] .rob')].map(x => x.textContent) }));
+    ok('   + Add Row: a second row, the cursor in its Item box; the unit is the item\'s (Item Master), a row without an item –', st.rows === 2 && st.focus === 'item' && st.row === '1' && st.unit[0] === sql('rcl', "select unit from items where code = '" + OIL + "'") && st.unit[4] === '–', st);
+    await K.evaluate(() => document.querySelector('#gr_lines tr[data-i="1"] .binb').click()); await wait(300);
+    ok('   its bin: the row taken out', await K.evaluate(() => document.querySelectorAll('#gr_lines tbody tr[data-i]').length) === 1);
+    await K.click('#gr_clr'); await wait(400);
+    st = await K.evaluate(() => ({ dlg: !document.getElementById('dlg').hidden && document.getElementById('dlg_t').textContent }));
+    await K.evaluate(() => [...document.querySelectorAll('#dlg_btns button')].find(b => b.textContent === 'Cancel').click()); await wait(300);
+    ok('   Clear asks first ("Clear the form?"); Cancel: what is typed stays', st.dlg === 'Clear the form?' && await K.evaluate(() => document.getElementById('gr_sup').value) === 'Shree Auto Spares' && await K.evaluate(() => document.querySelectorAll('#gr_lines tr[data-i] [data-k="qty"]')[0].value) === '6', st);
     st = await K.evaluate(() => [...document.querySelectorAll('#gr_lines tr.tot td')].map(x => x.textContent));
     ok('a direct GRN from the form: taxable, GST (the item\'s 18 %), gross worked out as typed', st.join('|').indexOf('₹2,010.00') > -1 && st.join('|').indexOf('₹361.80') > -1 && st.join('|').indexOf('₹2,371.80') > -1, st);
     await shot(K, 'work_grn_form');
