@@ -14,7 +14,9 @@
   const a2 = v => v === '' || v === null || v === undefined ? '' : Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });      // (an amount in a list: 2 decimals)
   const dmy = d => d ? String(d).slice(0, 10).split('-').reverse().join('-') : '';
   const r2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-  const today = () => (B && B.today) || new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+  // (29-10-2026) a page left open past midnight: its lists (and "today") are read again on the new day – a Store User's date is today's
+  const dayNow = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+  const today = () => (B && B.today && B._day === dayNow() && B.today) || dayNow();
   const monthStart = () => today().slice(0, 8) + '01';
   const keyOf = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const pg = k => ((K().S.me || {}).pages || {})[k] || 'None', admin = () => !!(K().S.me && K().S.me.user.admin), buyer = () => pg('purchase') === 'Edit';
@@ -24,7 +26,7 @@
   const entryDate = () => ' type="date"' + (backOk() ? '' : ' min="' + today() + '" max="' + today() + '" readonly title="Today – an entry of an earlier day is made by the Store Admin."');
   const canEdit = k => pg(k) === 'Edit';
   const toast = (t, bad) => K().toast(t, bad), failed = e => K().failed(e), ask = (t, h, b) => K().ask(t, h, b);
-  async function boot(force) { if (!B || force) { B = await W('boot'); lists(); } return B; }
+  async function boot(force) { if (!B || force || B._day !== dayNow()) { B = await W('boot'); B._day = dayNow(); lists(); } return B; }
   const itemOf = code => (B.items || []).find(i => i.code === code);
   const label = i => i.code + ' · ' + i.name + ' (' + i.unit + ')';
   // the lists the boxes offer: items, suppliers, sub-contractors, vendors

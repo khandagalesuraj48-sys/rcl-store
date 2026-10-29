@@ -35,7 +35,7 @@ const adminOnly = (s, what) => { if (!s.admin) throw fail(403, 'Only the Store A
  * Super Admin) makes an entry – a requirement, a purchase order, a GRN, an issue, a return – only of TODAY. A requirement or a PO he
  * changes (the PO's approval sends it back to him) keeps its own date; moved, it must be today. Changes and deletions of GRNs, issues
  * and returns, the imports and the opening stock are the Store Admin's already. */
-const TODAY_RULE = () => process.env.STORE_TODAY_RULE !== 'off';      // ('off' only on the local test rig: its story is dated over ten days)
+const TODAY_RULE = () => process.env.STORE_TODAY_RULE !== 'off' || !!process.env.VERCEL;      // ('off' only on the local test rig: its story is dated over ten days – never on Vercel)
 const todayOnly = (s, date, what, was) => {
   if (!TODAY_RULE() || s.admin || s.super || !date || date >= W.today() || (was && date === was)) return;
   throw fail(400, what + ' of ' + W.dmy(date) + ': a Store User enters only today\'s entries – an entry of an earlier day is made only by the Store Admin or the Super Admin. Ask the Store Admin.', 'date');

@@ -426,3 +426,18 @@ test('(29-10-2026) a Store User makes an entry only of today – the Store Admin
   assert.match(page, /const entryDate = \(\) => ' type="date"' \+ \(backOk\(\) \? '' : ' min="' \+ today\(\) \+ '" max="' \+ today\(\) \+ '" readonly/);
   for (const id of ['rq_date', 'pu_date', 'gr_date', 'is_date', 'rt_date']) assert.match(page, new RegExp("inp\\('" + id + "', [^)]*today\\(\\), entryDate\\(\\)\\)"), id);
 });
+
+test('(29-10-2026, the review) the rig\'s switch never on Vercel; a page left open past midnight reads its lists and "today" again', () => {
+  const { todayOnly } = require('../api/work.js'), W = require('../lib/work.js'), t = W.today();
+  const back = new Date(t + 'T00:00:00Z'); back.setUTCDate(back.getUTCDate() - 2); const d2 = back.toISOString().slice(0, 10);
+  const was = [process.env.STORE_TODAY_RULE, process.env.VERCEL], put = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
+  try {
+    put('STORE_TODAY_RULE', 'off'); put('VERCEL', undefined);
+    assert.doesNotThrow(() => todayOnly({ admin: false, super: false }, d2, 'GRN'), 'the local rig: off');
+    put('VERCEL', '1');
+    assert.throws(() => todayOnly({ admin: false, super: false }, d2, 'GRN'), /a Store User enters only today's entries/, 'on Vercel: never off');
+  } finally { put('STORE_TODAY_RULE', was[0]); put('VERCEL', was[1]); }
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  assert.match(page, /const today = \(\) => \(B && B\.today && B\._day === dayNow\(\) && B\.today\) \|\| dayNow\(\);/);
+  assert.match(page, /async function boot\(force\) \{ if \(!B \|\| force \|\| B\._day !== dayNow\(\)\) \{ B = await W\('boot'\); B\._day = dayNow\(\); lists\(\); \} return B; \}/);
+});

@@ -160,6 +160,9 @@ today's entries – an entry of an earlier day is made only by the Store Admin o
 PO he changes (the PO's approval sends it back to him) keeps its own date. The Store Admin and the Super Admin: any day, as before.
 With Mechanical update-187 and the phone app. Tests: unit (32/32); rig `test/today.test.js` (the rule on) 6/6; `test/work.test.js` 105/105
 and `test/work.browser.test.js` 33/33 with `STORE_TODAY_RULE=off` (only the rig sets it – its story is dated over ten days).
+**Put right the same day (the review; with Mechanical update-188):** a page left open past midnight reads its lists and "today" again on
+the new day (`boot()` / `dayNow()`), so a Store User's date is the new day's (before: yesterday's, refused); `STORE_TODAY_RULE=off` is never
+obeyed on Vercel (`process.env.VERCEL`).
 
 ## Parts
 | Part | File |
