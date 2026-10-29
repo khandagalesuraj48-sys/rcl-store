@@ -291,6 +291,13 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
   ok('Store Settings → Papers (the Store Admin): the numbers\' prefix, the heading\'s e-mail / contact / CIN / web, a new PO\'s address, contact, terms', r.status === 200 && r.j.papers.prefix === 'RCL/VTR' && r.j.papers.ship_to === 'VTR site office\nBhiwandi' && r.j.step5 === true, r.j);
   r = await K.w('papersSave', { prefix: 'X' });
   ok('   a User cannot set them', r.status === 403, r.j);
+  // (29-10-2026, "print war … site address nahi") the site's address on the papers; a box not sent (an older app) keeps what it has
+  r = await A.w('papersSave', Object.assign({}, r.j.papers || {}, { prefix: 'RCL/VTR', email: 'purchase@rcl.test', phone: '022 0000 0000', cin: 'U00000MH0000PLC000000', web: 'https://rcl.test', ship_to: 'VTR site office\nBhiwandi', site_contact: 'Site office : 9000000000', terms: '1. Payment : 100 % Advance\n2. Delivery: Immediate', site_address: 'Site office at Valshind\nBhiwandi 421302' }));
+  ok('   the Site Address kept (two lines)', r.status === 200 && r.j.papers.site_address === 'Site office at Valshind\nBhiwandi 421302', r.j.papers);
+  r = await A.w('papersSave', { prefix: 'RCL/VTR', email: 'purchase@rcl.test', phone: '022 0000 0000', cin: 'U00000MH0000PLC000000', web: 'https://rcl.test', ship_to: 'VTR site office\nBhiwandi', site_contact: 'Site office : 9000000000', terms: '1. Payment : 100 % Advance\n2. Delivery: Immediate' });
+  ok('   …a save without it (an older app) keeps it', r.status === 200 && r.j.papers.site_address === 'Site office at Valshind\nBhiwandi 421302', r.j.papers);
+  r = await A.w('reqList');
+  ok('   the requirement\'s paper gets it (heading.site_address)', r.status === 200 && r.j.heading.site_address === 'Site office at Valshind\nBhiwandi 421302', r.j.heading);
   r = await B.w('purItems', { site: 'S1' });
   ok('   a new PO of S1 starts with them (HO Purchase\'s form)', r.status === 200 && r.j.step5 === true && r.j.papers.terms === '1. Payment : 100 % Advance\n2. Delivery: Immediate' && r.j.papers.site_contact === 'Site office : 9000000000', r.j.papers);
   // nobody approves POs at S1 yet: a PO is approved when made

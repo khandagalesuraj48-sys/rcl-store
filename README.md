@@ -185,6 +185,17 @@ form; a discount on a line AND on the whole bill; the stock's rate with both ded
 Tests: unit (the money case by case, the page = the server, the SQL only adds, the register's columns); rig `test/grndisc.test.js`
 (PART=a without step 6, PART=b with it – the database, the stock's rate, the form in a browser, its card and the PO's columns).
 
+## The requirement's print: the company's logo, name, address and the Site Address (29-10-2026; no database step)
+Asked: "requirement jewa mi banwato print gheto n ji print yetey tya war rachana address nahi site address nahiye ani rachana logo
+nahiye". **The requirement's print** now has the PO's heading: the **logo** and the company's **name and address** (the site's company
+in the Portal → Companies; the site → its company in Portal → Sites), Email ID, Contact, CIN No, Web, GST No, PAN No (Papers and the
+company record), then Purchase Requisition Form, Project Name / Sub Project, **Site Address**, Indent No. / Date. **Site Address** is a
+new box in Store Settings → **Papers** (Store Admin; several lines; on the requirement's and the PO's heading data – `site_address`,
+kept in `store_settings` 'papers' as the other Papers fields; saving Papers from an older page keeps it). Empty: the row is printed
+blank. The print waits for the logo to load before it opens (8 s at most). With the phone app 3.65.0 (the same paper and the box).
+Tests: unit 36/36; rig `test/work.test.js` 108/108 (site_address saved, kept, in the heading), `test/work.browser.test.js` 34/34
+(the paper shows the company's details and the Site Address; with a rig company with an address and a logo: both printed).
+
 ## Parts
 | Part | File |
 |---|---|
