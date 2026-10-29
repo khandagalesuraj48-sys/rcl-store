@@ -513,11 +513,67 @@ test('(29-10-2026) the GRN\'s discounts need the database\'s step 6 – it only 
 
 test('(29-10-2026, "print war rachana address nahi site address nahi ani rachana logo nahiye") the requirement\'s paper as the PO\'s heading: the company\'s address and details, the Site Address; the print waits for its pictures; a papers\' box not sent keeps what it has', () => {
   const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8'), src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
-  const rp = page.slice(page.indexOf('  function reqPrint(x, h) {'), page.indexOf('  function reqPrint(x, h) {') + 4000);
+  const rp = page.slice(page.indexOf('  function reqPrint(x, h, ph) {'), page.indexOf('  function reqPrint(x, h, ph) {') + 4000);
   for (const k of ["(h.address ? '<div class=\"c\">' + nl(h.address) + '</div>' : '')", '<b>Email ID.</b>', '<b>GST No</b>', '<b>PAN No</b>', "'<tr><td>Site Address :</td><td colspan=\"3\">' + nl(h.site_address || '') + '</td></tr>'", 'logoOf(h)']) assert.ok(rp.includes(k), k);
-  assert.match(page, /const wait = \(\) => \(imgs\.every\(i => i\.complete\) \|\| Date\.now\(\) - t0 > 8000\) \? setTimeout\(go, 150\) : setTimeout\(wait, 150\);/, 'the logo loaded before the print box');
+  assert.match(page, /lim = Math\.min\(25000, 8000 \+ 2000 \* Math\.max\(0, imgs\.length - 1\)\);/, '(29-10-2026) 8 s, 2 s more a photo');
+  assert.match(page, /const wait = \(\) => \(imgs\.every\(i => i\.complete\) \|\| Date\.now\(\) - t0 > lim\) \? setTimeout\(go, 150\) : setTimeout\(wait, 150\);/, 'the logo loaded before the print box');
   assert.ok(src.includes("'terms', 'site_address'];"));
   assert.ok(src.includes('if (x[k] === undefined && cur[k] !== undefined) { v[k] = cur[k]; return; }'));
   assert.ok(src.includes("site_address: pp.site_address || pp.ship_to || ''"), 'else the Shipping Address');
   assert.ok(page.includes("site_address: val('pp_saddr') });"));
+});
+
+test('(29-10-2026, "requirement madhe attachment … material photo … multiple photos … app madhun photo kadhla tri laptop web madhe yeil") a requirement\'s photos: step 7 only adds; the save takes a photo it has or one this person sent to this site (its proof), at most 10, each once; the page and the print', () => {
+  const sql = fs.readFileSync(path.join(root, 'sql', 'store_step7_req_photos.sql'), 'utf8'), body = sql.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.ok(!/\bdrop\s+(table|column|function|view|policy|trigger)\b|\btruncate\b|\bdelete\s+from\b|\bupdate\s+(public|storage)\./i.test(body), 'nothing dropped, deleted or changed');
+  assert.ok(body.includes("alter table public.store_req add column if not exists photos jsonb not null default '[]'::jsonb;"));
+  assert.match(body, /on conflict \(id\) do nothing;/, "the bucket of Mechanical's step 1ze is kept as it is");
+  assert.match(body, /values \('erp-files', 'erp-files', false,/, 'a bucket made here is private');
+  const W = require('../api/work.js'), H = W._ph;
+  process.env.SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || 'unit-test-key';
+  const s = { site: 'S1', email: 'view@rcl.test', name: 'View User' }, h1 = 'a'.repeat(64), h2 = 'b'.repeat(64), h3 = 'c'.repeat(64);
+  const mine = (h, n) => ({ sha: h, size: n, t: H.phTok('S1', 'view@rcl.test', h, n) });
+  assert.strictEqual(H.phOf(s, undefined, []), null, 'no list sent (an older page): as they are');
+  assert.deepStrictEqual(H.phOf(s, [], [{ sha: h1 }]), [], 'an empty list: none');
+  const got = H.phOf(s, [mine(h1, 1000), mine(h2, 2000)], []);
+  assert.deepStrictEqual(got.map(p => [p.sha, p.size, p.by]), [[h1, 1000, 'View User'], [h2, 2000, 'View User']]);
+  const had = [{ sha: h3, size: 5, by: 'Store Keeper', at: '2026-10-28T10:00:00.000Z' }];
+  assert.deepStrictEqual(H.phOf(s, [{ sha: h3 }], had), had, 'a photo it has: kept as it is (who, when) – no proof needed');
+  const bad = (list, re, why) => assert.throws(() => H.phOf(s, list, had), e => re.test(e.message) && e.status === 400, why);
+  bad([{ sha: h1, size: 1000, t: 'x'.repeat(40) }], /not added from this page/, 'a made-up proof');
+  bad([{ sha: h1, size: 1000, t: H.phTok('S1', 'sujit@rcl.test', h1, 1000) }], /not added from this page \(or by you\)/, "another person's photo");
+  bad([{ sha: h1, size: 1000, t: H.phTok('T2', 'view@rcl.test', h1, 1000) }], /not added/, "another site's");
+  bad([{ sha: h1, size: 999, t: H.phTok('S1', 'view@rcl.test', h1, 1000) }], /not added/, 'its size changed');
+  bad([mine(h1, 1), mine(h1, 1)], /twice/, 'the same photo twice');
+  bad(Array.from({ length: 11 }, (_, i) => mine(String(i).padStart(64, 'd'), 1)), /at most 10 photos/, 'at most 10');
+  bad([{ sha: 'zz', t: 'x' }], /not sent right/, 'not a fingerprint');
+  assert.strictEqual(H.phPath(h1), 'store/req/aa/' + h1 + '.jpg');
+  assert.deepStrictEqual(H.phList([{ sha: h1, size: '12', by: 'A' }, { sha: 'nope' }, null]), [{ sha: h1, size: 12, by: 'A', at: '' }], 'only proper ones');
+  // the server: before step 7 a photo is refused with what to run; the upload only a real JPG of 2 MB at most
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
+  assert.ok(src.includes("if (!(await step7On(s.site))) { if (!Array.isArray(x.photos) || x.photos.length) throw fail(400, STEP7, 'sql'); }"), 'before step 7: a photo sent is refused with what to run (an empty list: as before)');
+  assert.ok(src.includes("if (b.length < 4 || b[0] !== 0xFF || b[1] !== 0xD8 || b[2] !== 0xFF) throw fail(400, 'This file is not a real JPG photo – add a photo.', 'field');"));
+  assert.ok(src.includes("const r = await files(s.site, 'POST', 'object/' + PH.bucket + '/' + phPath(sha), b, 'image/jpeg');"));
+  assert.ok(src.includes("if (['Pending', 'Approved'].indexOf(cur.status) === -1) throw fail(409, 'Requirement ' + no + ' is ' + String(cur.status).toLowerCase() + ' – photos are added only while it waits or is approved.', 'decided');"));
+  assert.ok(src.includes("const site = await siteFor(s, x), no = noOf(x.no);"), "another site's photos: HO Purchase only (siteFor)");
+  const sites = fs.readFileSync(path.join(root, 'lib', 'sites.js'), 'utf8');
+  assert.ok(sites.includes("const c = await conf(site); await guard(c);"), 'the file store: the same Preview guard as the database');
+  // the page
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  for (const k of ["const sc = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight))", "'<label class=\"btn small phadd\">📷 Add photos<input type=\"file\" accept=\"image/*\" multiple hidden></label>'",
+    "const photos = PB ? PB.get() : undefined;", "lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) }, photos: photos,",
+    "const r = await W('reqPhotoAdd', { no: x.no, photos: sent });", "Photos of the material – ", "page-break-before:always", "W('reqPhotos', { site: ph.dataset.site, no: Number(ph.dataset.req) })"]) assert.ok(page.includes(k), k);
+  // (the review) the live security rule lets a picture come from data: (not blob:) – the page reads a photo as data:
+  const csp = (JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8')).headers || []).flatMap(h => h.headers || []).find(h => h.key === 'Content-Security-Policy').value;
+  assert.match(csp, /img-src 'self' data: https:/);
+  assert.ok(!/createObjectURL/.test(page), 'no blob: picture (refused by the live security rule)');
+  assert.ok(page.includes('fr.readAsDataURL(file);'));
+  // (the review) a Change keeps the photos added since its form opened; the print never waits on the file store; a day's limit
+  assert.ok(src.includes('const knew = new Set(x.photosWas.map(h => String(h || \'\').toLowerCase())), more = phList(cur.photos).filter(p => !knew.has(p.sha) && !ph.some(q => q.sha === p.sha));'));
+  assert.ok(page.includes("photosWas: PB && x ? (x.photos || []).map(p => p.sha) : undefined"));
+  assert.ok(page.includes("toast('The photos could not be opened now (' + e.message + ') – printed without them.', true);"));
+  assert.ok(src.includes("const PH = { bucket: 'erp-files', max: 10, raw: 2 * 1024 * 1024, day: 200 };"));
+  assert.ok(src.includes("if (e && e.code !== 'notinstalled' && /42703|does not exist/.test(String(e.message))) return false; throw e;"), 'a step "not run" only when the column is missing');
+  for (const k of ['step5', 'step6', 'step7']) assert.ok(src.includes("const " + k + "On = site => kept(site, '" + k + "', () => colOn(site, "), k);
+  assert.ok(!/esc\(p\.by\) : ''\) \+ \(p\.at \? ' · ' \+ dmyAt/.test(page), 'a date put in escaped');
 });

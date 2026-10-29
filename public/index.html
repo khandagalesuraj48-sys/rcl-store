@@ -142,6 +142,25 @@
   .formbox { border: 2px solid var(--hivis); }
   .rpt th.n, .rpt td.n { text-align: right; }
   .note2 { background: #F6F8FB; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13.5px; }
+  /* (29-10-2026) A REQUIREMENT'S PHOTOS: the form's box (tiles, ✕, "Add photos"), the list's 📷, the photos seen big */
+  .phbox { margin: 12px 0 4px; padding: 10px 12px; border: 1px dashed #B8C0CC; border-radius: 10px; background: #FAFBFC; }
+  .phhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  .phtiles { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+  .phtile { position: relative; width: 104px; }
+  .phtile img, .phtile .phspin { display: grid; place-items: center; width: 104px; height: 84px; object-fit: cover; border-radius: 8px; border: 2px solid var(--line); background: #EEF1F4; cursor: zoom-in; color: var(--muted); font-weight: 700; }
+  .phtile.bad img, .phtile.bad .phspin { border-color: var(--bad); }
+  .phtile small { display: block; color: var(--bad); font-size: 11.5px; line-height: 1.25; margin-top: 2px; }
+  .phx { position: absolute; top: 3px; right: 3px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgba(16, 24, 40, .72); color: #fff; cursor: pointer; font-size: 13px; line-height: 26px; padding: 0; }
+  .phx:focus-visible, .phadd:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .phadd { cursor: pointer; }
+  .phn { display: inline-block; margin-top: 2px; font-size: 12.5px; font-weight: 600; color: var(--blue); }
+  .phview { position: fixed; inset: 0; z-index: 90; background: rgba(10, 14, 20, .92); display: flex; align-items: center; justify-content: center; }
+  .phview > img { max-width: 92vw; max-height: 84vh; object-fit: contain; border-radius: 6px; background: #fff; }
+  .phbar { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 16px; padding: 10px 16px; color: #fff; font-size: 14px; }
+  .phbar span { flex: 1; } .phbar .link { color: #9CC0FF; }
+  .phclose, .phprev, .phnext { border: 0; background: rgba(255, 255, 255, .14); color: #fff; cursor: pointer; border-radius: 50%; width: 44px; height: 44px; font-size: 22px; }
+  .phprev, .phnext { position: absolute; top: 50%; transform: translateY(-50%); font-size: 30px; }
+  .phprev { left: 12px; } .phnext { right: 12px; }
   /* (28-10-2026, his picture) INWARD (GRN): the page's head with its sign; the form in two cards – GRN Details (Clear and the GRN date
      at its top right), Items (+ Add Row; the item's search box, the unit, the worked-out amounts in grey boxes, a bin on each row) */
   textarea { font: inherit; width: 100%; padding: 10px 12px; border: 1px solid #B8C0CC; border-radius: 8px; resize: vertical; color: var(--ink); background: #fff; }

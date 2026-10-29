@@ -10,7 +10,8 @@
 'use strict';
 const { handler, readBody, send, sameSite, fail } = require('../lib/http');
 const ses = require('../lib/session');
-const { db, dbAll, registry } = require('../lib/sites');
+const { db, dbAll, files, registry } = require('../lib/sites');
+const crypto = require('crypto');
 const { activity } = require('../lib/activity');
 const W = require('../lib/work');
 const R = require('../lib/sreport');
@@ -136,11 +137,53 @@ const papersOf = site => kept(site, 'papers', async () => { const r = ((await db
 // the prefix of the papers' numbers: as set, else the company's initials and the site ("RCL/VTR")
 const prefixOf = (pp, h, site) => pp.prefix || [W.initialsOf(h && h.company), site].filter(Boolean).join('/');
 // is the Store's step 5 (the PO's own fields, its approval) in this site's database?
-const step5On = site => kept(site, 'step5', async () => { try { await db(site, 'GET', 'store_po?select=appr&limit=1'); return true; } catch (e) { if (e && e.code === 'notinstalled') throw e; return false; } });
+// (29-10-2026, the review) a step's column there? false only when the database says it is missing (42703); any other fault is told as it
+// is and not kept (before: a moment's fault was kept for 2 minutes as "run step N")
+const colOn = async (site, path) => { try { await db(site, 'GET', path); return true; } catch (e) { if (e && e.code !== 'notinstalled' && /42703|does not exist/.test(String(e.message))) return false; throw e; } };
+const step5On = site => kept(site, 'step5', () => colOn(site, 'store_po?select=appr&limit=1'));
 const STEP5 = 'The purchase order\'s Credit Period, Site Contact, Shipping Address, Freight, Load / Unload and its approval need the Store\'s database step 5 at this site: the Admin runs sql/store_step5_po_format.sql once in Supabase → SQL Editor (in every site). Until then a PO is saved without them – leave them empty.';
 // (29-10-2026) is the Store's step 6 (the GRN's discounts, a line's net rate) in this site's database?
-const step6On = site => kept(site, 'step6', async () => { try { await db(site, 'GET', 'store_grn_lines?select=net_rate&limit=1'); return true; } catch (e) { if (e && e.code === 'notinstalled') throw e; return false; } });
+const step6On = site => kept(site, 'step6', () => colOn(site, 'store_grn_lines?select=net_rate&limit=1'));
 const STEP6 = 'A discount on a GRN (on a line or on the whole bill) needs the Store\'s database step 6 at this site: the Admin runs sql/store_step6_grn_discount.sql once in Supabase → SQL Editor (in every site). Until then a GRN is saved without a discount – leave it empty.';
+/* (29-10-2026) A REQUIREMENT'S PHOTOS – "requirement madhe attachment cha option … material photo … multiple photos … app madhun photo
+ * kadhla tri laptop web madhe yeil" (his answers: the whole requirement, many photos; in the print too). A photo is made smaller where
+ * it is taken (the page / the app: a JPEG of a few hundred KB) and sent here; it is kept ONCE in the site's private file store (the
+ * bucket erp-files – Mechanical's, the same Supabase project) under its fingerprint: store/req/<2>/<sha>.jpg – never overwritten or
+ * deleted. The requirement keeps the list (store_req.photos, step 7: [{ sha, size, by, at }]). A photo opens only through a link of
+ * 15 minutes. Sent from the app, it is on the laptop's page at once (the same site's store) – and the other way round. */
+const PH = { bucket: 'erp-files', max: 10, raw: 2 * 1024 * 1024, day: 200 };
+const phPath = sha => 'store/req/' + sha.slice(0, 2) + '/' + sha + '.jpg';
+const step7On = site => kept(site, 'step7', () => colOn(site, 'store_req?select=photos&limit=1'));
+const STEP7 = 'Photos of a requirement need the Store\'s database step 7 at this site: the Admin runs sql/store_step7_req_photos.sql once in Supabase → SQL Editor (in every site). Until then a requirement is saved without photos.';
+// the proof that THIS person sent THIS photo (its size) to THIS site – given when it is sent, asked when a requirement takes it
+const phTok = (site, email, sha, size) => crypto.createHmac('sha256', 'rcl-store-photo|' + String(process.env.SUPABASE_SECRET_KEY || '')).update([site, String(email || '').toLowerCase(), sha, size].join('|')).digest('hex').slice(0, 40);
+const phTokOk = (t, site, email, sha, size) => { const a = Buffer.from(String(t || '')), b = Buffer.from(phTok(site, email, sha, size)); return a.length === b.length && crypto.timingSafeEqual(a, b); };
+const phList = v => (Array.isArray(v) ? v : []).filter(p => p && /^[0-9a-f]{64}$/.test(String(p.sha))).map(p => ({ sha: String(p.sha), size: Math.max(0, Math.round(num(p.size))), by: String(p.by || ''), at: String(p.at || '') }));
+/* the list a requirement is to have, from what a save sent ([{ sha, size, t }]): a photo it has already, or one this person sent to
+ * this site (its proof t); at most 10, each once. null = no list sent (an older page / app: the photos stay as they are). */
+function phOf(s, list, had) {
+  if (list === undefined || list === null) return null;
+  if (!Array.isArray(list)) throw fail(400, 'The photos were not sent right – add them again.', 'field');
+  if (list.length > PH.max) throw fail(400, 'A requirement keeps at most ' + PH.max + ' photos – take some out.', 'field');
+  const old = new Map((had || []).map(p => [p.sha, p])), seen = new Set(), at = new Date().toISOString();
+  return list.map(x => {
+    const sha = String((x && x.sha) || '').toLowerCase(), size = Math.round(num(x && x.size));
+    if (!/^[0-9a-f]{64}$/.test(sha)) throw fail(400, 'A photo was not sent right – add it again.', 'field');
+    if (seen.has(sha)) throw fail(400, 'The same photo is there twice – take one out.', 'field');
+    seen.add(sha);
+    if (old.has(sha)) return old.get(sha);
+    if (!phTokOk(x.t, s.site, s.email, sha, size)) throw fail(400, 'A photo was not added from this page (or by you) – add it again.', 'field');
+    return { sha: sha, size: size, by: s.name || s.email, at: at };
+  });
+}
+// the links (15 minutes) of photos: path → its address
+async function phLinks(site, list) {
+  if (!list.length) return {};
+  const r = await files(site, 'POST', 'object/sign/' + PH.bucket, JSON.stringify({ expiresIn: 900, paths: list.map(p => phPath(p.sha)) }), 'application/json');
+  if (!r.ok) throw fail(502, 'The photos could not be opened (' + r.status + ') – try again in a moment.', 'store');
+  const out = {}; (Array.isArray(r.json) ? r.json : []).forEach(y => { if (y && y.path && y.signedURL) out[y.path] = r.base + y.signedURL; });
+  return out;
+}
 // who approves the POs of a site (the Portal tells: store_settings 'approvers' → po)
 const poPeople = async site => { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.approvers')) || [])[0]; return W.poApprovers(r ? r.value : null); };
 const apprOf = p => p.appr || 'Approved';      // a PO made before step 5: as approved
@@ -216,9 +259,10 @@ const ACTIONS = {
     if (!can(s, 'req', 'View') && !isBuyer(s) && !lv.some(l => l.people.some(p => p.email === String(s.email).toLowerCase()))) need(s, 'req', 'View');
     const [reqs, pos] = await Promise.all([dbAll(s.site, 'store_req?select=*', 'no'), dbAll(s.site, 'store_po?select=no,status,lines', 'no')]);
     const ordered = orderedOf(pos);
-    const [h, pp] = await Promise.all([headingOf(s.site), papersOf(s.site)]), pre = prefixOf(pp, h, s.site);
-    return { reqs: reqs.sort(byNo).map(r => Object.assign(reqView(r, ordered, lv, s), { ref: W.refOf(pre, 'PR', r.date, r.no) })), levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })),
-      heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '', site_address: pp.site_address || pp.ship_to || '' }) };      // (28-10-2026) for its paper (the Purchase Requisition Form); (29-10-2026) the site's address – else the Shipping Address
+    const [h, pp, s7] = await Promise.all([headingOf(s.site), papersOf(s.site), step7On(s.site)]), pre = prefixOf(pp, h, s.site);
+    return { reqs: reqs.sort(byNo).map(r => Object.assign(reqView(r, ordered, lv, s), { ref: W.refOf(pre, 'PR', r.date, r.no), photos: phList(r.photos) })), levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })),
+      heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '', site_address: pp.site_address || pp.ship_to || '' }),      // (28-10-2026) for its paper (the Purchase Requisition Form); (29-10-2026) the site's address – else the Shipping Address
+      step7: s7 };      // (29-10-2026) photos can be added (step 7 at this site)
   },
   async reqSave(s, x) {
     need(s, 'req', 'Edit');
@@ -231,17 +275,81 @@ const ACTIONS = {
     }
     let r; try { r = W.checkReq(x.req, items, { machinery: mach, had: new Set(cur ? (cur.lines || []).map(l => l.code) : []) }); } catch (e) { userErr(e); }
     todayOnly(s, r.date, 'Requirement', cur ? String(cur.date).slice(0, 10) : '');
+    // (29-10-2026) its photos: the list sent (none sent – an older page: as they are); before step 7 only an empty list is taken
+    let ph = null;
+    if (x.photos !== undefined && x.photos !== null) {
+      if (!(await step7On(s.site))) { if (!Array.isArray(x.photos) || x.photos.length) throw fail(400, STEP7, 'sql'); }
+      else ph = phOf(s, x.photos, cur ? phList(cur.photos) : []);
+      // (the review) a Change keeps the photos added since its form was opened (the phone, the Store Admin – reqPhotoAdd): only the
+      // photos the form knew of (photosWas) can be taken out; an older form that does not say: as it sends
+      if (ph && cur && Array.isArray(x.photosWas)) {
+        const knew = new Set(x.photosWas.map(h => String(h || '').toLowerCase())), more = phList(cur.photos).filter(p => !knew.has(p.sha) && !ph.some(q => q.sha === p.sha));
+        if (ph.length + more.length > PH.max) throw fail(409, 'Photos were added to requirement ' + no + ' just now – it would have more than ' + PH.max + '. Refresh and look.', 'decided');
+        ph = ph.concat(more);
+      }
+    }
     if (no) {
-      const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&status=eq.Pending&updated_at=eq.' + enc(cur.updated_at), Object.assign({}, r, { updated_by: s.email }), 'return=representation')) || [])[0];
+      const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&status=eq.Pending&updated_at=eq.' + enc(cur.updated_at), Object.assign({}, r, ph !== null ? { photos: ph } : {}, { updated_by: s.email }), 'return=representation')) || [])[0];
       if (!out) throw fail(409, 'Requirement ' + no + ' was changed or decided by someone else just now – refresh and look.', 'decided');
-      await activity(s.site, s.email, 'Requirement changed', 'REQ ' + no, { lines: r.lines.length });
+      await activity(s.site, s.email, 'Requirement changed', 'REQ ' + no, Object.assign({ lines: r.lines.length }, ph !== null ? { photos: ph.length } : {}));
       return { ok: true, no: no, status: out.status, level: out.level };
     }
     const lv = await levels(s.site), level = W.nextLevel(lv, 0, s.email);
     const row = Object.assign({}, r, { status: level ? 'Pending' : 'Approved', level: level, approvals: [] });
     const n = await rpc(s.site, 'store_req_put', { p_row: row, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
-    await activity(s.site, s.email, 'Requirement made', 'REQ ' + n, { lines: r.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), status: row.status });
-    return { ok: true, no: Number(n), status: row.status, level: level };
+    // (the photos: on the row just made – a second write; if it fails the requirement stays saved and the person is told)
+    let phNote = '';
+    if (ph && ph.length) { try { await db(s.site, 'PATCH', 'store_req?no=eq.' + Number(n), { photos: ph }, 'return=minimal'); } catch (e) { phNote = 'Requirement ' + Number(n) + ' is saved, but its photos were not kept – add them again with "Photos" on it.'; } }
+    await activity(s.site, s.email, 'Requirement made', 'REQ ' + n, Object.assign({ lines: r.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), status: row.status }, ph && ph.length && !phNote ? { photos: ph.length } : {}));
+    return Object.assign({ ok: true, no: Number(n), status: row.status, level: level }, phNote ? { photoNote: phNote } : {});
+  },
+  /* ---------- (29-10-2026) A REQUIREMENT'S PHOTOS ---------- */
+  // one photo, as it is added (made smaller where it was taken): kept once under its fingerprint; its proof for the save
+  async reqPhotoUp(s, x) {
+    need(s, 'req', 'Edit');
+    if (!(await step7On(s.site))) throw fail(400, STEP7, 'sql');
+    const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(x.data || ''));
+    if (!m) throw fail(400, 'A photo must be a JPG picture (the page makes it one) – add it again.', 'field');
+    if (m[1].length > Math.ceil(PH.raw * 4 / 3) + 4) throw fail(400, 'This photo is too big (more than 2 MB) – add it again (it is made smaller where it is taken).', 'field');
+    const b = Buffer.from(m[1], 'base64');
+    if (b.length < 4 || b[0] !== 0xFF || b[1] !== 0xD8 || b[2] !== 0xFF) throw fail(400, 'This file is not a real JPG photo – add a photo.', 'field');
+    const sha = crypto.createHash('sha256').update(b).digest('hex');
+    // (the review) at most PH.day photos a person in a day at a site – a lost sign-in cannot fill the store; each one sent is noted
+    const day0 = new Date(Date.parse(W.today() + 'T00:00:00+05:30')).toISOString();
+    const sentToday = (await db(s.site, 'GET', 'store_activity?select=id&action=eq.' + enc('Requirement photo sent') + '&email=eq.' + enc(s.email) + '&at=gte.' + enc(day0) + '&limit=' + (PH.day + 1))) || [];
+    if (sentToday.length >= PH.day) throw fail(429, 'You sent ' + PH.day + ' photos today – that is the most for one day. Send the rest tomorrow (if you did not send them, tell the Store Admin).', 'limit');
+    const r = await files(s.site, 'POST', 'object/' + PH.bucket + '/' + phPath(sha), b, 'image/jpeg');
+    const dup = /Duplicate|already exists|"409"/i.test(r.text);      // (the same photo kept before – it is not kept twice)
+    if (/bucket not found/i.test(r.text)) throw fail(400, 'The place for the photos is missing at this site. ' + STEP7, 'sql');
+    if (!r.ok && !dup) throw fail(502, 'The file store did not keep the photo (' + r.status + ') – add it again.', 'store');
+    await activity(s.site, s.email, 'Requirement photo sent', 'photo ' + sha.slice(0, 12), { size: b.length, again: dup || undefined });
+    return { ok: true, sha: sha, size: b.length, t: phTok(s.site, s.email, sha, b.length) };
+  },
+  // the photos of a requirement with their links (15 minutes) – seen big and printed; HO Purchase: of any site
+  async reqPhotos(s, x) {
+    const site = await siteFor(s, x), no = noOf(x.no);
+    if (site === s.site && !can(s, 'req', 'View') && !isBuyer(s)) { const lv = await levels(s.site); if (!lv.some(l => l.people.some(p => p.email === String(s.email).toLowerCase()))) need(s, 'req', 'View'); }
+    if (!(await step7On(site))) return { no: no, photos: [] };
+    const r = ((await db(site, 'GET', 'store_req?select=no,photos&no=eq.' + no)) || [])[0]; if (!r) throw gone('Requirement ' + no);
+    const list = phList(r.photos), u = await phLinks(site, list);
+    return { no: no, photos: list.map(p => Object.assign({}, p, { url: u[phPath(p.sha)] || '' })) };
+  },
+  /* photos added to a requirement already made (made on the laptop – its photos taken with the phone): who made it or the Store Admin,
+   * while it waits or is approved. A photo is taken out only while nobody has approved it yet (Change). */
+  async reqPhotoAdd(s, x) {
+    need(s, 'req', 'Edit');
+    const no = noOf(x.no);
+    if (!(await step7On(s.site))) throw fail(400, STEP7, 'sql');
+    const cur = ((await db(s.site, 'GET', 'store_req?select=*&no=eq.' + no)) || [])[0]; if (!cur) throw gone('Requirement ' + no);
+    if (String(cur.created_by).toLowerCase() !== String(s.email).toLowerCase() && !s.admin) throw fail(403, 'Only who made a requirement (or the Store Admin) adds its photos.', 'admin');
+    if (['Pending', 'Approved'].indexOf(cur.status) === -1) throw fail(409, 'Requirement ' + no + ' is ' + String(cur.status).toLowerCase() + ' – photos are added only while it waits or is approved.', 'decided');
+    const had = phList(cur.photos), add = (Array.isArray(x.photos) ? x.photos : []).filter(p => !had.some(h => h.sha === String((p && p.sha) || '').toLowerCase()));
+    if (!add.length) throw fail(400, 'Add a photo first (the ones sent are already on it).', 'field');
+    const list = phOf(s, had.map(p => ({ sha: p.sha })).concat(add), had);
+    const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&updated_at=eq.' + enc(cur.updated_at), { photos: list, updated_by: s.email }, 'return=representation')) || [])[0];
+    if (!out) throw fail(409, 'Requirement ' + no + ' was changed by someone else just now – refresh and add the photos again.', 'decided');
+    await activity(s.site, s.email, 'Requirement photos added', 'REQ ' + no, { added: list.length - had.length, photos: list.length });
+    return { ok: true, no: no, photos: list.length };
   },
   async reqCancel(s, x) {
     const no = noOf(x.no), cur = ((await db(s.site, 'GET', 'store_req?select=*&no=eq.' + no)) || [])[0];
@@ -801,3 +909,4 @@ module.exports = handler(async (req, res) => {
 });
 module.exports.ACTIONS = ACTIONS;      // (for the unit test)
 module.exports.todayOnly = todayOnly;      // (for the unit test – 29-10-2026)
+module.exports._ph = { phOf, phTok, phList, phPath, PH, STEP7 };      // (for the unit test – 29-10-2026, a requirement's photos)
