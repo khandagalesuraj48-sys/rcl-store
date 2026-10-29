@@ -213,13 +213,20 @@ whole requirement, many photos; in the print too.
   missing) under its fingerprint: `store/req/<2>/<sha256>.jpg`, never overwritten or deleted. `store_req.photos` keeps the list
   (`[{ sha, size, by, at }]`). A photo opens only through a link of 15 minutes (`reqPhotos`). A save takes a photo the requirement has,
   or one THIS person sent to THIS site (the server's proof – an HMAC of site, person, fingerprint and size – given by `reqPhotoUp`); at
-  most 10, each once; only a real JPG of 2 MB at most is kept.
+  most 10, each once; only a real JPG of 2 MB at most is kept; at most 200 photos a person in a day (each one sent is noted in the
+  activity: "Requirement photo sent").
+* **(the independent review, 29-10-2026)** the page reads a photo as `data:` (the live security rule refuses `blob:` pictures); a Change
+  keeps a photo added since its form was opened (`photosWas` – the phone, the Store Admin); the print opens without the photos (and
+  says so) when their links cannot be made; a step is taken as "not run" only when the database says its column is missing (before: a
+  moment's fault was kept for 2 minutes as "run step N" – steps 5, 6, 7 alike). The rig test runs the page under vercel.json's headers
+  (`dev.js` with `LIVE_HEADERS=1`).
 * **Before step 7 at a site:** no photo box (as before); a photo sent is refused with what to run. Step 7 only ADDS the column (and the
   bucket if it is missing) – no row, function or rule is changed. The Store finds it within 2 minutes of being run.
 * With the phone app 3.66.0 (its own screens: the form's photos, Photos of a requirement, the print, HO Purchase).
 Tests: unit (step 7 only adds; the proof: another person's / site's / a made-up one refused; at most 10; each once); rig
-`test/reqphoto.test.js` PART=a (before step 7) 7/7, PART=b 46/46 (the store's file, the links, Change, added after approval, HO
-Purchase, a cancelled one; in the browser: the form, the list, seen big, added, the print, a phone's width); `test/work.test.js` and
+`test/reqphoto.test.js` PART=a (before step 7) 7/7, PART=b (the store's file, the links, Change, added after approval, HO
+Purchase, a cancelled one; in the browser: the form, the list, seen big, added, the print, a phone's width) – 52/52 after the review;
+`test/work.test.js` and
 `test/work.browser.test.js` as before, with and without step 7.
 
 ## Parts
