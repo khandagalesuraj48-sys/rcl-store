@@ -561,6 +561,19 @@ test('(29-10-2026, "requirement madhe attachment … material photo … multiple
   // the page
   const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
   for (const k of ["const sc = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight))", "'<label class=\"btn small phadd\">📷 Add photos<input type=\"file\" accept=\"image/*\" multiple hidden></label>'",
-    "const photos = PB ? PB.get() : undefined;", "lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) }, photos: photos });",
+    "const photos = PB ? PB.get() : undefined;", "lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) }, photos: photos,",
     "const r = await W('reqPhotoAdd', { no: x.no, photos: sent });", "Photos of the material – ", "page-break-before:always", "W('reqPhotos', { site: ph.dataset.site, no: Number(ph.dataset.req) })"]) assert.ok(page.includes(k), k);
+  // (the review) the live security rule lets a picture come from data: (not blob:) – the page reads a photo as data:
+  const csp = (JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8')).headers || []).flatMap(h => h.headers || []).find(h => h.key === 'Content-Security-Policy').value;
+  assert.match(csp, /img-src 'self' data: https:/);
+  assert.ok(!/createObjectURL/.test(page), 'no blob: picture (refused by the live security rule)');
+  assert.ok(page.includes('fr.readAsDataURL(file);'));
+  // (the review) a Change keeps the photos added since its form opened; the print never waits on the file store; a day's limit
+  assert.ok(src.includes('const knew = new Set(x.photosWas.map(h => String(h || \'\').toLowerCase())), more = phList(cur.photos).filter(p => !knew.has(p.sha) && !ph.some(q => q.sha === p.sha));'));
+  assert.ok(page.includes("photosWas: PB && x ? (x.photos || []).map(p => p.sha) : undefined"));
+  assert.ok(page.includes("toast('The photos could not be opened now (' + e.message + ') – printed without them.', true);"));
+  assert.ok(src.includes("const PH = { bucket: 'erp-files', max: 10, raw: 2 * 1024 * 1024, day: 200 };"));
+  assert.ok(src.includes("if (e && e.code !== 'notinstalled' && /42703|does not exist/.test(String(e.message))) return false; throw e;"), 'a step "not run" only when the column is missing');
+  for (const k of ['step5', 'step6', 'step7']) assert.ok(src.includes("const " + k + "On = site => kept(site, '" + k + "', () => colOn(site, "), k);
+  assert.ok(!/esc\(p\.by\) : ''\) \+ \(p\.at \? ' · ' \+ dmyAt/.test(page), 'a date put in escaped');
 });

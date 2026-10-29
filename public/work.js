@@ -183,15 +183,16 @@
    * from the app are the same ones (the site's store) – seen here, big, and in the print. */
   const PHMAX = 10;
   const dmyAt = t => { const d = Date.parse(t); return isNaN(d) ? dmy(t) : dmy(new Date(d + 330 * 60000).toISOString()); };      // (a photo's time, kept in UTC: its date in India)
+  // (the review: the live page's security rule lets a picture come from data: but not blob: – the file is read as data:)
   async function phMake(file) {
-    const url = URL.createObjectURL(file);
-    try {
-      const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('"' + (file.name || 'This file') + '" is not a photo this page can read – add a JPG or PNG photo.')); i.src = url; });
-      const sc = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight)), w = Math.max(1, Math.round(im.naturalWidth * sc)), h = Math.max(1, Math.round(im.naturalHeight * sc));
-      const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h);
-      let d = c.toDataURL('image/jpeg', 0.82); if (d.length > 1100000) d = c.toDataURL('image/jpeg', 0.7);
-      return d;
-    } finally { URL.revokeObjectURL(url); }
+    const bad = () => new Error('"' + (file.name || 'This file') + '" is not a photo this page can read – add a JPG or PNG photo.');
+    const url = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result || '')); fr.onerror = () => no(bad()); fr.readAsDataURL(file); });
+    if (!/^data:image\//.test(url)) throw bad();
+    const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(bad()); i.src = url; });
+    const sc = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight)), w = Math.max(1, Math.round(im.naturalWidth * sc)), h = Math.max(1, Math.round(im.naturalHeight * sc));
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h);
+    let d = c.toDataURL('image/jpeg', 0.82); if (d.length > 1100000) d = c.toDataURL('image/jpeg', 0.7);
+    return d;
   }
   // a photo picked → sent (its fingerprint and the server's proof come back)
   async function phSend(file) { const d = await phMake(file); const r = await W('reqPhotoUp', { data: d }); return { sha: r.sha, size: r.size, t: r.t, url: d, state: 'ok' }; }
@@ -200,7 +201,7 @@
     list = (list || []).filter(p => p.url); if (!list.length) return toast('The photos could not be opened – try again.', true);
     let k = Math.max(0, Math.min(i || 0, list.length - 1));
     const o = document.createElement('div'); o.className = 'phview'; o.id = 'ph_view'; o.setAttribute('role', 'dialog'); o.setAttribute('aria-modal', 'true'); o.setAttribute('aria-label', 'Photos');
-    const draw = () => { const p = list[k]; o.innerHTML = '<div class="phbar"><span>' + (k + 1) + ' / ' + list.length + (p.by ? ' · ' + esc(p.by) : '') + (p.at ? ' · ' + dmyAt(p.at) : '') + '</span>' +
+    const draw = () => { const p = list[k]; o.innerHTML = '<div class="phbar"><span>' + (k + 1) + ' / ' + list.length + (p.by ? ' · ' + esc(p.by) : '') + (p.at ? ' · ' + esc(dmyAt(p.at)) : '') + '</span>' +
       (/^https?:/.test(p.url) ? '<a class="link" href="' + esc(p.url) + '" target="_blank" rel="noopener">Open full size</a>' : '') + '<button type="button" class="phclose" aria-label="Close">✕</button></div><img src="' + esc(p.url) + '" alt="Photo ' + (k + 1) + '">' +
       (list.length > 1 ? '<button type="button" class="phprev" aria-label="Previous photo">‹</button><button type="button" class="phnext" aria-label="Next photo">›</button>' : ''); };
     const step = n => { k = (k + n + list.length) % list.length; draw(); };
@@ -287,7 +288,9 @@
         ((x.approvals || []).length ? '<p class="sub2" style="margin:6px 0 0">' + x.approvals.map(a => 'Level ' + a.level + ': ' + (a.ok ? 'approved' : 'rejected') + ' by ' + esc(a.name) + ' on ' + dmy(a.at) + (a.note ? ' – "' + esc(a.note) + '"' : '')).join('<br>') + '</p>' : '') + (x.close_note ? '<p class="sub2">' + esc(x.close_note) + '</p>' : '') + '</td>';
       tr.after(d); return;
     }
-    if (b.classList.contains('rq-print')) return busy(b, async () => reqPrint(x, RQ.heading, (x.photos || []).length ? (await W('reqPhotos', { no: x.no })).photos : []));      // (28-10-2026) his Purchase Requisition Form; (29-10-2026) its photos after it
+    if (b.classList.contains('rq-print')) return busy(b, async () => { let ph = [];
+      if ((x.photos || []).length) { try { ph = (await W('reqPhotos', { no: x.no })).photos; } catch (e) { toast('The photos could not be opened now (' + e.message + ') – printed without them.', true); } }      // (the review: the print never waits on the file store)
+      reqPrint(x, RQ.heading, ph); });      // (28-10-2026) his Purchase Requisition Form; (29-10-2026) its photos after it
     if (b.classList.contains('rq-ph')) return reqPhotoRow(tr, x, b);
     if (b.classList.contains('rq-ok')) return busy(b, async () => { await W('reqDecide', { no: x.no, ok: true }); toast('Requirement ' + x.no + ' approved.'); reqLoad(); });
     if (b.classList.contains('rq-no')) {
@@ -306,7 +309,7 @@
     let ph = []; if ((x.photos || []).length) { try { b.disabled = true; ph = (await W('reqPhotos', { no: x.no })).photos; } catch (e) { return failed(e); } finally { b.disabled = false; } }
     const d = document.createElement('tr'); d.className = 'det phrow';
     d.innerHTML = '<td colspan="9"><b>Photos of requirement ' + x.no + '</b> <span class="muted">' + (ph.length ? ph.length + ' of ' + PHMAX : 'none yet') + '</span>' +
-      (ph.length ? '<div class="phtiles" style="margin-top:8px">' + ph.map((p, i) => '<div class="phtile"><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '" data-v="' + i + '"><small style="color:var(--muted)">' + esc(p.by || '') + (p.at ? ' · ' + dmyAt(p.at) : '') + '</small></div>').join('') + '</div>' : '') +
+      (ph.length ? '<div class="phtiles" style="margin-top:8px">' + ph.map((p, i) => '<div class="phtile"><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '" data-v="' + i + '"><small style="color:var(--muted)">' + esc(p.by || '') + (p.at ? ' · ' + esc(dmyAt(p.at)) : '') + '</small></div>').join('') + '</div>' : '') +
       (phAddOk(x) && ph.length < PHMAX ? '<div class="bar" style="margin-top:6px"><label class="btn small phadd">📷 Add photos<input type="file" accept="image/*" multiple hidden></label><span class="count" id="rq_phmsg_' + x.no + '"></span></div>' : '') + '</td>';
     tr.after(d);
     d.addEventListener('click', e => { const v = e.target.closest('[data-v]'); if (v) phView(ph, Number(v.dataset.v)); });
@@ -346,7 +349,8 @@
     $('rq_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Line ' + (L.rows.indexOf(lines.find(l => !l.code)) + 1) + ': pick the item from the list (as it is in the Item Master).');
       const photos = PB ? PB.get() : undefined;
-      const r = await W('reqSave', { no: x ? x.no : undefined, req: { date: val('rq_date'), need_by: val('rq_need'), for_kind: val('rq_kind'), for_text: val('rq_for'), remark: val('rq_rem'), lines: lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) }, photos: photos });
+      const r = await W('reqSave', { no: x ? x.no : undefined, req: { date: val('rq_date'), need_by: val('rq_need'), for_kind: val('rq_kind'), for_text: val('rq_for'), remark: val('rq_rem'), lines: lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) }, photos: photos,
+        photosWas: PB && x ? (x.photos || []).map(p => p.sha) : undefined });      // (the photos it opened with: one added since – by the phone – stays)
       toast(r.photoNote || ('Requirement ' + r.no + ' saved – ' + (r.status === 'Approved' ? 'approved (no approver set for this site).' : 'it waits for Level ' + r.level + '.')), !!r.photoNote);
       f.hidden = true; reqLoad();
     });
@@ -494,7 +498,7 @@
         '</td><td class="r">' + Number(l.qty).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 3 }) + '</td><td class="c">' + dmy(x.need_by || x.date).replace(/-/g, '/') + '</td></tr>').join('') + '</tbody></table>';
     // (29-10-2026, "Print मध्ये photos पण") its photos on the pages after the form – two a row, each with who added it and when
     const photos = ph.length ? '<div class="fm" style="page-break-before:always;border:1px solid #000;padding:6px"><div class="ttl" style="margin-bottom:6px">Photos of the material – ' + esc(x.ref || x.no) + ' (' + ph.length + ')</div><div class="phg">' +
-      ph.map((p, i) => '<figure><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '"><figcaption>Photo ' + (i + 1) + (p.by ? ' · ' + esc(p.by) : '') + (p.at ? ' · ' + dmyAt(p.at) : '') + '</figcaption></figure>').join('') + '</div></div>' : '';
+      ph.map((p, i) => '<figure><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '"><figcaption>Photo ' + (i + 1) + (p.by ? ' · ' + esc(p.by) : '') + (p.at ? ' · ' + esc(dmyAt(p.at)) : '') + '</figcaption></figure>').join('') + '</div></div>' : '';
     printHtml('Requirement ' + (x.ref || x.no), PCSS + '<div class="fm" style="border:1px solid #000;min-height:260mm;padding:0">' + head + items + '<p style="margin:6px">Remark:' + esc(x.remark || '') + '</p>' +
       '<div class="s2"><div>' + esc(x.created_name || '') + '<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div></div></div>' + photos);
   }

@@ -128,6 +128,21 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     ok('   …and their links (another site – HO Purchase only)', r.status === 200 && r.j.photos.length === 3 && r.j.photos.every(p => p.url), r.j);
     r = await V('reqPhotos', { site: 'T2', no: 1 });
     ok('   another site\'s photos for one who is not HO Purchase: refused', r.status === 403, r);
+    // ---- (the review) a Change keeps a photo added since its form opened (the phone / the Store Admin) ----
+    const q1 = (await V('reqPhotoUp', { data: jpg(pic([10, 120, 90], 220, 160)) })).j, q2 = (await A('reqPhotoUp', { data: jpg(pic([150, 20, 200], 230, 170)) })).j;
+    const nC = (await V('reqSave', req([{ code: CEM, qty: 2 }], { photos: [q1] }))).j.no, rowC = () => JSON.parse(sql('rcl', 'select photos::text from store_req where no = ' + nC) || '[]').map(p => p.sha);
+    r = await A('reqPhotoAdd', { no: nC, photos: [q2] });      // (while view's Change form is open)
+    r = await V('reqSave', Object.assign(req([{ code: CEM, qty: 3 }], { photos: [], photosWas: [q1.sha] }), { no: nC }));
+    ok('(the review) Change with its photo taken out, while sujit added one meanwhile: the one taken out goes, the one added since stays', r.status === 200 && JSON.stringify(rowC()) === JSON.stringify([q2.sha]), [r, rowC()]);
+    r = await V('reqSave', Object.assign(req([{ code: CEM, qty: 3 }], { photos: [] }), { no: nC }));
+    ok('   an older form (no photosWas): the list as it sends', r.status === 200 && rowC().length === 0, [r, rowC()]);
+    // ---- (the review) at most 200 photos a person in a day ----
+    sql('rcl', "insert into store_activity (email, action, target, detail) select 'view@rcl.test', 'Requirement photo sent', 'rigfill ' || g, '{}'::jsonb from generate_series(1, 200) g");
+    r = await V('reqPhotoUp', { data: jpg(pic([1, 1, 1], 50, 40)) });
+    const r429 = r; sql('rcl', "delete from store_activity where target like 'rigfill %'");      // (the rig's own rows only)
+    r = await V('reqPhotoUp', { data: jpg(pic([2, 2, 2], 50, 40)) });
+    ok('(the review) 200 photos sent today by one person: the next one refused ("the most for one day"); each photo sent is noted in the activity', r429.status === 429 && /most for one day/.test(r429.j.error) && r.status === 200 &&
+      Number(sql('rcl', "select count(*) from store_activity where action = 'Requirement photo sent' and email = 'view@rcl.test'")) >= 6, [r429, r.status]);
     // ---- cancelled: no photo added ----
     const n2 = (await V('reqSave', req([{ code: OIL, qty: 1 }]))).j.no; await V('reqCancel', { no: n2 });
     const p5 = (await V('reqPhotoUp', { data: jpg(pic([90, 90, 90], 200, 150)) })).j;
@@ -141,8 +156,13 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     const chromium = require(M + '@sparticuz/chromium').default || require(M + '@sparticuz/chromium'); const puppeteer = require(M + 'puppeteer-core');
     const b = await puppeteer.launch({ executablePath: await chromium.executablePath(), args: [...chromium.args, '--no-sandbox'], headless: 'shell', protocolTimeout: 120000 });
     const errs = [];
+    // (the review) the Store's page with its LIVE security rule: the rig's runner starts the Store with LIVE_HEADERS=1 (dev.js sends
+    // vercel.json's headers) and RIG_IMG=http://127.0.0.1:3100 (the rig's file store – live: https): a picture from data: yes, blob: no
+    const cspErrs = [];
     async function as(email, pw, site, page, width) {
       const ctx = await b.createBrowserContext(), p = await ctx.newPage(); p.on('pageerror', e => errs.push(email + ': ' + String(e.message).slice(0, 200))); await p.setViewport({ width: width || 1440, height: 900 });
+      p.on('console', m => { if (/img-src|blob:/i.test(m.text())) cspErrs.push(m.text().slice(0, 300)); });      // (a picture refused by the rule)
+      if (process.env.DEBUG) { p.on('requestfailed', q => console.error('REQFAIL', q.url().slice(0, 140), q.failure() && q.failure().errorText)); p.on('console', m => console.error('CONSOLE', m.text().slice(0, 400))); }
       await p.goto(P + '/', { waitUntil: 'load' }); await p.waitForSelector('#l_email', { visible: true });
       const st = await p.evaluate(async (e, w) => (await fetch('/api/auth', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-RCL': '1' }, body: JSON.stringify({ action: 'login', email: e, password: w }) })).status, email, pw);
       if (st !== 200) throw new Error('the Portal sign-in of ' + email + ': ' + st);
@@ -158,6 +178,10 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     fs.writeFileSync(big, pic([150, 110, 70], 3200, 2400)); fs.writeFileSync(png, pic([70, 120, 170], 900, 700, 'PNG'));
     try {
       const W1 = await as('view@rcl.test', VPW, 'S1', 'req');
+      const rule = await W1.evaluate(async () => { const c = document.createElement('canvas'); c.width = c.height = 8; const bl = await new Promise(r => c.toBlob(r, 'image/png')), u = URL.createObjectURL(bl), d = c.toDataURL('image/png');
+        const load = src => new Promise(r => { const i = new Image(); i.onload = () => r('loaded'); i.onerror = () => r('refused'); i.src = src; }); return [await load(u), await load(d)]; });
+      ok('browser: the Store page has its live security rule here – a blob: picture refused, a data: one loaded (as on Vercel)', rule[0] === 'refused' && rule[1] === 'loaded', rule);
+      cspErrs.length = 0;      // (that refusal was the check's own)
       await W1.click('#rq_new'); await wait(500);
       const box = await W1.evaluate(() => { const e = document.querySelector('#rq_photos .phbox'); return e ? e.innerText : ''; });
       ok('browser: the requirement form has "Photos of the material – optional – up to 10 photos" and "📷 Add photos"', /Photos of the material/.test(box) && /optional – up to 10 photos/.test(box) && /Add photos/.test(box), box);
@@ -194,6 +218,13 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
       const pr = await q.evaluate(() => ({ t: document.body.innerText, imgs: [...document.querySelectorAll('figure img')].map(i => i.naturalWidth) }));
       await q.screenshot({ path: path.join(SHOTS, 'reqphoto_print.png'), fullPage: true }); try { await q.pdf({ path: path.join(SHOTS, 'reqphoto_print.pdf'), format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' } }); } catch (e) { /* no PDF here */ }
       ok('   Print: the Purchase Requisition Form, then "Photos of the material – … (3)" – the 3 photos (loaded), "Photo 1 · View User · <date>"', /Purchase Requisition Form/.test(pr.t) && /Photos of the material – .*\(3\)/.test(pr.t) && pr.imgs.length === 3 && pr.imgs.every(w => w > 0) && /Photo 1 · View User · \d\d-\d\d-\d{4}/.test(pr.t), pr);
+      // (the review) the photos' links cannot be made (the file store says 502): the print still opens, without them, and says so
+      await fetch('http://127.0.0.1:3100/__fault', { method: 'POST', body: JSON.stringify({ match: 'object/sign', code: 502, n: 1 }) });
+      const n1f = await W1.evaluate(() => document.querySelectorAll('iframe').length);
+      await W1.evaluate(n => document.querySelector('#rq_list tr[data-no="' + n + '"] .rq-print').click(), n3);
+      const html2 = await until(() => W1.evaluate(n => { const f = [...document.querySelectorAll('iframe')]; if (f.length <= n) return null; const d = f[f.length - 1].contentDocument; return d && d.body && d.body.innerHTML.length > 200 ? d.documentElement.outerHTML : null; }, n1f), 20000);
+      const t2 = await toast(W1); await fetch('http://127.0.0.1:3100/__fault', { method: 'POST', body: '{}' });
+      ok('   (the review) the photos\' links cannot be made: the form is printed without them, and the page says so', !!html2 && /Purchase Requisition Form/.test(html2) && !/Photos of the material/.test(html2) && /printed without them/.test(t2), [!!html2, t2]);
       // the change form: its photos with their links; one taken out
       await W1.evaluate(n => { const b2 = document.querySelector('#rq_list tr[data-no="' + n + '"] .rq-edit'); if (b2) b2.click(); }, n3); await wait(300);
       const cf = await until(() => W1.evaluate(() => { const t = [...document.querySelectorAll('#rq_photos .phtile img')]; return t.length === 3 && t.every(i => i.naturalWidth > 0) ? 3 : 0; }), 20000);
@@ -221,6 +252,7 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
       await Ph.screenshot({ path: path.join(SHOTS, 'reqphoto_phone.png'), fullPage: false });
       ok('   a phone\'s width (390 px): the photos\' box fits – nothing wider than the screen', wide, wide);
       ok('no fault in the pages', errs.length === 0, errs);
+      ok('(the review) with the live security rule: nothing refused (the photos read as data:, not blob:)', cspErrs.length === 0, cspErrs);
     } finally { await b.close(); }
   }
 })().catch(e => { fail++; out.push('FAIL the test stopped: ' + (e && e.stack || e)); }).finally(() => {

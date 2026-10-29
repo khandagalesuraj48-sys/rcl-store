@@ -137,10 +137,13 @@ const papersOf = site => kept(site, 'papers', async () => { const r = ((await db
 // the prefix of the papers' numbers: as set, else the company's initials and the site ("RCL/VTR")
 const prefixOf = (pp, h, site) => pp.prefix || [W.initialsOf(h && h.company), site].filter(Boolean).join('/');
 // is the Store's step 5 (the PO's own fields, its approval) in this site's database?
-const step5On = site => kept(site, 'step5', async () => { try { await db(site, 'GET', 'store_po?select=appr&limit=1'); return true; } catch (e) { if (e && e.code === 'notinstalled') throw e; return false; } });
+// (29-10-2026, the review) a step's column there? false only when the database says it is missing (42703); any other fault is told as it
+// is and not kept (before: a moment's fault was kept for 2 minutes as "run step N")
+const colOn = async (site, path) => { try { await db(site, 'GET', path); return true; } catch (e) { if (e && e.code !== 'notinstalled' && /42703|does not exist/.test(String(e.message))) return false; throw e; } };
+const step5On = site => kept(site, 'step5', () => colOn(site, 'store_po?select=appr&limit=1'));
 const STEP5 = 'The purchase order\'s Credit Period, Site Contact, Shipping Address, Freight, Load / Unload and its approval need the Store\'s database step 5 at this site: the Admin runs sql/store_step5_po_format.sql once in Supabase → SQL Editor (in every site). Until then a PO is saved without them – leave them empty.';
 // (29-10-2026) is the Store's step 6 (the GRN's discounts, a line's net rate) in this site's database?
-const step6On = site => kept(site, 'step6', async () => { try { await db(site, 'GET', 'store_grn_lines?select=net_rate&limit=1'); return true; } catch (e) { if (e && e.code === 'notinstalled') throw e; return false; } });
+const step6On = site => kept(site, 'step6', () => colOn(site, 'store_grn_lines?select=net_rate&limit=1'));
 const STEP6 = 'A discount on a GRN (on a line or on the whole bill) needs the Store\'s database step 6 at this site: the Admin runs sql/store_step6_grn_discount.sql once in Supabase → SQL Editor (in every site). Until then a GRN is saved without a discount – leave it empty.';
 /* (29-10-2026) A REQUIREMENT'S PHOTOS – "requirement madhe attachment cha option … material photo … multiple photos … app madhun photo
  * kadhla tri laptop web madhe yeil" (his answers: the whole requirement, many photos; in the print too). A photo is made smaller where
@@ -148,9 +151,9 @@ const STEP6 = 'A discount on a GRN (on a line or on the whole bill) needs the St
  * bucket erp-files – Mechanical's, the same Supabase project) under its fingerprint: store/req/<2>/<sha>.jpg – never overwritten or
  * deleted. The requirement keeps the list (store_req.photos, step 7: [{ sha, size, by, at }]). A photo opens only through a link of
  * 15 minutes. Sent from the app, it is on the laptop's page at once (the same site's store) – and the other way round. */
-const PH = { bucket: 'erp-files', max: 10, raw: 2 * 1024 * 1024 };
+const PH = { bucket: 'erp-files', max: 10, raw: 2 * 1024 * 1024, day: 200 };
 const phPath = sha => 'store/req/' + sha.slice(0, 2) + '/' + sha + '.jpg';
-const step7On = site => kept(site, 'step7', async () => { try { await db(site, 'GET', 'store_req?select=photos&limit=1'); return true; } catch (e) { if (e && e.code === 'notinstalled') throw e; return false; } });
+const step7On = site => kept(site, 'step7', () => colOn(site, 'store_req?select=photos&limit=1'));
 const STEP7 = 'Photos of a requirement need the Store\'s database step 7 at this site: the Admin runs sql/store_step7_req_photos.sql once in Supabase → SQL Editor (in every site). Until then a requirement is saved without photos.';
 // the proof that THIS person sent THIS photo (its size) to THIS site – given when it is sent, asked when a requirement takes it
 const phTok = (site, email, sha, size) => crypto.createHmac('sha256', 'rcl-store-photo|' + String(process.env.SUPABASE_SECRET_KEY || '')).update([site, String(email || '').toLowerCase(), sha, size].join('|')).digest('hex').slice(0, 40);
@@ -277,6 +280,13 @@ const ACTIONS = {
     if (x.photos !== undefined && x.photos !== null) {
       if (!(await step7On(s.site))) { if (!Array.isArray(x.photos) || x.photos.length) throw fail(400, STEP7, 'sql'); }
       else ph = phOf(s, x.photos, cur ? phList(cur.photos) : []);
+      // (the review) a Change keeps the photos added since its form was opened (the phone, the Store Admin – reqPhotoAdd): only the
+      // photos the form knew of (photosWas) can be taken out; an older form that does not say: as it sends
+      if (ph && cur && Array.isArray(x.photosWas)) {
+        const knew = new Set(x.photosWas.map(h => String(h || '').toLowerCase())), more = phList(cur.photos).filter(p => !knew.has(p.sha) && !ph.some(q => q.sha === p.sha));
+        if (ph.length + more.length > PH.max) throw fail(409, 'Photos were added to requirement ' + no + ' just now – it would have more than ' + PH.max + '. Refresh and look.', 'decided');
+        ph = ph.concat(more);
+      }
     }
     if (no) {
       const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&status=eq.Pending&updated_at=eq.' + enc(cur.updated_at), Object.assign({}, r, ph !== null ? { photos: ph } : {}, { updated_by: s.email }), 'return=representation')) || [])[0];
@@ -304,10 +314,15 @@ const ACTIONS = {
     const b = Buffer.from(m[1], 'base64');
     if (b.length < 4 || b[0] !== 0xFF || b[1] !== 0xD8 || b[2] !== 0xFF) throw fail(400, 'This file is not a real JPG photo – add a photo.', 'field');
     const sha = crypto.createHash('sha256').update(b).digest('hex');
+    // (the review) at most PH.day photos a person in a day at a site – a lost sign-in cannot fill the store; each one sent is noted
+    const day0 = new Date(Date.parse(W.today() + 'T00:00:00+05:30')).toISOString();
+    const sentToday = (await db(s.site, 'GET', 'store_activity?select=id&action=eq.' + enc('Requirement photo sent') + '&email=eq.' + enc(s.email) + '&at=gte.' + enc(day0) + '&limit=' + (PH.day + 1))) || [];
+    if (sentToday.length >= PH.day) throw fail(429, 'You sent ' + PH.day + ' photos today – that is the most for one day. Send the rest tomorrow (if you did not send them, tell the Store Admin).', 'limit');
     const r = await files(s.site, 'POST', 'object/' + PH.bucket + '/' + phPath(sha), b, 'image/jpeg');
     const dup = /Duplicate|already exists|"409"/i.test(r.text);      // (the same photo kept before – it is not kept twice)
     if (/bucket not found/i.test(r.text)) throw fail(400, 'The place for the photos is missing at this site. ' + STEP7, 'sql');
     if (!r.ok && !dup) throw fail(502, 'The file store did not keep the photo (' + r.status + ') – add it again.', 'store');
+    await activity(s.site, s.email, 'Requirement photo sent', 'photo ' + sha.slice(0, 12), { size: b.length, again: dup || undefined });
     return { ok: true, sha: sha, size: b.length, t: phTok(s.site, s.email, sha, b.length) };
   },
   // the photos of a requirement with their links (15 minutes) – seen big and printed; HO Purchase: of any site
