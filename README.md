@@ -229,6 +229,18 @@ Purchase, a cancelled one; in the browser: the form, the list, seen big, added, 
 `test/work.test.js` and
 `test/work.browser.test.js` as before, with and without step 7.
 
+## 🎙 Speak into a box (29-10-2026; no database step)
+Asked: "jithe jithe type krun entry hotat … tithe voice mick banaw user apla voice madhe bolel … text madhe add krel ok hindi english
+marathi"; his answers: the app AND the website; words and numbers. `public/voice.js` (the same file in Engineering; inside the page in
+the Portal and Mechanical): a box where an entry is typed (text, number, phone, a note) shows a 🎙 at its right end while it is in use.
+Pressed, the browser's own speech recognition (Chrome / Edge) listens in **मराठी / हिंदी / English** (chips; the one chosen is kept in
+the browser). What was said goes in as if typed (the page's input / change – a form's lines, totals and checks react as for typing): a
+number box gets the **number** – "साडे तीन हजार" → 3500, "बारा पॉइंट पाच" → 12.5, "डेढ़ सौ" → 150, "twenty five" → 25; a phone box the
+digits; a text box the words at the cursor. Never in a password box or where a page says `data-novoice`. Inside Mechanical's screen
+(the same address, /store/) it listens with the screen's own speech. `vercel.json`: `microphone=(self)` (the camera and the place stay
+off). Tests: unit (the number cases, the page loads it, the rule); `test/voice.browser.test.js` 21/21; the rig's work / photo / today
+tests as before with it on the page.
+
 ## Parts
 | Part | File |
 |---|---|
