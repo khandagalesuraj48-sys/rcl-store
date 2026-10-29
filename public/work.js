@@ -509,6 +509,7 @@
     el.innerHTML = '<section class="panel"><h2>Purchase Orders of this site</h2><p class="muted" style="margin:0">Made by HO Purchase; what has come is from the GRNs against each.</p><div class="bar"><button type="button" class="btn" id="po_xl">Export to Excel</button><label class="sub2"><input type="checkbox" id="po_pend" style="width:auto;min-height:0"> Only what is still to come</label></div></section><section class="panel" id="po_list"></section>';
     let list = [];
     const load = async () => { try { list = (await W('poList')).pos; draw(); } catch (e) { failed(e); } };
+    PO_LOAD = load;      // (29-10-2026) the live updates read it again
     const draw = () => { $('po_list').innerHTML = poTable($('po_pend').checked ? list.filter(p => p.status === 'Open' && p.state !== 'Received') : list, false); };
     $('po_pend').onchange = draw; $('po_list').onclick = e => poClick(e, list, load);
     $('po_xl').onclick = () => busy($('po_xl'), async () => toExcel(await W('report', { kind: 'po', pending: $('po_pend').checked }), 'Purchase_orders'));
@@ -1093,6 +1094,34 @@
       $('db_work2').hidden = !parts.length; $('db_work2').innerHTML = parts.join('');
     } catch (e) { if (e && e.code === 'notinstalled') { $('db_work').hidden = false; $('db_work').innerHTML = '<div class="note2">' + esc(e.message) + '</div>'; } }
   }
+
+  /* (29-10-2026, the MD: "supabase 2 second cha vishay … ERP mothi hotey … saving mahtwachi aahe but data real time disne user laa he pn
+   * mahtwach aahe … niyojan tu kar") LIVE: another person's save shows by itself – as Mechanical's pages (the standard of 24-10-2026):
+   * the page asks only "what changed at this site?" (live – about 40 bytes; the server reads the database once in 2 s for every page of
+   * the site), and reads its list again only when something changed. Every 2 s on a page with others' entries (Dashboard, Requirements,
+   * Purchase, Purchase Orders, Inward, Issue & Return) while it is used; every 15 s after 5 minutes nobody touched it; nothing while the
+   * tab is hidden; at once when it is seen again. A form being typed stays as it is; a row's details / photos open: read when closed. */
+  let PO_LOAD = null;
+  const LIVE_PAGES = { dashboard: () => dash(), req: () => reqLoad(), purchase: () => purLoad(), po: () => (PO_LOAD ? PO_LOAD() : null), grn: () => grnLoad(), issue: () => issueLoad() };
+  const LV = { v: null, page: '', touched: Date.now(), t: null, pend: false, at: 0 };
+  const liveIdle = () => Date.now() - LV.touched > 300000;
+  const liveHeld = pg => !!document.querySelector('#pg_' + pg + ' tr.det') || !!document.getElementById('ph_view') || ($('dlg') && !$('dlg').hidden);
+  function liveSoon(ms) { clearTimeout(LV.t); LV.t = null; if (!document.hidden) LV.t = setTimeout(liveTick, ms); }
+  async function liveTick() {
+    const S0 = K().S || {}, pg = S0.page || '', f = LIVE_PAGES[pg];
+    if (!f || !S0.me) { LV.v = null; LV.page = pg; return liveSoon(3000); }      // (a page without others' entries: nothing asked)
+    if (pg !== LV.page) { LV.page = pg; LV.v = null; LV.pend = false; }
+    try {
+      const r = await W('live', pg === 'purchase' ? { all: true } : {});
+      if (LV.v !== null && String(r.v) !== LV.v) LV.pend = true;
+      LV.v = String(r.v);
+      if (LV.pend && !liveHeld(pg) && Date.now() - LV.at > 1500) { LV.pend = false; LV.at = Date.now(); await f(); }
+    } catch (e) { /* the next time – a sign-in that ended is told by the page's own next call */ }
+    liveSoon(liveIdle() ? 15000 : 2000);
+  }
+  ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(ev => document.addEventListener(ev, () => { const was = liveIdle(); LV.touched = Date.now(); if (was) liveSoon(0); }, { passive: true, capture: true }));
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(LV.t); LV.t = null; } else liveSoon(0); });
+  liveSoon(3000);
 
   const OPEN = { req: reqPage, purchase: purPage, po: poPage, grn: grnPage, issue: issuePage, reports: repPage, settings: setPage };
   window.RSW = { open: page => { if (!OPEN[page]) return; B = null; OPEN[page]().catch(e => failed(e)); }, dash: () => { B = null; dash(); } };
