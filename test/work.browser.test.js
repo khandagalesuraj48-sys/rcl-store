@@ -58,7 +58,7 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     await shot(V, 'work_req_form');
     await V.click('#rq_save'); await wait(1500);
     const t1 = await toast(V), rqn = Number(sql('rcl', 'select max(no) from store_req'));
-    ok('view makes a requirement from the form (2 items): saved, it waits for Level 1', /Requirement \d+ saved – it waits for Level 1/.test(t1) && sql('rcl', 'select status || level || jsonb_array_length(lines) from store_req where no = ' + rqn) === 'Pending12', t1);
+    ok('view makes a requirement from the form (2 items): saved, it waits for Level 1', /Requirement (\d+|(?:[A-Z]{1,6}\/)?VTR\/\d{4}-\d{2}\/P\/\d{4}) saved – it waits for Level 1/.test(t1) && sql('rcl', 'select status || level || jsonb_array_length(lines) from store_req where no = ' + rqn) === 'Pending12', t1);
     ok('   (28-10-2026) the form\'s Brand and Material specification of a line: kept', sql('rcl', "select (lines->0->>'brand') || '|' || (lines->0->>'spec') from store_req where no = " + rqn) === 'ACC|PPC, 50 kg bag', sql('rcl', 'select lines from store_req where no = ' + rqn));
     await K.click('#grp_store [data-page="req"]'); await wait(1500);
     await K.evaluate(() => [...document.querySelectorAll('#rq_chips .chip')].find(c => c.dataset.f === 'mine').click()); await wait(400);
@@ -185,8 +185,8 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     await until(() => R2.evaluate(n => !!document.querySelector('tr[data-rq="' + n + '"] .rq-print, tr[data-req="' + n + '"] .rq-print, [data-no="' + n + '"] .rq-print'), rqn), 15000);
     const rsel = await R2.evaluate(n => { const b = document.querySelector('tr[data-rq="' + n + '"] .rq-print') ? 'tr[data-rq="' + n + '"] .rq-print' : document.querySelector('tr[data-req="' + n + '"] .rq-print') ? 'tr[data-req="' + n + '"] .rq-print' : '[data-no="' + n + '"] .rq-print'; return b; }, rqn);
     html = await printed(R2, rsel); txt = html ? await keep(html, 'work_req_print') : '';
-    ok('   the requirement\'s Print – his Purchase Requisition Form: Indent No. ' + ref + '/PR/<year>/' + String(rqn).padStart(4, '0') + ', what it is for, Item Code / Description / Specification / Unit / Quantity / Required Date, Prepared / Checked / Approved By',
-      !!txt && /Purchase Requisition Form/.test(txt) && txt.indexOf(ref + '/PR/' + today.slice(0, 4) + '/' + String(rqn).padStart(4, '0')) > -1 && /Ch 545\+417 toe wall/.test(txt) && /Item Code/.test(txt) && /Required Date/.test(txt) && /Brand: ACC/.test(txt) &&
+    ok('   the requirement\'s Print – his Purchase Requisition Form: Indent No. <company>/VTR/<financial year>/P/<4 digits> (29-10-2026), what it is for, Item Code / Description / Specification / Unit / Quantity / Required Date, Prepared / Checked / Approved By',
+      !!txt && /Purchase Requisition Form/.test(txt) && /Indent No\. :\s*(?:[A-Z]{1,6}\/)?VTR\/\d{4}-\d{2}\/P\/\d{4}/.test(txt) && ref !== undefined && /Ch 545\+417 toe wall/.test(txt) && /Item Code/.test(txt) && /Required Date/.test(txt) && /Brand: ACC/.test(txt) &&
       /Prepared By/.test(txt) && /Checked By/.test(txt) && /Approved By/.test(txt), txt.slice(0, 1500));
     // (29-10-2026) its heading as his paper ("REQUIREMENT OF FOUNDATION BOLT"; his answer: the addresses kept): the logo, the company's name and
     // address, "Purchase Requisition Form", the Site Address (Papers → Site Address) – no e-mail / CIN / GST / PAN rows; "Remark:Require For :"

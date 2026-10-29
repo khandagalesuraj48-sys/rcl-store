@@ -250,6 +250,39 @@ digits; a text box the words at the cursor. Never in a password box or where a p
 off). Tests: unit (the number cases, the page loads it, the rule); `test/voice.browser.test.js` 21/21; the rig's work / photo / today
 tests as before with it on the page.
 
+## The Indent No., the heading from the Portal, the contact, a machinery's log book, a requirement changed / deleted, a PO deleted (29-10-2026; the Store's step 8, the Portal's step 5)
+His words (29-10-2026, with the empty heading of his requirement): "mala te kahi save karayla nko sangu … mi agodar sagle save keley";
+"indent number … company name RCL … site name VTR … financial year … mechanical cha aahe ki material purchase cha … short letter … 4 digit
+number … 0001 pasun"; "site address purchase requirement warti nahi dila tri chalel but … purchase order … address lagto … portal madhe
+… site address and contact number name"; "contact name ani number je default ahe te auto yetil but user … edit pn karta yeil"; "vehicle
+che maintanace log book auto requirement madhe attach hoil … confirmation madhe fkt show hoil ki te update kadhi paryant ahe … print madhe
+… photo made maintanance logbook pn attach asel"; "ekda banwaleli requirement edit delet krta yeil … photo log book … ek ek … approval
+nantr tri edit … po banli aahe … sagalyat adhi po delet krayla lagel mgch same requirement edit".
+* **The heading – nothing to save here.** It comes with the Portal's ticket (`lib/portal.js` `paperOf`; the sign-in keeps it –
+  `lib/session.js`, and in the site's settings `portal_paper` for HO Purchase's papers of that site – `api/sso.js`): the site's company
+  (Portal → Companies) and the site's address and contact (Portal → Sites, its step 5). `headingOf(site, s)` takes it first; a site
+  nobody signed in to since: Mechanical's list of sites, as before. The PO's **Shipping Address** and **Site Contact**, a new
+  requirement's **contact**, start with the site's (`startOf`; not given in the Portal: the Store's Papers settings, as before); changed
+  in the form.
+* **The Indent No.** (`lib/work.js` `indentOf`): **RCL/VTR/2026-27/M/0001** – the company's initials, the site (its code; S1 – the first
+  word of its name), the financial year of its date (April – March), **M** = Mechanical (for a machinery) or **P** = Material Purchase,
+  its number from 0001 in each year and letter, given in the database (step 8 – never twice, never given again; one changed to the other
+  letter gets the next of that one). The Store's Papers prefix is not used for it (the PO's number keeps it). Everywhere a requirement is
+  named: its list, HO Purchase, a PO's lines (`req_ref`), its Excel, its print.
+* **A machinery's maintenance log book** (`lib/mlog.js` – Mechanical's own reading and drawing, word for word: its bills in the same
+  database and what the Store issued to it): picked in the form → "Attach the maintenance log book of … – written up to …" (ticked by
+  itself; `mlogInfo`); kept with the requirement – up to which date (`logbook`); **Log book** on the list: Update (as written now) /
+  Take it out / Attach (`reqLogbook`); printed after the photos (`reqLogbookHtml` – one piece of HTML the page and the app put in).
+* **Change** – also after its approval (then it waits for its approval again; the activity record keeps who approved it before) –
+  and **Delete** (`reqDelete`): who made it or the Store Admin; **never while a purchase order (not cancelled) has it** – "Requirement …
+  is in PO … – delete PO … first" (in the database: `store_req_change`, `store_req_del`). A **photo taken out** one by one (`reqPhotoDel`
+  – its file stays kept). **A PO deleted** by HO Purchase (`poDelete`, `store_po_del`) – never one whose material came.
+* **Database: `sql/store_step8_req_indent.sql`** – once in EVERY site's Supabase: it only adds six empty columns to store_req, gives the
+  requirements of before their Indent No. (in their order), and its functions. Until then a requirement keeps its number and is changed
+  only while nobody approved it; Delete / a PO's delete say the step is needed.
+* Tests: unit (the Indent No., the heading, the log book drawn as Mechanical's own – compared with rclerp next to this repository, step 8);
+  the rig's `test/reqindent.test.js`; `work.test.js` / `work.browser.test.js` (the new Indent No.).
+
 ## Live: another person's save shows by itself (29-10-2026; no database step)
 Asked: "supabase 2 second cha vishay he bgh ata aapi ERP mothi hotey ok so saving mahtwachi aahe but data real time disne user laa he pn
 mahtwach aahe tya pramne niyojan tu kar pratek gosti madhe logic use kr". As Mechanical's pages (the standard of 24-10-2026): a page asks

@@ -254,7 +254,7 @@
     await reqLoad();
   }
   async function reqLoad() {
-    try { await boot(); const r = await W('reqList'); RQ.list = r.reqs; RQ.levels = r.levels; RQ.heading = r.heading; RQ.step7 = !!r.step7;
+    try { await boot(); const r = await W('reqList'); RQ.list = r.reqs; RQ.levels = r.levels; RQ.heading = r.heading; RQ.step7 = !!r.step7; RQ.step8 = !!r.step8; RQ.start = r.start || {};
       $('rq_lv').textContent = r.levels.length ? 'Approved by: ' + r.levels.map(l => 'Level ' + l.level + ' – ' + l.people.join(', ')).join(' · ') : 'No approver set for this site – a requirement is approved when it is made.';
       B.waiting = RQ.list.filter(x => x.mayApprove).length; lists(); reqDraw(); }
     catch (e) { failed(e); $('rq_list').innerHTML = '<p class="empty">' + esc(e.message) + '</p>'; }
@@ -266,11 +266,11 @@
     const rows = L.filter(x => reqIn(x, RQ.filter));
     $('rq_bulk').hidden = !rows.some(x => x.mayApprove);
     $('rq_list').innerHTML = '<div class="tw"><table><thead><tr><th></th><th>No</th><th>Date</th><th>Needed by</th><th>For</th><th>Items</th><th>State</th><th>Asked by</th><th></th></tr></thead><tbody>' +
-      (rows.map(x => '<tr data-no="' + x.no + '"><td>' + (x.mayApprove ? '<input type="checkbox" class="rq-tick" value="' + x.no + '" style="width:auto;min-height:0">' : '') + '</td><td><b>' + x.no + '</b></td><td>' + dmy(x.date) + '</td><td>' + dmy(x.need_by) + '</td><td style="white-space:normal">' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + '</td>' +
-        '<td style="white-space:normal">' + x.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (x.status === 'Approved' && l.left < l.qty ? ' <small>(ordered ' + n2(l.ordered) + ')</small>' : '')).join('<br>') + ((x.photos || []).length ? '<br><span class="phn">📷 ' + x.photos.length + ' photo' + (x.photos.length === 1 ? '' : 's') + '</span>' : '') + '</td>' +
-        '<td>' + stateTag(x.status) + (x.status === 'Pending' ? '<small>Level ' + x.level + (x.waitFor.length ? ' – ' + esc(x.waitFor.join(', ')) : '') + '</small>' : '') + '</td><td><small>' + esc(x.created_name || x.created_by || '') + '</small></td>' +
+      (rows.map(x => '<tr data-no="' + x.no + '"><td>' + (x.mayApprove ? '<input type="checkbox" class="rq-tick" value="' + x.no + '" style="width:auto;min-height:0">' : '') + '</td><td><b>' + esc(x.ref || x.no) + '</b></td><td>' + dmy(x.date) + '</td><td>' + dmy(x.need_by) + '</td><td style="white-space:normal">' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + '</td>' +
+        '<td style="white-space:normal">' + x.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (x.status === 'Approved' && l.left < l.qty ? ' <small>(ordered ' + n2(l.ordered) + ')</small>' : '')).join('<br>') + ((x.photos || []).length ? '<br><span class="phn">📷 ' + x.photos.length + ' photo' + (x.photos.length === 1 ? '' : 's') + '</span>' : '') + (x.logbook ? '<br><span class="phn">📕 Log book up to ' + dmy(x.logbook.upto) + '</span>' : '') + '</td>' +
+        '<td>' + stateTag(x.status) + (x.status === 'Pending' ? '<small>Level ' + x.level + (x.waitFor.length ? ' – ' + esc(x.waitFor.join(', ')) : '') + '</small>' : '') + ((x.pos || []).length ? '<small>In PO ' + x.pos.join(', ') + '</small>' : '') + '</td><td><small>' + esc(x.created_name || x.created_by || '') + '</small></td>' +
         '<td><div class="acts">' + (x.mayApprove ? '<button type="button" class="btn small primary rq-ok">Approve</button><button type="button" class="btn small bad rq-no">Reject</button>' : '') +
-        '<button type="button" class="link rq-det">Details</button>' + ((x.photos || []).length || phAddOk(x) ? '<button type="button" class="link rq-ph">Photos' + ((x.photos || []).length ? ' (' + x.photos.length + ')' : '') + '</button>' : '') + '<button type="button" class="link rq-print">Print</button>' + ((x.mine || admin()) && x.status === 'Pending' && !(x.approvals || []).length && canEdit('req') ? '<button type="button" class="link rq-edit">Change</button>' : '') +
+        '<button type="button" class="link rq-det">Details</button>' + ((x.photos || []).length || phAddOk(x) ? '<button type="button" class="link rq-ph">Photos' + ((x.photos || []).length ? ' (' + x.photos.length + ')' : '') + '</button>' : '') + (x.for_kind === 'Machinery' && RQ.step8 && (x.logbook || x.attach) ? '<button type="button" class="link rq-lb">Log book</button>' : '') + '<button type="button" class="link rq-print">Print</button>' + (x.edit ? '<button type="button" class="link rq-edit">Change</button>' : '') + (x.del ? '<button type="button" class="link del rq-del">Delete</button>' : '') +
         ((x.mine || admin()) && (x.status === 'Pending' || x.status === 'Approved') && !x.lines.some(l => l.ordered > 0) ? '<button type="button" class="link del rq-cancel">Cancel</button>' : '') +
         ((buyer() || admin()) && x.status === 'Approved' && x.lines.some(l => l.left > 0) ? '<button type="button" class="link rq-close">Close</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="9" class="empty">No requirement here.</td></tr>') + '</tbody></table></div>';
   }
@@ -288,11 +288,14 @@
         ((x.approvals || []).length ? '<p class="sub2" style="margin:6px 0 0">' + x.approvals.map(a => 'Level ' + a.level + ': ' + (a.ok ? 'approved' : 'rejected') + ' by ' + esc(a.name) + ' on ' + dmy(a.at) + (a.note ? ' – "' + esc(a.note) + '"' : '')).join('<br>') + '</p>' : '') + (x.close_note ? '<p class="sub2">' + esc(x.close_note) + '</p>' : '') + '</td>';
       tr.after(d); return;
     }
-    if (b.classList.contains('rq-print')) return busy(b, async () => { let ph = [];
+    if (b.classList.contains('rq-print')) return busy(b, async () => { let ph = [], lb = null;
       if ((x.photos || []).length) { try { ph = (await W('reqPhotos', { no: x.no })).photos; } catch (e) { toast('The photos could not be opened now (' + e.message + ') – printed without them.', true); } }      // (the review: the print never waits on the file store)
-      reqPrint(x, RQ.heading, ph); });      // (28-10-2026) his Purchase Requisition Form; (29-10-2026) its photos after it
+      if (x.logbook) { try { lb = await W('reqLogbookHtml', { no: x.no }); } catch (e) { toast('The log book could not be read now (' + e.message + ') – printed without it.', true); } }
+      reqPrint(x, RQ.heading, ph, lb); });      // (28-10-2026) his Purchase Requisition Form; (29-10-2026) its photos and its maintenance log book after it
+    if (b.classList.contains('rq-del')) { const v = await ask('Delete requirement ' + (x.ref || x.no) + '?', '<p>It goes from the list – its photos and log book with it. (Written in the activity record.)</p><p class="mr">ही मागणी delete होईल.</p>', [{ label: 'No', value: false }, { label: 'Delete', value: true, bad: true }]); if (!v) return; return busy(b, async () => { await W('reqDelete', { no: x.no }); toast('Requirement ' + (x.ref || x.no) + ' deleted.'); reqLoad(); }); }
+    if (b.classList.contains('rq-lb')) return reqLbRow(tr, x, b);
     if (b.classList.contains('rq-ph')) return reqPhotoRow(tr, x, b);
-    if (b.classList.contains('rq-ok')) return busy(b, async () => { await W('reqDecide', { no: x.no, ok: true }); toast('Requirement ' + x.no + ' approved.'); reqLoad(); });
+    if (b.classList.contains('rq-ok')) return busy(b, async () => { await W('reqDecide', { no: x.no, ok: true }); toast('Requirement ' + (x.ref || x.no) + ' approved.'); reqLoad(); });
     if (b.classList.contains('rq-no')) {
       const v = await ask('Reject requirement ' + x.no + '?', '<p>Say why (the person who made it sees it):</p><input id="rq_why" maxlength="300" style="width:100%"><p class="mr">का नाकारले ते लिहा.</p>', [{ label: 'Cancel', value: false }, { label: 'Reject', value: true, bad: true }]);
       if (!v) return; const why = (document.getElementById('rq_why') || {}).value || '';
@@ -309,10 +312,15 @@
     let ph = []; if ((x.photos || []).length) { try { b.disabled = true; ph = (await W('reqPhotos', { no: x.no })).photos; } catch (e) { return failed(e); } finally { b.disabled = false; } }
     const d = document.createElement('tr'); d.className = 'det phrow';
     d.innerHTML = '<td colspan="9"><b>Photos of requirement ' + x.no + '</b> <span class="muted">' + (ph.length ? ph.length + ' of ' + PHMAX : 'none yet') + '</span>' +
-      (ph.length ? '<div class="phtiles" style="margin-top:8px">' + ph.map((p, i) => '<div class="phtile"><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '" data-v="' + i + '"><small style="color:var(--muted)">' + esc(p.by || '') + (p.at ? ' · ' + esc(dmyAt(p.at)) : '') + '</small></div>').join('') + '</div>' : '') +
+      (ph.length ? '<div class="phtiles" style="margin-top:8px">' + ph.map((p, i) => '<div class="phtile"><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '" data-v="' + i + '"><small style="color:var(--muted)">' + esc(p.by || '') + (p.at ? ' · ' + esc(dmyAt(p.at)) : '') + '</small>' +
+        (x.attach ? '<button type="button" class="link del ph-out" data-sha="' + esc(p.sha) + '">Take out</button>' : '') + '</div>').join('') + '</div>' : '') +      // (29-10-2026) a photo taken out one by one
       (phAddOk(x) && ph.length < PHMAX ? '<div class="bar" style="margin-top:6px"><label class="btn small phadd">📷 Add photos<input type="file" accept="image/*" multiple hidden></label><span class="count" id="rq_phmsg_' + x.no + '"></span></div>' : '') + '</td>';
     tr.after(d);
-    d.addEventListener('click', e => { const v = e.target.closest('[data-v]'); if (v) phView(ph, Number(v.dataset.v)); });
+    d.addEventListener('click', async e => { const v = e.target.closest('[data-v]'); if (v) return phView(ph, Number(v.dataset.v));
+      const o = e.target.closest('.ph-out'); if (!o) return;
+      if (!await ask('Take this photo out of requirement ' + (x.ref || x.no) + '?', '<p>The others stay.</p><p class="mr">हा photo काढला जाईल.</p>', [{ label: 'No', value: false }, { label: 'Take it out', value: true, bad: true }])) return;
+      busy(o, async () => { await W('reqPhotoDel', { no: x.no, sha: o.dataset.sha }); toast('Photo taken out of requirement ' + (x.ref || x.no) + '.'); await reqLoad();
+        const t2 = document.querySelector('#rq_list tr[data-no="' + x.no + '"]'), b2 = t2 && t2.querySelector('.rq-ph'), y = RQ.list.find(q => q.no === x.no); if (t2 && b2 && y) reqPhotoRow(t2, y, b2); }); });
     d.addEventListener('change', async e => {
       const inp = e.target.closest('input[type=file]'); if (!inp) return;
       const fs = [...inp.files].slice(0, PHMAX - ph.length), msg = document.getElementById('rq_phmsg_' + x.no); inp.value = ''; const sent = [];
@@ -328,16 +336,45 @@
       } catch (er) { failed(er); if (msg) msg.textContent = ''; } finally { inp.disabled = false; }
     });
   }
+  /* (29-10-2026, "vehicle che maintanace log book auto requirement madhe attach hoil … update kadhi paryant ahe … edit or delet krta yetil
+   * ek ek") a machinery's requirement: its maintenance log book – up to which date it is attached; Update (as it is written now) / Take out /
+   * Attach – who made it or the Store Admin */
+  async function reqLbRow(tr, x, b) {
+    const nx = tr.nextElementSibling; if (nx && nx.classList.contains('lbrow')) { nx.remove(); return; }
+    let now = null; try { b.disabled = true; now = await W('mlogInfo', { no: x.for_text }); } catch (e) { now = null; } finally { b.disabled = false; }
+    const lb = x.logbook, d = document.createElement('tr'); d.className = 'det lbrow';
+    d.innerHTML = '<td colspan="9"><b>📕 Maintenance log book – ' + esc(x.for_text) + '</b> <span class="muted">' + (lb ? 'attached: up to ' + dmy(lb.upto) + ' · ' + lb.bills + ' bill(s)' + (lb.by ? ' · by ' + esc(lb.by) + (lb.at ? ' on ' + esc(dmyAt(lb.at)) : '') : '') : 'not attached') +
+      (now ? ' · now written up to ' + (now.upto ? dmy(now.upto) : '–') + ' · ' + now.bills + ' bill(s)' : '') + '</span>' +
+      (x.attach ? '<div class="bar" style="margin-top:6px">' + (now && now.bills ? '<button type="button" class="btn small primary lb-on">' + (lb ? 'Update (as written now)' : 'Attach') + '</button>' : '') + (lb ? '<button type="button" class="btn small bad lb-off">Take it out</button>' : '') + '</div>' : '') + '</td>';
+    tr.after(d);
+    d.addEventListener('click', e => { const on = e.target.closest('.lb-on'), off = e.target.closest('.lb-off'); if (!on && !off) return;
+      busy(on || off, async () => { const r = await W('reqLogbook', { no: x.no, attach: !!on }); toast(r.logbook ? 'Log book attached – up to ' + dmy(r.logbook.upto) + '.' : 'Log book taken out of requirement ' + (x.ref || x.no) + '.'); await reqLoad(); }); });
+  }
   function reqForm(x) {
     if (!B) return void boot().then(() => reqForm(x)).catch(failed);      // (pressed before the page had its lists)
     const f = $('rq_form'); f.hidden = false;
-    f.innerHTML = '<h2>' + (x ? 'Change requirement ' + x.no : 'New requirement') + '</h2><div class="grid" style="margin-top:10px">' +
+    const st0 = RQ.start || {};
+    f.innerHTML = '<h2>' + (x ? 'Change requirement ' + esc(x.ref || x.no) : 'New requirement') + '</h2>' + (x && (x.status !== 'Pending' || (x.approvals || []).length) ? '<p class="note2">It was ' + (x.status === 'Pending' ? 'approved at a level' : String(x.status).toLowerCase()) + ' – once changed it waits for its approval again.</p>' : '') + '<div class="grid" style="margin-top:10px">' +
       field('rq_date', 'Date *', inp('rq_date', x ? x.date : today(), entryDate())) + field('rq_need', 'Needed by', inp('rq_need', x ? x.need_by : '', ' type="date"')) +
-      field('rq_kind', 'For *', sel('rq_kind', B.kinds.for, x ? x.for_kind : 'Site work')) + '<div class="field wide" id="rq_whichw"></div>' + field('rq_rem', 'Remark', inp('rq_rem', x ? x.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="rq_lines"></div>' +
+      field('rq_kind', 'For *', sel('rq_kind', B.kinds.for, x ? x.for_kind : 'Site work')) + '<div class="field wide" id="rq_whichw"></div><div class="wide" id="rq_lbw"></div>' +
+      // (29-10-2026) the contact – the site's (Portal → Sites) by itself; changed here when it is someone else (step 8)
+      (RQ.step8 ? field('rq_cn', 'Contact name', inp('rq_cn', x ? x.contact_name : st0.contact_name || '', ' maxlength="80"')) + field('rq_cp', 'Contact number', inp('rq_cp', x ? x.contact_phone : st0.contact_phone || '', ' maxlength="40" inputmode="tel"')) : '') +
+      field('rq_rem', 'Remark', inp('rq_rem', x ? x.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="rq_lines"></div>' +
       (RQ.step7 ? '<div id="rq_photos"></div>' : '') +      // (29-10-2026) its photos (step 7 at this site)
       '<div class="bar"><button type="button" class="btn primary" id="rq_save">Save requirement</button><button type="button" class="btn" id="rq_x">Cancel</button></div>';
+    /* (29-10-2026) a machinery picked: its maintenance log book – up to which date it is written; attached by itself, the tick takes it off
+     * (step 8). A requirement changed keeps the one it has for the same machinery. */
+    const lbLine = async () => { const w = $('rq_lbw'); if (!w) return; const no = val('rq_kind') === 'Machinery' ? val('rq_for') : '';
+      if (!RQ.step8 || !no) { w.innerHTML = ''; return; }
+      const had = x && x.logbook && x.logbook.no === no ? x.logbook : null;
+      w.innerHTML = '<label class="lbchk"><input type="checkbox" id="rq_lb"' + (!x || had ? ' checked' : '') + '> 📕 Attach the maintenance log book of ' + esc(no) + ' <span class="muted" id="rq_lbt">' + (had ? '– attached up to ' + dmy(had.upto) : '– looking…') + '</span></label>';
+      let i = null; try { i = await W('mlogInfo', { no: no }); } catch (e) { i = null; }
+      if (val('rq_for') !== no || !$('rq_lbt')) return;
+      if (i && !i.bills && !had) { w.innerHTML = '<p class="muted" style="margin:0">📕 ' + esc(no) + ' has no maintenance log book yet.</p>'; return; }
+      $('rq_lbt').textContent = had ? '– attached up to ' + dmy(had.upto) + (i && i.upto && i.upto !== had.upto ? ' (written now up to ' + dmy(i.upto) + ' – Update it from the list)' : '') : i ? '– written up to ' + dmy(i.upto) + ' · ' + i.bills + ' bill(s)' : ''; };
     const which = () => { const k = val('rq_kind'), cur = x ? x.for_text : '';
-      $('rq_whichw').innerHTML = k === 'Machinery' ? '<label for="rq_for">Machinery *</label>' + sel('rq_for', [['', 'Pick…']].concat((B.machinery || []).map(m => [m.no, m.no + (m.name ? ' – ' + m.name : '')])), cur) : '<label for="rq_for">' + (k === 'Site work' ? 'Location / work (e.g. Ch 540+450 toe wall)' : 'Which') + '</label>' + inp('rq_for', cur, ' maxlength="120"'); };
+      $('rq_whichw').innerHTML = k === 'Machinery' ? '<label for="rq_for">Machinery *</label>' + sel('rq_for', [['', 'Pick…']].concat((B.machinery || []).map(m => [m.no, m.no + (m.name ? ' – ' + m.name : '')])), cur) : '<label for="rq_for">' + (k === 'Site work' ? 'Location / work (e.g. Ch 540+450 toe wall)' : 'Which') + '</label>' + inp('rq_for', cur, ' maxlength="120"');
+      if (k === 'Machinery') $('rq_for').onchange = lbLine; lbLine(); };
     which(); $('rq_kind').onchange = which;
     const L = Lines($('rq_lines'), [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'qty', h: 'Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc((itemOf(r.code) || {}).unit || '') }, { k: 'stock', h: 'Stock now', type: 'ro', n: true, calc: r => r.code ? n2(stockOf(r.code)) : '' },
       { k: 'brand', h: 'Brand', type: 'text', w: 140 }, { k: 'spec', h: 'Material specification', type: 'text', w: 230 }, { k: 'note', h: 'Note', type: 'text' }],
@@ -349,9 +386,13 @@
     $('rq_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Line ' + (L.rows.indexOf(lines.find(l => !l.code)) + 1) + ': pick the item from the list (as it is in the Item Master).');
       const photos = PB ? PB.get() : undefined;
-      const r = await W('reqSave', { no: x ? x.no : undefined, req: { date: val('rq_date'), need_by: val('rq_need'), for_kind: val('rq_kind'), for_text: val('rq_for'), remark: val('rq_rem'), lines: lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) }, photos: photos,
+      const lbx = $('rq_lb');
+      const r = await W('reqSave', { no: x ? x.no : undefined, req: { date: val('rq_date'), need_by: val('rq_need'), for_kind: val('rq_kind'), for_text: val('rq_for'), remark: val('rq_rem'), lines: lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })),
+        contact_name: RQ.step8 ? val('rq_cn') : undefined, contact_phone: RQ.step8 ? val('rq_cp') : undefined }, photos: photos,
+        logbook: lbx ? lbx.checked : undefined,      // (29-10-2026) its log book: ticked / not (not shown: as it is)
         photosWas: PB && x ? (x.photos || []).map(p => p.sha) : undefined });      // (the photos it opened with: one added since – by the phone – stays)
-      toast(r.photoNote || ('Requirement ' + r.no + ' saved – ' + (r.status === 'Approved' ? 'approved (no approver set for this site).' : 'it waits for Level ' + r.level + '.')), !!r.photoNote);
+      const nm = r.ref || (x && x.ref) || r.no;
+      toast(r.photoNote || ('Requirement ' + nm + ' saved – ' + (r.status === 'Approved' ? 'approved (no approver set for this site).' : (r.again ? 'it waits for its approval again (level ' + r.level + ').' : 'it waits for Level ' + r.level + '.'))), !!r.photoNote);
       f.hidden = true; reqLoad();
     });
     f.scrollIntoView({ block: 'nearest' });
@@ -376,7 +417,7 @@
       const [p, l] = await Promise.all([W('purPending'), W('poList', { all: true })]); PU.sites = p.sites; PU.pos = l.pos;
       $('pu_sites').innerHTML = PU.sites.map(s => '<section class="panel" data-site="' + esc(s.site) + '"><h2>' + esc(s.name) + ' <small class="muted">(' + esc(s.site) + ')</small></h2>' + (s.error ? '<p class="muted">' + esc(s.error) + '</p>' :
         (s.reqs.length ? '<div class="tw" style="margin-top:8px"><table><thead><tr><th></th><th>Req</th><th>Date</th><th>Needed by</th><th>For</th><th>Item</th><th class="n">Asked</th><th class="n">Ordered</th><th class="n">To order</th></tr></thead><tbody>' +
-          s.reqs.map(r => r.lines.filter(l => l.left > 0).map(l => '<tr><td><input type="checkbox" class="pu-tick" data-site="' + esc(s.site) + '" data-req="' + r.no + '" data-line="' + l.line + '" style="width:auto;min-height:0"></td><td>' + r.no + ((r.photos || []).length ? '<br><button type="button" class="link pu-ph" data-site="' + esc(s.site) + '" data-req="' + r.no + '" title="The photos of requirement ' + r.no + '">📷 ' + r.photos.length + '</button>' : '') + '</td><td>' + dmy(r.date) + '</td><td>' + dmy(r.need_by) + '</td><td style="white-space:normal">' + esc(r.for_kind + (r.for_text ? ' – ' + r.for_text : '')) + '</td><td style="white-space:normal">' + esc(l.name) + bsOf(l) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered) + '</td><td class="n"><b>' + n2(l.left) + '</b></td></tr>').join('')).join('') + '</tbody></table></div>'
+          s.reqs.map(r => r.lines.filter(l => l.left > 0).map(l => '<tr><td><input type="checkbox" class="pu-tick" data-site="' + esc(s.site) + '" data-req="' + r.no + '" data-line="' + l.line + '" style="width:auto;min-height:0"></td><td>' + esc(r.ref || r.no) + ((r.photos || []).length ? '<br><button type="button" class="link pu-ph" data-site="' + esc(s.site) + '" data-req="' + r.no + '" title="The photos of requirement ' + esc(r.ref || r.no) + '">📷 ' + r.photos.length + '</button>' : '') + '</td><td>' + dmy(r.date) + '</td><td>' + dmy(r.need_by) + '</td><td style="white-space:normal">' + esc(r.for_kind + (r.for_text ? ' – ' + r.for_text : '')) + '</td><td style="white-space:normal">' + esc(l.name) + bsOf(l) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered) + '</td><td class="n"><b>' + n2(l.left) + '</b></td></tr>').join('')).join('') + '</tbody></table></div>'
           : '<p class="muted">Nothing to order.</p>') + '<div class="bar"><button type="button" class="btn primary small" data-mk="' + esc(s.site) + '">Make a PO for ' + esc(s.site) + (s.reqs.length ? ' (the ticked lines)' : '') + '</button>' + (s.open ? '<span class="count">' + s.open + ' PO(s) open</span>' : '') + '</div>') + '</section>').join('');
       $('pu_pos').innerHTML = poTable(PU.pos, true);
     } catch (e) { failed(e); }
@@ -388,7 +429,8 @@
     const ticked = po ? [] : [...document.querySelectorAll('.pu-tick:checked')].filter(x => x.dataset.site === site);
     const st = PU.sites.find(s => s.site === site) || { reqs: [] };
     const rows = po ? po.lines.map(l => Object.assign({ fixedItem: !!l.req_no }, l, { disc_pct: l.disc_pct || '', hsn: l.hsn || '' })) : ticked.map(t => { const r = st.reqs.find(q => q.no === Number(t.dataset.req)), l = r.lines.find(z => z.line === Number(t.dataset.line)); const i = it.items.find(z => z.code === l.code) || {};
-      return { code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: '', disc_pct: '', hsn: i.hsn || '', gst_pct: i.gst_pct === null || i.gst_pct === undefined ? '' : i.gst_pct, req_no: r.no, req_line: l.line, brand: l.brand || '', spec: l.spec || '', fixedItem: true }; });
+      return { code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: '', disc_pct: '', hsn: i.hsn || '', gst_pct: i.gst_pct === null || i.gst_pct === undefined ? '' : i.gst_pct, req_no: r.no, req_line: l.line, req_ref: r.ref || '', brand: l.brand || '', spec: l.spec || '', fixedItem: true }; });
+    const reqRef = r => r.req_ref || ((st.reqs.find(q => q.no === Number(r.req_no)) || {}).ref) || 'REQ ' + r.req_no;      // (29-10-2026) its Indent No.
     f.innerHTML = '<h2>' + (po ? 'Change PO ' + po.no : 'New purchase order') + ' – ' + esc(site) + '</h2><div class="grid" style="margin-top:10px">' +
       field('pu_date', 'PO date *', inp('pu_date', po ? po.date : today(), entryDate())) + field('pu_ven', 'Vendor (supplier) *', inp('pu_ven', po ? po.vendor : '', ' list="dl_wvendors" maxlength="80" autocomplete="off"'), 'wide') +
       field('pu_gst', 'Vendor GST no.', inp('pu_gst', po ? po.vendor_gst : '', ' maxlength="15"')) + field('pu_del', 'Delivery by', inp('pu_del', po ? po.deliver_by : '', ' type="date"')) +
@@ -402,7 +444,7 @@
       '<div class="bar"><button type="button" class="btn primary" id="pu_save">Save PO</button><button type="button" class="btn" id="pu_x">Cancel</button></div>';
     $('pu_ven').onchange = () => { const g = (it.gst || {})[val('pu_ven').trim()]; if (g && !val('pu_gst')) $('pu_gst').value = g; };
     const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }); return '<td colspan="10">Total</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all) + '</td><td></td>'; };
-    const L = Lines($('pu_lines'), [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'req', h: 'Req', type: 'ro', calc: r => r.req_no ? 'REQ ' + r.req_no : '' }, { k: 'brand', h: 'Brand', type: 'text', w: 130 }, { k: 'spec', h: 'Material specification', type: 'text', w: 200 }, { k: 'qty', h: 'Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') },
+    const L = Lines($('pu_lines'), [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'req', h: 'Req', type: 'ro', calc: r => r.req_no ? esc(reqRef(r)) : '' }, { k: 'brand', h: 'Brand', type: 'text', w: 130 }, { k: 'spec', h: 'Material specification', type: 'text', w: 200 }, { k: 'qty', h: 'Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') },
       { k: 'rate', h: 'Rate ₹ *', type: 'num' }, { k: 'disc_pct', h: 'Disc. %', type: 'num' }, { k: 'hsn', h: 'HSN', type: 'text', w: 90 }, { k: 'gst_pct', h: 'GST %', type: 'num' }, { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).t) : '' }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).g) : '' }, { k: 'ax', h: 'Total', type: 'ro', n: true, calc: r => r.code ? money(lineMoney(r).all) : '' }],
       rows, { total: tot, picked: (r, i) => { if (r.gst_pct === '' && i.gst_pct !== null && i.gst_pct !== undefined) r.gst_pct = i.gst_pct; if (!r.hsn && i.hsn) r.hsn = i.hsn; } });
     const done = () => { f.hidden = true; B = keepB; if (B) lists(); };      // (28-10-2026) the Purchase page opened straight (B not read yet): no error after Save PO / Cancel, the list comes again
@@ -421,6 +463,7 @@
       p.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (l.received ? ' <small>(came ' + n2(l.received) + ')</small>' : '')).join('<br>') + '</td><td class="n">' + money(p.total) + '</td><td>' + stateTag(p.state) + apprTag(p) + '</td><td><div class="acts">' +
       (p.mayApprove ? '<button type="button" class="btn small primary po-ok">Approve</button><button type="button" class="btn small bad po-no">Reject</button>' : '') + '<button type="button" class="link po-print">Print</button>' +
       (buyer() && p.status === 'Open' && sites ? '<button type="button" class="link po-edit">Change</button>' : '') + (buyer() && p.status === 'Open' && !p.lines.some(l => l.received > 0) ? '<button type="button" class="link del po-cancel">Cancel</button>' : '') +
+      (buyer() && p.status !== 'Closed' && !p.lines.some(l => l.received > 0) ? '<button type="button" class="link del po-del">Delete</button>' : '') +      // (29-10-2026) nothing came: deleted – its requirements can then be changed
       ((buyer() || admin()) && p.status === 'Open' && p.state !== 'Received' ? '<button type="button" class="link po-close">Close</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="8" class="empty">No purchase order.</td></tr>') + '</tbody></table></div>';
   // (28-10-2026) a PO's approval: waiting (for whom), rejected (why), approved (by whom)
   const apprTag = p => p.status !== 'Open' || !p.appr ? '' : p.appr === 'Waiting' ? '<br>' + tag('Waiting approval', 'warn') + (p.waitFor && p.waitFor.length ? '<small> ' + esc(p.waitFor.join(', ')) + '</small>' : '')
@@ -438,6 +481,7 @@
     }
     if (b.classList.contains('po-edit')) return purForm(p.site, p);
     if (b.classList.contains('po-cancel')) { if (!await ask('Cancel PO ' + p.no + '?', '<p>Nothing of it has come – it is cancelled.</p>', [{ label: 'No', value: false }, { label: 'Cancel the PO', value: true, bad: true }])) return; return busy(b, async () => { await W('poCancel', { site: site, no: p.no }); toast('PO ' + p.no + ' cancelled.'); reload(); }); }
+    if (b.classList.contains('po-del')) { if (!await ask('Delete PO ' + (p.ref || p.no) + '?', '<p>Nothing of it has come. It goes from the list; its requirements can then be changed or deleted. (Written in the activity record.)</p><p class="mr">ही PO delete होईल.</p>', [{ label: 'No', value: false }, { label: 'Delete the PO', value: true, bad: true }])) return; return busy(b, async () => { await W('poDelete', { site: site, no: p.no }); toast('PO ' + (p.ref || p.no) + ' deleted.'); reload(); }); }
     if (b.classList.contains('po-close')) { if (!await ask('Close PO ' + p.no + '?', '<p>The rest of it will not come.</p>', [{ label: 'No', value: false }, { label: 'Close', value: true, primary: true }])) return; return busy(b, async () => { await W('poClose', { site: site, no: p.no }); toast('PO ' + p.no + ' closed.'); reload(); }); }
   }
   /* (28-10-2026) THE COMPANY'S OWN PAPERS – his formats: "DIESEL PURCHASE ORDER – NEW POPULAR SERVICE STATION" (the Purchase Order) and
@@ -485,7 +529,7 @@
    * keep the company's and the site's address) THE FORM AS HIS PAPER: the logo | the company's name (its address under it) and "Purchase
    * Requisition Form"; Project Name · Sub Project, Indent No. · Date (and the Site Address); the items with their specification line by
    * line; "Remark:Require For :" what it is for, then its remark; Prepared By · Checked By · Approved By; the page in one border. */
-  function reqPrint(x, h, ph) {
+  function reqPrint(x, h, ph, lb) {
     h = h || {}; ph = (ph || []).filter(p => p.url);
     const ok = (x.approvals || []).filter(a => a.ok), last = x.status === 'Approved' || x.status === 'Closed' ? ok[ok.length - 1] : null, checked = (last ? ok.slice(0, -1) : ok).map(a => a.name).join(', ');
     const appr = last ? last.name : x.status === 'Pending' ? '(waiting – level ' + x.level + ')' : x.status === 'Rejected' ? '(rejected)' : '';
@@ -495,7 +539,8 @@
       '<tr><td class="pt">Purchase Requisition Form</td></tr></table>' +
       '<table class="nb pi"><tr><td style="width:15%">Project Name :</td><td style="width:45%">' + esc(h.site || '') + '</td><td style="width:15%">Sub Project :</td><td>NA</td></tr>' +
       '<tr><td>Indent No. :</td><td>' + esc(x.ref || x.no) + '</td><td>Date :</td><td>' + d(x.date) + '</td></tr>' +
-      (h.site_address ? '<tr><td>Site Address :</td><td colspan="3">' + nl(h.site_address) + '</td></tr>' : '') + '</table>';
+      (h.site_address ? '<tr><td>Site Address :</td><td colspan="3">' + nl(h.site_address) + '</td></tr>' : '') +
+      (x.contact_name || x.contact_phone ? '<tr><td>Contact Person :</td><td>' + esc(x.contact_name || '') + '</td><td>Contact No. :</td><td>' + esc(x.contact_phone || '') + '</td></tr>' : '') + '</table>';      // (29-10-2026)
     const spec = l => [l.spec ? nl(l.spec) : '', l.brand ? 'Brand: ' + esc(l.brand) : '', l.note ? nl(l.note) : ''].filter(Boolean).join('<br>');
     const items = '<table class="pr"><thead><tr><th style="width:6%">Sr No</th><th style="width:11%">Item Code</th><th style="width:17%">Item Description</th><th>Item Specification</th><th style="width:7%">Unit</th><th style="width:9%">Quantity</th><th style="width:10%">Required Date</th></tr></thead><tbody>' +
       x.lines.map((l, i) => '<tr><td class="c m">' + (i + 1) + '</td><td class="c m">' + esc(l.code) + '</td><td class="c m">' + esc(l.name) + '</td><td>' + spec(l) + '</td><td class="c m">' + esc(l.unit) +
@@ -504,8 +549,10 @@
     // (29-10-2026, "Print मध्ये photos पण") its photos on the pages after the form – two a row, each with who added it and when
     const photos = ph.length ? '<div class="fm" style="page-break-before:always;border:1px solid #000;padding:6px"><div class="ttl" style="margin-bottom:6px">Photos of the material – ' + esc(x.ref || x.no) + ' (' + ph.length + ')</div><div class="phg">' +
       ph.map((p, i) => '<figure><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '"><figcaption>Photo ' + (i + 1) + (p.by ? ' · ' + esc(p.by) : '') + (p.at ? ' · ' + esc(dmyAt(p.at)) : '') + '</figcaption></figure>').join('') + '</div></div>' : '';
+    // (29-10-2026) its machinery's maintenance log book (attached – up to its date) on the pages after, as Mechanical draws it
+    const logb = lb && lb.html ? '<style>' + (lb.css || '') + '</style><div style="page-break-before:always">' + lb.html + '</div>' : '';
     printHtml('Requirement ' + (x.ref || x.no), PCSS + RCSS + '<div class="fm prf">' + head + items + remark +
-      '<div class="s2 ps"><div>' + esc(x.created_name || '') + '<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div></div></div>' + photos);
+      '<div class="s2 ps"><div>' + esc(x.created_name || '') + '<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div></div></div>' + photos + logb);
   }
   // (29-10-2026) the Purchase Requisition Form's own look (his paper): the name big, the title under a line, the boxes' text not bold
   const RCSS = '<style>.prf{border:1px solid #000;min-height:268mm;font-size:12px}.prf>table{border-left:0;border-right:0}.prf>table:first-child td{border-top:0}.prf>table td:first-child{border-left:0}.prf>table td:last-child{border-right:0}' +

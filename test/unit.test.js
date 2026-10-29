@@ -513,7 +513,7 @@ test('(29-10-2026) the GRN\'s discounts need the database\'s step 6 – it only 
 
 test('(29-10-2026, "print war rachana address nahi site address nahi ani rachana logo nahiye") the requirement\'s paper as the PO\'s heading: the company\'s address and details, the Site Address; the print waits for its pictures; a papers\' box not sent keeps what it has', () => {
   const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8'), src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
-  const rp = page.slice(page.indexOf('  function reqPrint(x, h, ph) {'), page.indexOf('  function reqPrint(x, h, ph) {') + 4000);
+  const rp = page.slice(page.indexOf('  function reqPrint(x, h, ph, lb) {'), page.indexOf('  function reqPrint(x, h, ph, lb) {') + 4000);
   // (29-10-2026, his "REQUIREMENT OF FOUNDATION BOLT"; his answer: as the PDF, the company's and the site's address kept) – no e-mail / GST rows
   for (const k of ["(h.address ? '<div class=\"pa\">' + nl(h.address) + '</div>' : '')", "(h.site_address ? '<tr><td>Site Address :</td><td colspan=\"3\">' + nl(h.site_address) + '</td></tr>' : '')", 'logoOf(h)']) assert.ok(rp.includes(k), k);
   ['<b>Email ID.</b>', '<b>GST No</b>', '<b>PAN No</b>'].forEach(k => assert.ok(!rp.includes(k), 'not on his paper: ' + k));
@@ -521,7 +521,7 @@ test('(29-10-2026, "print war rachana address nahi site address nahi ani rachana
   assert.match(page, /const wait = \(\) => \(imgs\.every\(i => i\.complete\) \|\| Date\.now\(\) - t0 > lim\) \? setTimeout\(go, 150\) : setTimeout\(wait, 150\);/, 'the logo loaded before the print box');
   assert.ok(src.includes("'terms', 'site_address'];"));
   assert.ok(src.includes('if (x[k] === undefined && cur[k] !== undefined) { v[k] = cur[k]; return; }'));
-  assert.ok(src.includes("site_address: pp.site_address || pp.ship_to || ''"), 'else the Shipping Address');
+  assert.ok(src.includes("site_address: (h && h.siteAddr) || pp.site_address || pp.ship_to || ''"), 'the Portal\'s site address; else the Papers\' – else the Shipping Address');
   assert.ok(page.includes("site_address: val('pp_saddr') });"));
 });
 
@@ -563,7 +563,7 @@ test('(29-10-2026, "requirement madhe attachment … material photo … multiple
   // the page
   const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
   for (const k of ["const sc = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight))", "'<label class=\"btn small phadd\">📷 Add photos<input type=\"file\" accept=\"image/*\" multiple hidden></label>'",
-    "const photos = PB ? PB.get() : undefined;", "lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) }, photos: photos,",
+    "const photos = PB ? PB.get() : undefined;", "lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })),", "contact_phone: RQ.step8 ? val('rq_cp') : undefined }, photos: photos,",
     "const r = await W('reqPhotoAdd', { no: x.no, photos: sent });", "Photos of the material – ", "page-break-before:always", "W('reqPhotos', { site: ph.dataset.site, no: Number(ph.dataset.req) })"]) assert.ok(page.includes(k), k);
   // (the review) the live security rule lets a picture come from data: (not blob:) – the page reads a photo as data:
   const csp = (JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8')).headers || []).flatMap(h => h.headers || []).find(h => h.key === 'Content-Security-Policy').value;
@@ -609,7 +609,7 @@ test('(29-10-2026, "supabase 2 second … saving mahtwachi … data real time di
 
 test('(29-10-2026, "requirement format ha fix kar format fkt logo dilay to pn fix kr"; his answer: as the PDF + the addresses) the Purchase Requisition Form as his paper, with the logo he gave', () => {
   const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
-  const rp = page.slice(page.indexOf('  function reqPrint(x, h, ph) {'), page.indexOf('  /* ====================== PURCHASE ORDERS OF THIS SITE'));
+  const rp = page.slice(page.indexOf('  function reqPrint(x, h, ph, lb) {'), page.indexOf('  /* ====================== PURCHASE ORDERS OF THIS SITE'));
   const png = fs.readFileSync(path.join(root, 'public', 'img', 'rcl-logo.png'));
   assert.ok(png.slice(1, 4).toString() === 'PNG' && png.length < 60000, 'his logo – a small PNG of this module (' + png.length + ' bytes)');
   assert.ok(!/i\.ibb\.co/.test(page), 'no logo from another site any more');
@@ -624,4 +624,109 @@ test('(29-10-2026, "requirement format ha fix kar format fkt logo dilay to pn fi
     "'<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div>"]) assert.ok(rp.includes(k), k);
   assert.ok(rp.includes("const spec = l => [l.spec ? nl(l.spec) : '', l.brand ? 'Brand: ' + esc(l.brand) : '', l.note ? nl(l.note) : ''].filter(Boolean).join('<br>');"), 'the specification line by line');
   assert.ok(page.includes('.prf{border:1px solid #000;min-height:268mm;font-size:12px}'), 'the page in one border');
+});
+
+test('(29-10-2026, "company name RCL … site name VTR … financial year … mechanical cha aahe ki material purchase cha … short letter … 4 digit number … 0001 pasun") the Indent No.: RCL/VTR/2026-27/M/0001 – nothing typed', () => {
+  const W = require('../lib/work');
+  assert.deepStrictEqual(['2026-10-29', '2027-03-31', '2027-04-01', '2026-04-01', '2026-03-31', '2099-12-31', ''].map(W.fyOf), ['2026-27', '2026-27', '2027-28', '2026-27', '2025-26', '2099-00', '']);
+  assert.deepStrictEqual(['Machinery', 'Site work', 'Office', 'Other'].map(W.indentKind), ['M', 'P', 'P', 'P'], 'M = Mechanical (a machinery), P = Material Purchase');
+  // the site: its code; the first site's own code S1 is no name – the first word of its name
+  assert.deepStrictEqual([['S1', 'VTR Site – NH 848'], ['18B', '18B KOLHAPUR'], ['HO', 'HEAD OFFICE'], ['S2', ''], ['S1', 'S1'], ['T2', 'Test Two']].map(a => W.siteShort(a[0], a[1])), ['VTR', '18B', 'HO', 'S2', 'S1', 'T2']);
+  const h = { company: 'Rachana Construction Limited', site: 'VTR Site – NH 848' };
+  assert.strictEqual(W.indentOf({ no: 3, date: '2026-10-29', for_kind: 'Machinery', indent_fy: '2026-27', indent_kind: 'M', indent_no: 1 }, h, 'S1'), 'RCL/VTR/2026-27/M/0001', 'his example');
+  assert.strictEqual(W.indentOf({ no: 7, date: '2026-10-29', for_kind: 'Site work', indent_fy: '2026-27', indent_kind: 'P', indent_no: 12 }, { company: 'Rachana Construction Limited', site: '18B KOLHAPUR' }, '18B'), 'RCL/18B/2026-27/P/0012');
+  assert.strictEqual(W.indentOf({ no: 3, date: '2026-10-29', for_kind: 'Site work' }, h, 'S1'), 'RCL/VTR/2026-27/P/0003', 'before the Store\'s step 8: its own number');
+  assert.strictEqual(W.indentOf({ no: 3, date: '2026-10-29', for_kind: 'Office' }, null, 'HO'), 'HO/2026-27/P/0003', 'no company yet: the rest');
+  // the requirement's contact: kept as typed; a number of digits only
+  const items = { 'IT-1': { code: 'IT-1', name: 'Nails', unit: 'Nos', status: 'Active' } }, base = { date: '2026-10-29', for_kind: 'Site work', for_text: 'camp', lines: [{ code: 'IT-1', qty: 2 }] };
+  const r = W.checkReq(Object.assign({}, base, { contact_name: ' Ramesh  Patil ', contact_phone: '98765 43210' }), items, {});
+  assert.deepStrictEqual([r.contact_name, r.contact_phone], ['Ramesh Patil', '98765 43210']);
+  assert.throws(() => W.checkReq(Object.assign({}, base, { contact_phone: 'call me' }), items, {}), /Contact number "call me": digits only/);
+  assert.deepStrictEqual([W.checkReq(base, items, {}).contact_name, W.checkReq(base, items, {}).contact_phone], [null, null]);
+  // the server and the page use it everywhere a requirement is named: its list, HO Purchase, the PO's lines, the Excel, a new one's answer
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  ['ref: W.indentOf(r, h, s.site), photos: phList(r.photos)', "ref: W.indentOf(r, h, st.code)", "rq[r.no] = W.indentOf(r, h, site)", 'ref: r => W.indentOf(r, h, s.site)', 'ref = W.indentOf(x1[0], h, s.site)'].forEach(k => assert.ok(src.includes(k), k));
+  assert.ok(!src.includes("W.refOf(pre, 'PR'"), 'the old "S1/PR/2026/0003" is gone');
+  ["<td><b>' + esc(x.ref || x.no) + '</b></td>", "esc(r.ref || r.no)", "calc: r => r.req_no ? esc(reqRef(r)) : ''"].forEach(k => assert.ok(page.includes(k), k));
+});
+
+test('(29-10-2026, "mala te kahi save karayla nko sangu … mi agodar sagle save keley") the papers\' heading comes from the Portal – its ticket; kept for the site; before: Mechanical\'s list', () => {
+  const P = require('../lib/portal');
+  const p = P.paperOf({ site: { name: 'VTR Site – NH 848', address: ' Site office,\n Valshind ', contact: 'Ramesh', phone: '98765 43210' }, company: { id: 'RCL', name: 'RACHANA CONSTRUCTION LIMITED', address: '4th floor, Mittal Chambers', gstin: '27aakcr9897b1zq', pan: 'aakcr9897b', logo: 'https://x.example/logo.png' } }, 'S1');
+  assert.deepStrictEqual(p, { site: { code: 'S1', name: 'VTR Site – NH 848', address: 'Site office, Valshind', contact: 'Ramesh', phone: '98765 43210' },
+    company: { id: 'RCL', name: 'RACHANA CONSTRUCTION LIMITED', address: '4th floor, Mittal Chambers', gstin: '27AAKCR9897B1ZQ', pan: 'AAKCR9897B', logo: 'https://x.example/logo.png' } });
+  assert.strictEqual(P.paperOf({ company: { name: 'X Co', logo: 'javascript:alert(1)' } }, 'S1').company.logo, '', 'a logo only as an https link');
+  assert.strictEqual(P.paperOf({ site: {} }, 'S1').company, null); assert.strictEqual(P.paperOf(null, 'S1'), null); assert.strictEqual(P.paperOf('x', 'S1'), null);
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), sso = fs.readFileSync(path.join(root, 'api', 'sso.js'), 'utf8'), ses = fs.readFileSync(path.join(root, 'lib', 'session.js'), 'utf8');
+  // the sign-in keeps it (the person's session; the site's settings when it changed), the heading takes it first – every paper's call passes the person
+  assert.ok(ses.includes('paper: x.paper || undefined'));
+  assert.ok(sso.includes("if (!was || JSON.stringify(was.value) !== JSON.stringify(c.paper)) await db(c.site, 'POST', 'store_settings?on_conflict=id', [{ id: 'portal_paper', value: c.paper, updated_by: 'Portal' }], 'resolution=merge-duplicates,return=minimal');"));
+  assert.ok(src.includes("let p = s && s.site === site && s.info && s.info.paper && typeof s.info.paper === 'object' ? s.info.paper : null;") && src.includes('if (!p) { try { p = await portalPaper(site); } catch (e) { p = null; } }'));
+  assert.strictEqual((src.match(/headingOf\([^)]*\)/g) || []).filter(c => !/, s\)$/.test(c) && c !== 'headingOf(site, s)').length, 0, 'every call with the person: ' + (src.match(/headingOf\([^)]*\)/g) || []).join(' '));
+  // a new requirement / PO starts with the site's contact and address from the Portal; else the Store's Papers
+  const startOf = new Function(src.slice(src.indexOf('const startOf = '), src.indexOf('// the POs (not cancelled) that have a requirement')) + '; return startOf;')();
+  assert.deepStrictEqual(startOf({ siteContact: 'Ramesh', sitePhone: '98765 43210', siteAddr: 'Valshind' }, { ship_to: 'Old', site_contact: 'Old', terms: 'T' }), { contact_name: 'Ramesh', contact_phone: '98765 43210', ship_to: 'Valshind', site_contact: 'Ramesh – 98765 43210', terms: 'T' });
+  assert.deepStrictEqual(startOf({}, { ship_to: 'Old', site_contact: 'Suresh : 99', terms: '' }), { contact_name: '', contact_phone: '', ship_to: 'Old', site_contact: 'Suresh : 99', terms: '' });
+});
+
+test('(29-10-2026, "vehicle che maintanace log book auto requirement madhe attach hoil … update kadhi paryant … print madhe") a machinery\'s maintenance log book: Mechanical\'s own reading and drawing', async () => {
+  const ML = require('../lib/mlog');
+  const lines = JSON.stringify([{ work: 'Engine Oil', type: 'Paid', qty: 2, uom: 'Ltr', rate: 450, amount: 900, gst: 18 }, { work: 'Filter', type: 'Warranty', qty: 1, rate: 300, amount: 0 }, { work: 'Labour', amount: 500 }, { work: 'CGST 9%', amount: 45 }, { work: 'SGST 9%', amount: 45 },
+    { work: 'New India', type: 'Insurance', amount: -200, claim: 'CL-1' }]);
+  // two bills and one issue of the Store, another machinery's bill, one after the date
+  const rows = { maintenance: [{ id: 'MT-000001', date: '2026-09-10', machinery: 'MH-25-AJ-5506', garage: 'Sai Motors', bill_no: '45', km_reading: 120345, amount: 1290, lines: lines, service: 'Yes', created_at: '2026-09-10T10:00:00Z' },
+    { id: 'MT-000002', date: '2026-10-02', machinery: 'MH-25-AJ-5506', garage: 'Om Tyres', bill_no: '', km_reading: '', amount: 2360, lines: JSON.stringify([{ work: 'Tyre', qty: 1, rate: 2000, amount: 2000, gstAmt: 360 }]), service: '', created_at: '2026-10-02T10:00:00Z' },
+    { id: 'MT-000003', date: '2026-10-20', machinery: 'MH-25-AJ-5506', garage: 'Later', amount: 50, lines: '[{"work":"X","amount":50}]', created_at: '2026-10-20T10:00:00Z' }],
+    store_issue: [{ no: 7, date: '2026-10-02', reading: 120900, party: '', debit: false, use_for: '', machinery: 'MH-25-AJ-5506', store_issue_lines: [{ line: 1, name: 'Grease', qty: 2, unit: 'Kg', rate: 210, amount: 420, gst_pct: 18 }] }] };
+  const asked = [];
+  const dbAll = async (site, p) => { asked.push(p); const t = p.split('?')[0], upto = (/date=lte\.([0-9-]+)/.exec(p) || [])[1], eq = (/machinery=eq\.([^&]+)/.exec(p) || [])[1];
+    return (rows[t] || []).filter(r => (!eq || r.machinery === decodeURIComponent(eq)) && (!upto || r.date <= upto)); };
+  const b = await ML.billsOf(dbAll, 'S1', 'MH-25-AJ-5506', '2026-10-15');
+  assert.deepStrictEqual(b.map(x => x.id + '|' + x.date), ['MT-000001|2026-09-10', 'OUT-7|2026-10-02', 'MT-000002|2026-10-02'], 'by date, the Store\'s issue first on its day (as Mechanical); not after the date');
+  assert.deepStrictEqual([b[0].insurance, b[0].free, b[0].service, b[1].party, b[1].total], [{ company: 'New India', claimNo: 'CL-1', paid: 200 }, 300, true, 'RCL Store', 420]);
+  assert.deepStrictEqual(await ML.infoOf(dbAll, 'S1', 'MH-25-AJ-5506'), { no: 'MH-25-AJ-5506', bills: 4, upto: '2026-10-20', amount: 4120 }, 'what the form shows: up to its last bill');
+  const html = ML.htmlOf({ no: 'MH-25-AJ-5506', name: 'Tractor', type: 'Tractor' }, b, '2026-10-15');
+  ['Maintenance Log Book – MH-25-AJ-5506 · Tractor · Tractor', 'Up to 15-10-2026 · 3 bill(s) · Last service 10-09-2026 (1,20,345)', '<th class="n">CGST 9%</th><th class="n">SGST 9%</th>', 'Paid by the insurance – New India (claim no. CL-1)', 'Total – 3 bill(s)', 'Free lines (warranty / FOC / service plan) – not paid, worth</td><td class="n">300.00</td>'].forEach(k => assert.ok(html.includes(k), k));
+  assert.ok(!/<script|<img|<b>x/i.test(ML.htmlOf({ no: '<img src=x onerror=1>' }, [{ kind: 'Maintenance', date: '2026-01-01', party: '<script>', lines: [{ work: '<b>x', amount: 1 }] }], '2026-01-01')), 'everything written as text');
+  // the same as Mechanical's own (rclerp next to this repository – the VS Code workspace): its reading of the lines, its table
+  const M = ['../../rclerp', '../../wtr-194', '../../vercel'].map(p => path.join(__dirname, p)).find(p => fs.existsSync(path.join(p, 'app', 'App.html')));
+  if (!M) return;
+  const code = fs.readFileSync(path.join(M, 'app', 'Code.gs'), 'utf8'), app = fs.readFileSync(path.join(M, 'app', 'App.html'), 'utf8');
+  const cut = (t, a, z) => { const i = t.indexOf(a), j = t.indexOf(z, i); assert.ok(i > -1 && j > i, a); return t.slice(i, j); };
+  const mech = new Function('clean_', 'numOrBlank_', 'r2_', 'num0_', cut(code, "const MNT_TYPES_ = ['Paid'", '\n') + ';' + cut(code, 'const maintAllLinesOf_ = ', '\nconst maintFilesList_') + '; return { maintAllLinesOf_, maintLinesOf_, maintInsOf_, maintWorth_ };')(
+    v => (v === null || v === undefined ? '' : String(v).trim()).replace(/\s+/g, ' '), v => { if (v === '' || v === null || v === undefined) return ''; const n = Number(v); return isNaN(n) ? '' : n; }, n => Math.round(n * 100) / 100, v => { const n = v === '' || v === null || v === undefined ? '' : (isNaN(Number(v)) ? '' : Number(v)); return n === '' ? 0 : n; });
+  assert.deepStrictEqual(ML.maintAllLinesOf_(lines), mech.maintAllLinesOf_(lines)); assert.deepStrictEqual(ML.maintInsOf_(lines), mech.maintInsOf_(lines));
+  const page = new Function(['  const hasKm = u =>', '  const hasHr = u =>', '  const r2 = n => Math.round', '  const fmt = v =>', '  const esc = s => String(s === null', "  const money = v => (v === ''", '  function showDate(dk)'].map(a => cut(app, a, '\n')).join('\n') + '\n' + cut(app, '  const MT_PAIDBY = {', '\n') + cut(app, '  const mtCharged = t =>', '\n') + cut(app, '  const mtHasGa = l =>', '\n') + cut(app, '  const MT_TAX = /', '  async function mlogShow() {') +
+    '; return { mlogSpread, mlogRender };').call(null);
+  const d = { lines: b, machine: { id: 'MH-25-AJ-5506', name: 'Tractor', type: 'Tractor', fuel: 'Diesel', unit: 'L', meter: 'KM' }, card: false, lastService: null,
+    total: { maint: { bills: b.length, free: 300, insurance: 200, billTotal: 0, amount: 0 }, fuel: {}, byWork: [], all: 0, km: 0, perKm: null } };
+  const theirs = page.mlogRender(d).html, t1 = theirs.slice(0, theirs.indexOf('</table>') + 8).replace(/ data-ml[a-z]*="[^"]*"/g, '').replace('<table class="rtable gtable" data-sheet="Log Book">', '<table class="mlb">');
+  assert.strictEqual(ML.tableOf(b), t1, 'the log book\'s table drawn as Mechanical draws it');
+});
+
+test('(29-10-2026, "ekda banwaleli requirement edit delet krta yeil … approval nantr … jr requirement chi po banli aahe … sagalyat adhi po delet krayla lagel") step 8: change after the approval (approved again), delete, a photo / the log book one by one, a PO deleted – never while a PO has the requirement', () => {
+  const sql = fs.readFileSync(path.join(root, 'sql', 'store_step8_req_indent.sql'), 'utf8'), body = sql.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.ok(!/\bdrop\s+(table|column|function|view|policy|trigger|index)\b|\btruncate\b|\balter\s+table\s+\S+\s+drop\b/i.test(body), 'nothing dropped');
+  assert.deepStrictEqual((body.match(/delete from public\.[a-z_]+ where no = p_no;/g) || []), ['delete from public.store_req where no = p_no;', 'delete from public.store_po where no = p_no;'], 'only inside the two delete functions, one row');
+  assert.deepStrictEqual((body.match(/^update public\.\w+/gim) || []).length, 0, 'no row of before changed – but their Indent No. (inside its own block)');
+  ['indent_fy text', 'indent_kind text', 'indent_no int', 'contact_name text', 'contact_phone text', 'logbook jsonb'].forEach(c => assert.ok(body.includes('alter table public.store_req add column if not exists ' + c + ';'), c));
+  ['store_req_put(p_row jsonb, p_by text, p_name text) returns bigint', "raise exception 'STORE_REQ_ORDERED %|%', p_no, v_po;", "if r.updated_at is distinct from p_at then raise exception 'STORE_CHANGED'; end if;", "raise exception 'STORE_PO_RECEIVED %', p_no;", "l ->> 'req_no')::bigint = p_no", "p.status <> 'Cancelled'", 'perform public.store_req_indent(v_no);', 'perform public.store_req_indent(p_no);']
+    .forEach(k => assert.ok(body.includes(k), k));
+  assert.strictEqual((body.match(/perform pg_advisory_xact_lock\(hashtext\('rcl-store'\)\);/g) || []).length, 6, 'one at a time with every other save of the site');
+  // the server: who may, when; step 8 asked first; the database's answers in words
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  const act = n => { const i = src.indexOf('  async ' + n + '(s, x) {'); assert.ok(i > -1, n); return src.slice(i, src.indexOf('\n  },', i)); };
+  assert.ok(act('reqDelete').includes("if (!(await step8On(s.site))) throw fail(400, STEP8, 'sql');") && act('reqDelete').includes("only who made a requirement (or the Store Admin) deletes it".replace('only', 'Only')) && act('reqDelete').includes("rpc(s.site, 'store_req_del'"));
+  assert.ok(act('poDelete').startsWith('  async poDelete(s, x) {\n    buyerOnly(s);') && act('poDelete').includes("rpc(site, 'store_po_del'"));
+  assert.ok(act('reqPhotoDel').includes("{ photos: list, updated_by: s.email }") && act('reqPhotoDel').includes('&updated_at=eq.'), 'its file stays (only taken off the list), as it was read');
+  assert.ok(act('reqLogbook').includes("if (cur.for_kind !== 'Machinery')") && act('reqLogbook').includes('{ logbook: lb, updated_by: s.email }'));
+  const save = act('reqSave');
+  assert.ok(save.includes("again = cur.status !== 'Pending' || (cur.approvals || []).length > 0;") && save.includes("Object.assign(row, { status: level ? 'Pending' : 'Approved', level: level, approvals: [] });"), 'changed after its approval: it waits for its approval again');
+  assert.ok(save.includes("rpc(s.site, 'store_req_change'") && save.includes("else if (cur.status !== 'Pending' || (cur.approvals || []).length) throw fail(409,"), 'before step 8: as before');
+  assert.ok(save.includes("else if (x.logbook === true || !cur) lb = same || await logbookOf(s.site, s, r.for_text);"), 'a new machinery requirement: its log book by itself');
+  ["/^STORE_REQ_ORDERED (\\d+)\\|(\\d+)/", '/^STORE_CHANGED/', '/^STORE_PO_RECEIVED (\\d+)/'].forEach(k => assert.ok(src.includes(k), k));
+  // the page: its buttons as the server says (edit / del / attach), the PO's Delete only when nothing came
+  ["(x.edit ? '<button type=\"button\" class=\"link rq-edit\">Change</button>' : '')", "(x.del ? '<button type=\"button\" class=\"link del rq-del\">Delete</button>' : '')", "W('reqDelete', { no: x.no })", "W('reqPhotoDel', { no: x.no, sha: o.dataset.sha })",
+    "W('reqLogbook', { no: x.no, attach: !!on })", "W('poDelete', { site: site, no: p.no })", "(buyer() && p.status !== 'Closed' && !p.lines.some(l => l.received > 0) ? '<button type=\"button\" class=\"link del po-del\">Delete</button>' : '')",
+    "logbook: lbx ? lbx.checked : undefined", "W('reqLogbookHtml', { no: x.no })"].forEach(k => assert.ok(page.includes(k), k));
 });

@@ -25,6 +25,15 @@ module.exports = handler(async (req, res) => {
   const cookie = await ses.create(req, c);
   if (old) { try { await db(old.site, 'DELETE', 'store_sessions?id_hash=eq.' + old.idHash, undefined, 'return=minimal'); } catch (e) { /* it ends by itself in 15 minutes */ } }
   const again = !!x.renew && !!old && old.site === c.site && String(old.email).toLowerCase() === String(c.email).toLowerCase() && old.admin === !!c.admin;
+  /* (29-10-2026) the papers' heading the Portal sent (the site's company, its address and contact) – kept in the site's settings when it
+   * changed, for HO Purchase's papers of this site (another site's sign-in); not kept (no step 2 yet, a moment's fault): nothing lost –
+   * the next sign-in keeps it */
+  if (c.paper) {
+    try {
+      const was = ((await db(c.site, 'GET', 'store_settings?select=value&id=eq.portal_paper')) || [])[0];
+      if (!was || JSON.stringify(was.value) !== JSON.stringify(c.paper)) await db(c.site, 'POST', 'store_settings?on_conflict=id', [{ id: 'portal_paper', value: c.paper, updated_by: 'Portal' }], 'resolution=merge-duplicates,return=minimal');
+    } catch (e) { /* kept at the next sign-in */ }
+  }
   if (!again) await activity(c.site, c.email, 'Sign-in', c.site, { admin: c.admin });
   send(res, 200, { ok: true, preview: isPreview() || undefined, user: { email: c.email, name: c.name, admin: c.admin, super: c.super || undefined }, pages: ses.pagesOf(c.admin, c.pages), site: c.site, siteName: c.siteName, mods: c.mods, sites: c.sites, portal: portal.url() }, { 'Set-Cookie': cookie });
 });
