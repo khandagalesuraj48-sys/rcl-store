@@ -14,7 +14,9 @@
   const a2 = v => v === '' || v === null || v === undefined ? '' : Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });      // (an amount in a list: 2 decimals)
   const dmy = d => d ? String(d).slice(0, 10).split('-').reverse().join('-') : '';
   const r2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-  const today = () => (B && B.today) || new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+  // (29-10-2026) a page left open past midnight: its lists (and "today") are read again on the new day – a Store User's date is today's
+  const dayNow = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+  const today = () => (B && B.today && B._day === dayNow() && B.today) || dayNow();
   const monthStart = () => today().slice(0, 8) + '01';
   const keyOf = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const pg = k => ((K().S.me || {}).pages || {})[k] || 'None', admin = () => !!(K().S.me && K().S.me.user.admin), buyer = () => pg('purchase') === 'Edit';
@@ -24,7 +26,7 @@
   const entryDate = () => ' type="date"' + (backOk() ? '' : ' min="' + today() + '" max="' + today() + '" readonly title="Today – an entry of an earlier day is made by the Store Admin."');
   const canEdit = k => pg(k) === 'Edit';
   const toast = (t, bad) => K().toast(t, bad), failed = e => K().failed(e), ask = (t, h, b) => K().ask(t, h, b);
-  async function boot(force) { if (!B || force) { B = await W('boot'); lists(); } return B; }
+  async function boot(force) { if (!B || force || B._day !== dayNow()) { B = await W('boot'); B._day = dayNow(); lists(); } return B; }
   const itemOf = code => (B.items || []).find(i => i.code === code);
   const label = i => i.code + ' · ' + i.name + ' (' + i.unit + ')';
   // the lists the boxes offer: items, suppliers, sub-contractors, vendors
@@ -56,7 +58,10 @@
   /* ---------- the LINES of a paper: a row each, an empty row always there to type into ----------
    * cols: [{ k, h, type: 'item' | 'num' | 'text' | 'check' | 'ro', w, calc(row) }]
    * (28-10-2026) opt.boxes – the GRN's look: the item's search box, the worked-out values in grey boxes, a bin on each row, the last
-   * column "Action"; opt.addRow – a row added by "+ Add Row" (L.add), not by itself (one row when there is none) */
+   * column "Action"; opt.addRow – a row added by "+ Add Row" (L.add), not by itself (one row when there is none)
+   * (29-10-2026, "iteam number name sagle ektr aale aahe as nko iteam code ani name weg wegle de" – every form) the item's CODE in its
+   * own column before it, the item's box its NAME (searched by code or name); a column of type 'sel' – a choice (c.opts [[v, text]]);
+   * opt.after(rows) – drawn again with the table (beside it: the GRN's totals) */
   function Lines(box, cols, rows, opt) {
     opt = opt || {};
     { const nb = box.cloneNode(false); box.replaceWith(nb); box = nb; }      // (drawn again – e.g. another PO picked: the listeners of before go with the old box)
@@ -64,19 +69,22 @@
     const blank = () => { const o = {}; cols.forEach(c => { o[c.k] = c.type === 'check' ? false : ''; }); return o; };
     L.draw = () => {
       if (!opt.fixed && (opt.addRow ? !L.rows.length : !L.rows.some(r => !r.item && !r.code))) L.rows.push(blank());
-      const bx = !!opt.boxes;
-      box.innerHTML = '<div class="tw"><table class="lines' + (bx ? ' boxes' : '') + '"><thead><tr><th>#</th>' + cols.map(c => '<th' + (c.type === 'num' && !bx || c.type === 'ro' && c.n ? ' class="n"' : '') + '>' + esc(c.h) + '</th>').join('') + (opt.fixed ? '' : '<th class="x">' + esc(bx ? 'Action' : '') + '</th>') + '</tr></thead><tbody>' +
-        L.rows.map((r, i) => '<tr data-i="' + i + '"><td>' + (i + 1) + '</td>' + cols.map(c => {
+      const bx = !!opt.boxes, codeCol = cols.some(c => c.type === 'item');
+      const nameOf = r => r.code ? ((itemOf(r.code) || { name: r.name }).name || r.item || '') : (r.item || '');
+      box.innerHTML = '<div class="tw"><table class="lines' + (bx ? ' boxes' : '') + '"><thead><tr><th>#</th>' + (codeCol ? '<th>Item Code</th>' : '') + cols.map(c => '<th' + (c.type === 'num' && !bx || c.type === 'ro' && c.n ? ' class="n"' : '') + '>' + esc(c.h) + '</th>').join('') + (opt.fixed ? '' : '<th class="x">' + esc(bx ? 'Action' : '') + '</th>') + '</tr></thead><tbody>' +
+        L.rows.map((r, i) => '<tr data-i="' + i + '"><td>' + (i + 1) + '</td>' + (codeCol ? (bx ? '<td><div class="rob ic">' + (r.code ? esc(r.code) : '–') + '</div></td>' : '<td class="ic">' + esc(r.code || '') + '</td>') : '') + cols.map(c => {
           const v = r[c.k];
-          if (c.type === 'ro' || (c.type === 'item' && r.fixedItem)) { const t = c.calc ? c.calc(r) : esc(c.type === 'item' ? (r.code ? label(itemOf(r.code) || { code: r.code, name: r.name, unit: r.unit }) : '') : v);
+          if (c.type === 'ro' || (c.type === 'item' && r.fixedItem)) { const t = c.calc ? c.calc(r, L.rows) : esc(c.type === 'item' ? nameOf(r) : v);
             return bx ? '<td><div class="rob' + (c.n ? ' n' : '') + '">' + (t === '' ? '–' : t) + '</div></td>' : '<td class="' + (c.n ? 'n' : '') + '">' + t + '</td>'; }
           if (c.type === 'check') return '<td style="text-align:center"><input type="checkbox" data-k="' + c.k + '"' + (v ? ' checked' : '') + ' style="width:auto;min-height:0"></td>';
-          const vv = c.type === 'item' ? (r.item || (r.code ? label(itemOf(r.code) || { code: r.code, name: r.name, unit: r.unit }) : '')) : v === undefined || v === null ? '' : v;
-          const box1 = '<input data-k="' + c.k + '" class="' + (c.type === 'item' ? 'it' : c.type === 'num' ? 'q' : 's') + '"' + (c.type === 'item' ? ' list="dl_witems" placeholder="' + (bx ? 'Search item…' : 'Type the item…') + '"' + (bx && vv ? ' title="' + esc(vv) + '"' : '') : c.type === 'num' ? ' inputmode="decimal"' + (c.ph ? ' placeholder="' + esc(c.ph) + '"' : '') : '') + ' value="' + esc(vv) + '"' + (c.w ? ' style="width:' + c.w + 'px"' : '') + '>';
+          if (c.type === 'sel') return '<td><select data-k="' + c.k + '"' + (c.w ? ' style="width:' + c.w + 'px"' : '') + '>' + c.opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(v || c.opts[0][0]) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></td>';
+          const vv = c.type === 'item' ? nameOf(r) : v === undefined || v === null ? '' : v;
+          const box1 = '<input data-k="' + c.k + '" class="' + (c.type === 'item' ? 'it' : c.type === 'num' ? 'q' : 's') + '"' + (c.type === 'item' ? ' list="dl_witems" placeholder="' + (bx ? 'Search item…' : 'Type the item…') + '"' + (bx && vv ? ' title="' + esc(vv) + '"' : '') : c.type === 'num' ? ' inputmode="decimal"' + (c.ph ? ' placeholder="' + esc(c.ph) + '"' : '') : c.ph ? ' placeholder="' + esc(c.ph) + '"' : '') + ' value="' + esc(vv) + '"' + (c.w ? ' style="width:' + c.w + 'px"' : '') + '>';
           return '<td>' + (bx && c.type === 'item' ? '<div class="ib">' + box1 + ico('search') + '</div>' : box1) + '</td>';
         }).join('') + (opt.fixed ? '' : '<td class="x">' + (bx ? '<button type="button" class="binb" data-x="' + i + '" title="Take this row out" aria-label="Take row ' + (i + 1) + ' out">' + ico('bin') + '</button>'
           : r.item || r.code ? '<button type="button" class="link del" data-x="' + i + '" title="Take this line out">✕</button>' : '') + '</td>') + '</tr>').join('') +
-        (opt.total ? '<tr class="tot"><td></td>' + opt.total(L.rows) + '</tr>' : '') + '</tbody></table></div>';
+        (opt.total ? '<tr class="tot"><td></td>' + (codeCol ? '<td></td>' : '') + opt.total(L.rows) + '</tr>' : '') + '</tbody></table></div>';
+      if (opt.after) opt.after(L.rows);      // (29-10-2026) what the form shows beside the table (the GRN's totals), drawn again with it
     };
     box.addEventListener('input', e => {
       const tr = e.target.closest('tr[data-i]'); if (!tr || !e.target.dataset.k) return;
@@ -85,7 +93,7 @@
       if (k === 'item') { r.item = e.target.value; r.code = codeOf(e.target.value); const it = itemOf(r.code); if (it && opt.picked) opt.picked(r, it); }
       if (e.type === 'input' && k !== 'item') { const at = e.target.selectionStart; L.draw(); const ne = box.querySelector('tr[data-i="' + tr.dataset.i + '"] [data-k="' + k + '"]'); if (ne) { ne.focus(); try { ne.setSelectionRange(at, at); } catch (x) { /* a number box */ } } }
     });
-    box.addEventListener('change', e => { const tr = e.target.closest('tr[data-i]'); if (!tr) return; const k = e.target.dataset.k; if (k === 'item' || e.target.type === 'checkbox') { const r = L.rows[Number(tr.dataset.i)]; if (k === 'item') { r.code = codeOf(e.target.value); if (r.code) r.item = label(itemOf(r.code)); } else r[k] = e.target.checked; L.draw(); } });
+    box.addEventListener('change', e => { const tr = e.target.closest('tr[data-i]'); if (!tr) return; const k = e.target.dataset.k; if (k === 'item' || e.target.type === 'checkbox') { const r = L.rows[Number(tr.dataset.i)]; if (k === 'item') { r.code = codeOf(e.target.value); if (r.code) r.item = (itemOf(r.code) || {}).name || r.item; } else r[k] = e.target.checked; L.draw(); } });
     box.addEventListener('click', e => { const x = e.target.closest('[data-x]'); if (!x) return; L.rows.splice(Number(x.dataset.x), 1); L.draw(); });
     L.get = () => L.rows.filter(r => r.code || String(r.item || '').trim());
     L.add = () => { L.rows.push(blank()); L.draw(); const e = box.querySelector('tr[data-i="' + (L.rows.length - 1) + '"] [data-k]'); if (e) e.focus(); };
@@ -95,6 +103,30 @@
   const num = v => { const n = Number(String(v === undefined || v === null ? '' : v).replace(/,/g, '')); return isFinite(n) ? n : 0; };
   // a paper's money: taxable = qty × rate, GST on it, the total
   const lineMoney = r => { const t = r2(r2(num(r.qty) * num(r.rate)) * (100 - num(r.disc_pct)) / 100), g = r2(t * num(r.gst_pct) / 100); return { t: t, g: g, all: r2(t + g) }; };      // (28-10-2026) less its Disc. % (a PO's line)
+
+  /* (29-10-2026) A GRN'S MONEY as the server works it out (lib/work.js checkGrn – the same steps, the unit test compares them): a line's
+   * Basic (qty × rate); its discount on the Basic, then the bill's on the Basic shared by the lines' taxable; GST on what is left; a
+   * line's discount after GST, then the bill's after GST shared by the lines' amounts. A discount: "10%" or "500" (₹). (grnMoney:start) */
+  function grnMoney(rows, bill) {
+    const R2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100, N = v => { const n = Number(String(v === undefined || v === null ? '' : v).replace(/,/g, '').replace(/^₹\s*/, '')); return isFinite(n) ? n : 0; };
+    const dOf = v => { const t = String(v === undefined || v === null ? '' : v).replace(/,/g, '').replace(/^₹\s*/, '').replace(/\s+/g, ''); if (t === '' || t === '0' || t === '0%') return null;
+      const p = /%$/.test(t), n = Number(t.replace(/%$/, '')); if (!isFinite(n) || n < 0) return null; return p ? { pct: R2(Math.min(n, 99.99)), amt: null } : { pct: null, amt: R2(n) }; };
+    const share = (total, bases) => { const sum = bases.reduce((a, b) => a + b, 0), out = bases.map(b => sum > 0 ? R2(total * b / sum) : 0), left = R2(total - out.reduce((a, b) => a + b, 0));
+      if (left && out.length) { let k = 0; bases.forEach((b, i) => { if (b > bases[k]) k = i; }); out[k] = R2(out[k] + left); } return out; };
+    const on = v => String(v || '').toLowerCase() === 'gst' ? 'gst' : 'basic';
+    const L = rows.map(r => { const basic = R2(N(r.qty) * N(r.rate)), d = dOf(r.disc), o = on(r.disc_on), ld = d && o === 'basic' ? Math.min(basic, d.pct !== null ? R2(basic * d.pct / 100) : d.amt) : 0;
+      return { basic: basic, d: d, on: o, disc: ld, bill_disc: 0, taxable: R2(basic - ld), pct: N(r.gst_pct), gst: 0, gross: 0 }; });
+    const bd = dOf(bill && bill.disc), bon = on(bill && bill.on); let billDisc = 0;
+    if (bd && bon === 'basic') { const base = R2(L.reduce((a, l) => a + l.taxable, 0)); billDisc = Math.min(base, bd.pct !== null ? R2(base * bd.pct / 100) : bd.amt);
+      share(billDisc, L.map(l => l.taxable)).forEach((v, i) => { L[i].taxable = R2(L[i].taxable - v); L[i].bill_disc = v; }); }
+    L.forEach(l => { l.gst = R2(l.taxable * l.pct / 100); l.gross = R2(l.taxable + l.gst); });
+    L.forEach(l => { if (!l.d || l.on !== 'gst') return; const v = Math.min(l.gross, l.d.pct !== null ? R2(l.gross * l.d.pct / 100) : l.d.amt); l.disc = v; l.gross = R2(l.gross - v); });
+    if (bd && bon === 'gst') { const base = R2(L.reduce((a, l) => a + l.gross, 0)); billDisc = Math.min(base, bd.pct !== null ? R2(base * bd.pct / 100) : bd.amt);
+      share(billDisc, L.map(l => l.gross)).forEach((v, i) => { L[i].gross = R2(L[i].gross - v); L[i].bill_disc = v; }); }
+    const S = k => R2(L.reduce((a, l) => a + l[k], 0));
+    return { lines: L, basic: S('basic'), disc: R2(S('disc') + billDisc), bill_disc: billDisc, taxable: S('taxable'), gst: S('gst'), gross: S('gross') };
+  }
+  // (grnMoney:end)
 
   // a save that asks first when a party's name is nearly one written before, or more than a PO has to come
   async function saveAsk(action, x) {
@@ -393,7 +425,12 @@
   // disaw ani perfect nit disaw") shown when Show is pressed, each GRN a card: its own (GRN No, date, supplier, invoice, challan, vehicle,
   // PO, TCS, gross) once at its top, its materials under it (Sr No, Material Description, Received Qty, UOM, Basic Rate, Taxable / GST /
   // Gross Amount, Remark). The GRN register (Excel) has every column on each row.
-  const LCOLS = ['Sr No', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'Taxable Amount', 'GST Amount', 'Gross Amount', 'Remark'];
+  const LCOLS = ['Sr No', 'Item Code', 'Material Description', 'Received Qty', 'UOM', 'Basic Rate', 'Taxable Amount', 'GST Amount', 'Gross Amount', 'Remark'];
+  // (29-10-2026) a GRN with a discount: its lines also show the discount (its own and its part of the bill's) and the net rate (the stock's)
+  const grnHasDisc = g => Number(g.disc) > 0 || (g.lines || []).some(l => Number(l.disc) > 0 || Number(l.bill_disc) > 0);
+  const discOnTxt = on => on === 'gst' ? 'after GST' : 'on Basic';
+  const lineDiscTxt = l => { const d = r2(num(l.disc) + num(l.bill_disc)); if (!(d > 0)) return ''; return a2(d) + (Number(l.disc) > 0 ? ' <small>' + (l.disc_pct !== null && l.disc_pct !== undefined ? Number(l.disc_pct) + '% ' : '') + discOnTxt(l.disc_on) + '</small>' : ''); };
+  const billDiscTxt = g => Number(g.bill_disc) > 0 ? (g.bill_disc_pct !== null && g.bill_disc_pct !== undefined ? Number(g.bill_disc_pct) + '% ' : '') + discOnTxt(g.bill_disc_on) + ' – ' + money(g.bill_disc) : '';
   const refOf = g => String(g.ref === null || g.ref === undefined || g.ref === '' ? g.no : g.ref);
   async function grnLoad() {
     if (!GR.shown) return;      // (the list comes when Show is pressed)
@@ -402,11 +439,13 @@
       const kv = (k, v, cls) => '<div class="gk' + (cls ? ' ' + cls : '') + '"><small>' + esc(k) + '</small><span>' + v + '</span></div>';
       const card = g => '<article class="grnc" data-no="' + g.no + '"><header>' + kv('GRN No', '<b>' + esc(refOf(g)) + '</b>', 'gno') + kv('GRN Date', dmy(g.date)) + kv('Supplier Name', '<b>' + esc(g.supplier) + '</b>', 'gsup') +
           (g.invoice_no ? kv('Invoice No.', esc(g.invoice_no)) : '') + (g.invoice_date ? kv('Invoice Date', dmy(g.invoice_date)) : '') + (g.challan_no ? kv('Challan No', esc(g.challan_no)) : '') + (g.vehicle_no ? kv('Vehicle No', esc(g.vehicle_no)) : '') +
-          (g.po_no ? kv('PO No', esc(g.po_no)) : '') + (Number(g.tcs) ? kv('TCS', money(g.tcs)) : '') + kv('Gross Amount', '<b>' + money(g.gross) + '</b>', 'gamt') +
+          (g.po_no ? kv('PO No', esc(g.po_no)) : '') + (Number(g.bill_disc) > 0 ? kv('Bill discount', esc(billDiscTxt(g))) : '') + (Number(g.tcs) ? kv('TCS', money(g.tcs)) : '') + kv('Gross Amount', '<b>' + money(g.gross) + '</b>', 'gamt') +
           '<div class="gacts"><button type="button" class="btn small gr-print">Print</button>' + (admin() ? '<button type="button" class="btn small gr-edit">Change</button><button type="button" class="btn small bad gr-del">Delete</button>' : '') + '</div></header>' +
-        '<div class="gtw"><table class="glines"><thead><tr>' + LCOLS.map(h => '<th' + (/Qty|Rate|Amount|Sr No/.test(h) ? ' class="n"' : '') + '>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
-          (g.lines.length ? g.lines.map(l => '<tr><td class="n">' + (++sr) + '</td><td class="gm">' + esc(l.name || '') + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit || '') + '</td><td class="n">' + a2(l.rate) + '</td><td class="n">' + a2(l.taxable) + '</td><td class="n">' + a2(l.gst) + '</td><td class="n"><b>' + a2(l.gross) + '</b></td><td class="gr">' + esc(l.remark || '') + '</td></tr>').join('')
-            : '<tr><td colspan="9" class="empty">No material.</td></tr>') + '</tbody></table></div>' + (g.remark ? '<p class="grem"><b>Remark:</b> ' + esc(g.remark) + '</p>' : '') + '</article>';
+        (() => { const hd = grnHasDisc(g), hs = hd ? LCOLS.slice(0, 6).concat(['Discount ₹', 'Net Rate'], LCOLS.slice(6)) : LCOLS;
+          return '<div class="gtw"><table class="glines"><thead><tr>' + hs.map(h => '<th' + (/Qty|Rate|Amount|Sr No|Discount/.test(h) ? ' class="n"' : '') + '>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
+          (g.lines.length ? g.lines.map(l => '<tr><td class="n">' + (++sr) + '</td><td class="ic">' + esc(l.code || '') + '</td><td class="gm">' + esc(l.name || '') + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit || '') + '</td><td class="n">' + a2(l.rate) + '</td>' +
+              (hd ? '<td class="n">' + lineDiscTxt(l) + '</td><td class="n">' + (l.net_rate !== null && l.net_rate !== undefined ? a2(l.net_rate) : a2(l.rate)) + '</td>' : '') + '<td class="n">' + a2(l.taxable) + '</td><td class="n">' + a2(l.gst) + '</td><td class="n"><b>' + a2(l.gross) + '</b></td><td class="gr">' + esc(l.remark || '') + '</td></tr>').join('')
+            : '<tr><td colspan="' + hs.length + '" class="empty">No material.</td></tr>') + '</tbody></table></div>'; })() + (g.remark ? '<p class="grem"><b>Remark:</b> ' + esc(g.remark) + '</p>' : '') + '</article>';
       const tot = GR.list.reduce((a, g) => a + Number(g.gross || 0), 0), rows = GR.list.reduce((a, g) => a + g.lines.length, 0);
       $('gr_list').innerHTML = '<div class="glhead"><h3>GRNs ' + dmy(val('gr_from')) + ' to ' + dmy(val('gr_to')) + '</h3><p class="count">' + GR.list.length + ' GRN(s) · ' + rows + ' row(s) · ' + money(tot) + '</p></div>' +
         (GR.list.map(card).join('') || '<p class="empty">No GRN in these dates.</p>'); }
@@ -414,17 +453,30 @@
   }
   async function grnClick(e) {
     const b = e.target.closest('button'), tr = e.target.closest('[data-no]'); if (!b || !tr) return; const g = GR.list.find(x => x.no === Number(tr.dataset.no)); if (!g) return;
-    if (b.classList.contains('gr-print')) return printHtml('GRN ' + refOf(g), head('Goods Received Note – GRN ' + refOf(g), dmy(g.date)) + '<p><b>Supplier:</b> ' + esc(g.supplier) + (g.invoice_no ? ' · Invoice ' + esc(g.invoice_no) + ' ' + dmy(g.invoice_date) : '') + (g.challan_no ? ' · Challan ' + esc(g.challan_no) : '') + (g.vehicle_no ? ' · Vehicle ' + esc(g.vehicle_no) : '') + (g.po_no ? ' · PO ' + g.po_no : '') + '</p>' +
-      '<table><thead><tr><th>#</th><th>Material</th><th class="n">Received Qty</th><th>UOM</th><th class="n">Basic Rate</th><th class="n">Taxable</th><th class="n">GST %</th><th class="n">GST</th><th class="n">Gross</th><th>Remark</th></tr></thead><tbody>' + g.lines.map((l, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td><td class="n">' + n2(l.rate) + '</td><td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.gross) + '</td><td>' + esc(l.remark || '') + '</td></tr>').join('') +
-      (Number(g.tcs) ? '<tr><td colspan="8">TCS</td><td class="n">' + n2(g.tcs) + '</td><td></td></tr>' : '') + '<tr><td colspan="8"><b>Gross</b></td><td class="n"><b>' + n2(g.gross) + '</b></td><td></td></tr></tbody></table>' + (g.remark ? '<p>' + esc(g.remark) + '</p>' : '') + '<div class="sign"><div>Received by: ' + esc(g.created_name || '') + '</div><div>Store in-charge</div></div>');
+    if (b.classList.contains('gr-print')) { const hd = grnHasDisc(g), sp = hd ? 10 : 8;      // (29-10-2026) the item's code; a GRN with a discount: the discount and the net rate, the bill's discount
+      return printHtml('GRN ' + refOf(g), head('Goods Received Note – GRN ' + refOf(g), dmy(g.date)) + '<p><b>Supplier:</b> ' + esc(g.supplier) + (g.invoice_no ? ' · Invoice ' + esc(g.invoice_no) + ' ' + dmy(g.invoice_date) : '') + (g.challan_no ? ' · Challan ' + esc(g.challan_no) : '') + (g.vehicle_no ? ' · Vehicle ' + esc(g.vehicle_no) : '') + (g.po_no ? ' · PO ' + g.po_no : '') + '</p>' +
+      '<table><thead><tr><th>#</th><th>Item Code</th><th>Material</th><th class="n">Received Qty</th><th>UOM</th><th class="n">Basic Rate</th>' + (hd ? '<th class="n">Discount</th><th class="n">Net Rate</th>' : '') + '<th class="n">Taxable</th><th class="n">GST %</th><th class="n">GST</th><th class="n">Gross</th><th>Remark</th></tr></thead><tbody>' + g.lines.map((l, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(l.code || '') + '</td><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td><td class="n">' + n2(l.rate) + '</td>' +
+        (hd ? '<td class="n">' + lineDiscTxt(l) + '</td><td class="n">' + n2(l.net_rate !== null && l.net_rate !== undefined ? l.net_rate : l.rate) + '</td>' : '') + '<td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.gross) + '</td><td>' + esc(l.remark || '') + '</td></tr>').join('') +
+      (hd && Number(g.basic) ? '<tr><td colspan="' + (sp + 3) + '">Basic ' + n2(g.basic) + ' · Discount ' + n2(g.disc) + (Number(g.bill_disc) > 0 ? ' (the bill: ' + esc(billDiscTxt(g)) + ')' : '') + '</td></tr>' : '') +
+      (Number(g.tcs) ? '<tr><td colspan="' + (sp + 1) + '">TCS</td><td class="n">' + n2(g.tcs) + '</td><td></td></tr>' : '') + '<tr><td colspan="' + (sp + 1) + '"><b>Gross</b></td><td class="n"><b>' + n2(g.gross) + '</b></td><td></td></tr></tbody></table>' + (g.remark ? '<p>' + esc(g.remark) + '</p>' : '') + '<div class="sign"><div>Received by: ' + esc(g.created_name || '') + '</div><div>Store in-charge</div></div>'); }
     if (b.classList.contains('gr-edit')) return grnForm(g);
     if (b.classList.contains('gr-del')) { if (!await ask('Delete GRN ' + refOf(g) + '?', '<p>Its material goes out of the stock (refused if it was issued already).</p><p class="mr">हा GRN डिलीट होईल.</p>', [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, bad: true }])) return; return busy(b, async () => { await W('grnDelete', { no: g.no }); toast('GRN ' + refOf(g) + ' deleted.'); B = null; await boot(); grnLoad(); }); }
   }
   async function grnForm(g) {
     const f = $('gr_form'); f.hidden = false; f.innerHTML = '<p class="muted">Loading…</p>';
     try { await boot(); } catch (e) { failed(e); f.hidden = true; return; }      // (pressed before the page had its lists)
-    let pos = []; try { pos = (await W('poOpen')).pos; } catch (e) { pos = []; }
+    // (29-10-2026) the open POs (a GRN changed: its own PO too, with what came BEFORE it), the next GRN No and the database's step 6
+    const [po0, nx] = await Promise.all([W('poOpen', g ? { grn: g.no } : {}).catch(() => ({ pos: [] })), W('grnNext').catch(() => null)]);
+    const pos = po0.pos || [];
     if (g && g.po_no && !pos.some(p => p.no === Number(g.po_no))) pos.push({ no: Number(g.po_no), vendor: g.supplier, lines: [] });
+    /* (29-10-2026, "bill madh discount pn kadhi kdhi dettat … kadhi basic war … kadhi gst war"; his answers: on a line AND on the whole
+     * bill, each on the Basic or after GST, % or ₹; "PO Qty, आलेले, Shortage दिसावे") a DISCOUNT on a line (its own column, "10%" or
+     * "500", on Basic / After GST) and on the BILL (below the items); the money worked out as the server does (grnMoney); against a PO
+     * each line shows the PO's Qty, what was received before and the shortage after this GRN (the PO stays open for it). Discounts need
+     * the database's step 6 – without it they are not offered (a note says so). */
+    const s6 = !!(nx && nx.step6);
+    const dTxt = (pct, amt) => pct !== null && pct !== undefined && pct !== '' ? Number(pct) + '%' : Number(amt) > 0 ? String(Number(amt)) : '';
+    const bill = { disc: g ? dTxt(g.bill_disc_pct, g.bill_disc) : '', on: g && g.bill_disc_on === 'gst' ? 'gst' : 'basic' };
     // (28-10-2026, his picture) two cards: GRN Details – Clear and the GRN date at its top right; Items – + Add Row
     f.innerHTML = '<div class="gcard"><div class="ghead">' + ico('box', 'gico') + '<h3>GRN Details</h3>' + (g ? '<span class="gsub">Change GRN ' + esc(refOf(g)) + '</span>' : '') +
         '<div class="gact"><button type="button" class="btn" id="gr_clr" title="' + (g ? 'Back to the GRN as it is saved' : 'Empty the form') + '">' + ico('clear') + 'Clear</button>' +
@@ -435,27 +487,49 @@
       '<div class="ggrid g4">' + field('gr_inv', 'Invoice No', inp('gr_inv', g ? g.invoice_no : '', ' maxlength="40"')) + field('gr_invd', 'Invoice Date', inp('gr_invd', g ? g.invoice_date : '', ' type="date"')) +
         field('gr_veh', 'Vehicle No', inp('gr_veh', g ? g.vehicle_no : '', ' maxlength="20"')) + field('gr_tcs', 'TCS ₹', inp('gr_tcs', g && Number(g.tcs) ? g.tcs : '', ' inputmode="decimal"')) + '</div>' +
       field('gr_rem', 'Remark', '<textarea id="gr_rem" rows="3" maxlength="300" placeholder="Enter remark (optional)…">' + esc(g ? g.remark || '' : '') + '</textarea>') + '</div>' +
-      '<div class="gcard gitems"><div class="ghead">' + ico('box', 'gico blue') + '<h3>Items</h3><div class="gact"><button type="button" class="btn blue" id="gr_add">' + ico('plus') + 'Add Row</button></div></div><div id="gr_lines"></div></div>' +
+      '<div class="gcard gitems"><div class="ghead">' + ico('box', 'gico blue') + '<h3>Items</h3><div class="gact"><button type="button" class="btn blue" id="gr_add">' + ico('plus') + 'Add Row</button></div></div><div id="gr_lines"></div>' +
+        '<div class="gfoot">' + (s6 ? '<div class="gbill">' + field('gr_bd', 'Discount on the whole bill (% or ₹)', inp('gr_bd', bill.disc, ' maxlength="14" autocomplete="off" placeholder="e.g. 2% or 500"')) +
+          field('gr_bdon', 'Bill discount on', sel('gr_bdon', [['basic', 'Basic (before GST)'], ['gst', 'After GST']], bill.on)) + '</div>'
+          : '<p class="muted gnote" id="gr_nodisc">A discount (on a line or on the whole bill) needs the Store\'s database step 6 – the Admin runs sql/store_step6_grn_discount.sql once in Supabase.</p>') +
+        '<dl class="gsum" id="gr_sum"></dl></div></div>' +
       '<div class="gbtns"><button type="button" class="btn primary big" id="gr_save">' + ico('save') + 'Save GRN</button><button type="button" class="btn big" id="gr_x">' + ico('x') + 'Cancel</button></div>';
-    const tot = rs => { const s = rs.filter(r => r.code).map(lineMoney).reduce((a, m) => ({ t: a.t + m.t, g: a.g + m.g, all: a.all + m.all }), { t: 0, g: 0, all: 0 }), tc = num(val('gr_tcs'));
-      return '<td colspan="5">Total</td><td class="n">' + money(s.t) + '</td><td class="n">' + money(s.g) + '</td><td class="n">' + money(s.all) + '</td><td></td><td></td>' +
-        (tc ? '</tr><tr class="tot"><td></td><td colspan="7">TCS ' + money(tc) + ' · Gross with TCS</td><td class="n">' + money(r2(s.all + tc)) + '</td><td></td><td></td>' : ''); };
-    const cols = [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'qty', h: 'Received Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') }, { k: 'rate', h: 'Basic Rate ₹', type: 'num' }, { k: 'gst_pct', h: 'GST %', type: 'num', ph: '0' },
-      { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: r => money(r.code ? lineMoney(r).t : 0) }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: r => money(r.code ? lineMoney(r).g : 0) }, { k: 'ax', h: 'Gross', type: 'ro', n: true, calc: r => money(r.code ? lineMoney(r).all : 0) },
-      { k: 'remark', h: 'Remark', type: 'text' }];
+    const coded = rs => rs.filter(r => r.code), M = rs => grnMoney(coded(rs), bill);
+    const lm = (r, rs) => { const c = coded(rs), i = c.indexOf(r); return i > -1 ? M(rs).lines[i] : null; };
+    const poOf = () => pos.find(z => z.no === Number(val('gr_po')));
+    const poL = r => { const p = poOf(); return p && r.po_line ? (p.lines || []).find(l => Number(l.line) === Number(r.po_line)) || null : null; };
+    const shortOf = r => { const l = poL(r); if (!l) return ''; const left = Math.round((num(l.qty) - num(l.received) - num(r.qty)) * 1000) / 1000;
+      return left > 0.0005 ? '<b class="short" title="Still to come on the PO">' + n2(left) + '</b>' : left < -0.0005 ? '<span class="over" title="More than the PO">+' + n2(-left) + '</span>' : '0'; };
+    // the columns (against a PO: its Qty, what came before, the shortage after this GRN; with step 6: a line's discount and what it is on)
+    const colsFor = () => { const po = !!val('gr_po');
+      return [{ k: 'item', h: 'Item *', type: 'item' }]
+        .concat(po ? [{ k: 'pq', h: 'PO Qty', type: 'ro', n: true, calc: r => { const l = poL(r); return l ? n2(l.qty) : ''; } }, { k: 'pb', h: 'Received before', type: 'ro', n: true, calc: r => { const l = poL(r); return l ? n2(l.received) : ''; } }] : [])
+        .concat([{ k: 'qty', h: 'Received Qty *', type: 'num' }])
+        .concat(po ? [{ k: 'ps', h: 'Shortage', type: 'ro', n: true, calc: shortOf }] : [])
+        .concat([{ k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') }, { k: 'rate', h: 'Basic Rate ₹', type: 'num' }])
+        .concat(s6 ? [{ k: 'disc', h: 'Disc. (% or ₹)', type: 'text', ph: '10% / 500' }, { k: 'disc_on', h: 'Disc. on', type: 'sel', opts: [['basic', 'Basic'], ['gst', 'After GST']] }] : [])
+        .concat([{ k: 'gst_pct', h: 'GST %', type: 'num', ph: '0' },
+          { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: (r, rs) => { const m = lm(r, rs); return money(m ? m.taxable : 0); } }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: (r, rs) => { const m = lm(r, rs); return money(m ? m.gst : 0); } },
+          { k: 'ax', h: 'Gross', type: 'ro', n: true, calc: (r, rs) => { const m = lm(r, rs); return money(m ? m.gross : 0); } }, { k: 'remark', h: 'Remark', type: 'text' }]); };
+    let cols = colsFor();
+    const tot = rs => { const m = M(rs); return '<td colspan="' + cols.findIndex(c => c.k === 'tx') + '">Total</td><td class="n">' + money(m.taxable) + '</td><td class="n">' + money(m.gst) + '</td><td class="n">' + money(m.gross) + '</td><td></td><td></td>'; };
+    // the bill's sums: Basic, the discounts, Taxable, GST, TCS, Gross (as the server saves them)
+    const sum = rs => { const m = M(rs), tc = num(val('gr_tcs')), e = $('gr_sum'); if (!e) return;
+      const dd = (k, v, c) => '<div' + (c ? ' class="' + c + '"' : '') + '><dt>' + esc(k) + '</dt><dd>' + v + '</dd></div>';
+      e.innerHTML = dd('Basic', money(m.basic)) + (m.disc ? dd('Discount', '− ' + money(m.disc)) : '') + (m.bill_disc ? dd('of it on the bill', money(m.bill_disc), 'sub') : '') + dd('Taxable', money(m.taxable)) + dd('GST', money(m.gst)) + (tc ? dd('TCS', money(tc)) : '') + dd('Gross', '<b>' + money(r2(m.gross + tc)) + '</b>', 'gt'); };
     const picked = (r, i) => { if (r.gst_pct === '' && i.gst_pct !== null && i.gst_pct !== undefined) r.gst_pct = i.gst_pct; };
     let L = null;
     const fromPo = () => {
-      const p = pos.find(z => z.no === Number(val('gr_po')));
-      const rows = g && Number(g.po_no || 0) === Number(val('gr_po') || 0) ? g.lines.map(l => ({ code: l.code, name: l.name, unit: l.unit, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line, remark: l.remark || '', fixedItem: !!l.po_line }))
-        : p ? p.lines.filter(l => l.left > 0).map(l => ({ code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: l.rate, gst_pct: l.gst_pct, po_line: l.line, fixedItem: true })) : [];
+      const p = poOf();
+      const rows = g && Number(g.po_no || 0) === Number(val('gr_po') || 0) ? g.lines.map(l => ({ code: l.code, name: l.name, unit: l.unit, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line, remark: l.remark || '', fixedItem: !!l.po_line, disc: dTxt(l.disc_pct, l.disc), disc_on: l.disc_on === 'gst' ? 'gst' : 'basic' }))
+        : p ? p.lines.filter(l => l.left > 0).map(l => ({ code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: l.rate, gst_pct: l.gst_pct, po_line: l.line, fixedItem: true, disc: s6 && Number(l.disc_pct) ? Number(l.disc_pct) + '%' : '', disc_on: 'basic' })) : [];
       if (p && !g && !val('gr_sup')) $('gr_sup').value = p.vendor;
-      L = Lines($('gr_lines'), cols, rows, { total: tot, picked: picked, boxes: true, addRow: true });
+      cols = colsFor(); L = Lines($('gr_lines'), cols, rows, { total: tot, picked: picked, boxes: true, addRow: true, after: sum });
     };
     fromPo(); $('gr_po').onchange = fromPo; $('gr_tcs').oninput = () => L.draw();
+    if (s6) { $('gr_bd').addEventListener('input', () => { bill.disc = $('gr_bd').value; L.draw(); }); $('gr_bdon').addEventListener('change', () => { bill.on = $('gr_bdon').value; L.draw(); }); }
     $('gr_add').onclick = () => L.add();
     // (28-10-2026, "new grn number auto yeil … manually pn edit krta yeil") a new GRN: its GRN No comes by itself, it can be changed (step 4)
-    if (!g) W('grnNext').then(r => { const e = $('gr_ref'); if (!e || e.dataset.typed) return; e.value = r.next; if (!r.step4) { e.readOnly = true; e.title = 'The GRN gets this number by itself. A number typed by hand needs the Store\'s database step 4 (sql/store_step4_grn_no.sql).'; } }).catch(() => { const e = $('gr_ref'); if (e) e.placeholder = 'the next number'; });
+    if (!g) { const e = $('gr_ref'); if (nx && e && !e.dataset.typed) { e.value = nx.next; if (!nx.step4) { e.readOnly = true; e.title = 'The GRN gets this number by itself. A number typed by hand needs the Store\'s database step 4 (sql/store_step4_grn_no.sql).'; } } else if (e && !nx) e.placeholder = 'the next number'; }
     $('gr_ref').addEventListener('input', () => { $('gr_ref').dataset.typed = '1'; });
     // Clear: a new GRN empty again; a GRN being changed back as it is saved (nothing saved is changed)
     $('gr_clr').onclick = async () => { if ((L.get().length || val('gr_sup')) && !await ask('Clear the form?', '<p>' + (g ? 'The GRN comes back as it is saved – what is typed here goes.' : 'What is typed here goes.') + ' Nothing saved is changed.</p><p class="mr">फॉर्म मध्ये टाइप केलेले जाईल – save केलेले काहीही बदलत नाही.</p>', [{ label: 'Cancel', value: false }, { label: 'Clear', value: true, primary: true }])) return; grnForm(g); };
@@ -463,7 +537,9 @@
     $('gr_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Pick each item from the list (as it is in the Item Master).');
       const x = { no: g ? g.no : undefined, grn: { ref: g ? undefined : val('gr_ref').trim(), po_no: val('gr_po') || undefined, date: val('gr_date'), supplier: val('gr_sup'), challan_no: val('gr_ch'), invoice_no: val('gr_inv'), invoice_date: val('gr_invd'), vehicle_no: val('gr_veh'), tcs: val('gr_tcs'), remark: val('gr_rem'),
-        lines: lines.map(l => ({ code: l.code, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line || undefined, remark: l.remark || undefined })) } };
+        bill_disc: s6 && String(bill.disc).trim() ? String(bill.disc).trim() : undefined, bill_disc_on: s6 && String(bill.disc).trim() ? bill.on : undefined,
+        lines: lines.map(l => Object.assign({ code: l.code, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line || undefined, remark: l.remark || undefined },
+          s6 && String(l.disc || '').trim() ? { disc: String(l.disc).trim(), disc_on: l.disc_on === 'gst' ? 'gst' : 'basic' } : {})) } };
       let r; try { r = await saveAsk('grnSave', x); } catch (e2) { if (e2 && e2.code === 'refused' && e2.data && e2.data.next && $('gr_ref')) { $('gr_ref').value = e2.data.next; delete $('gr_ref').dataset.typed; } throw e2; }
       if (!r) return;
       toast('GRN ' + (r.ref || r.no) + ' saved – ' + money(r.gross) + '.'); f.hidden = true; B = null; await boot(); grnLoad();

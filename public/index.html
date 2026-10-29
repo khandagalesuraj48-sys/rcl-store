@@ -175,7 +175,17 @@
   .lines.boxes th { padding: 10px; font-size: 12px; } .lines.boxes td { padding: 8px; }
   .lines.boxes input { min-height: 40px; border-radius: 8px; }
   .lines.boxes .it { min-width: 320px; } .lines.boxes .q { width: 104px; } .lines.boxes .s { width: 100%; min-width: 160px; }
-  .lines.boxes [data-k="gst_pct"] { width: 76px; } .lines.boxes td:nth-child(2) { width: 34%; }
+  .lines.boxes [data-k="gst_pct"] { width: 76px; } .lines.boxes td:nth-child(3) { width: 30%; }
+  /* (29-10-2026) the item's code in its own column; a GRN's discount (a line's, the bill's), the PO's shortage, the bill's sums */
+  .rob.ic { min-width: 96px; font-weight: 600; color: #2A3540; white-space: nowrap; } td.ic { white-space: nowrap; font-weight: 600; }
+  .lines.boxes [data-k="disc"] { width: 100px; min-width: 0; } .lines.boxes select[data-k="disc_on"] { min-height: 40px; border-radius: 8px; width: 112px; }
+  .lines .short { color: #B54708; } .lines .over { color: var(--bad); font-weight: 600; }
+  .gfoot { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px 24px; margin-top: 14px; }
+  .gbill { display: flex; flex-wrap: wrap; gap: 12px 16px; } .gbill .field { margin: 0; width: 240px; } .gnote { margin: 0; max-width: 520px; }
+  .gsum { margin: 0 0 0 auto; min-width: 280px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-variant-numeric: tabular-nums; }
+  .gsum div { display: flex; justify-content: space-between; gap: 18px; padding: 3px 0; } .gsum dt { color: var(--muted); } .gsum dd { margin: 0; }
+  .gsum .sub dt { padding-left: 12px; font-size: 12.5px; } .gsum .sub dd { font-size: 12.5px; color: var(--muted); }
+  .gsum .gt { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 6px; font-size: 16px; } .gsum .gt dt { color: inherit; font-weight: 600; }
   .lines.boxes th.x, .lines.boxes td.x { width: 64px; text-align: center; }
   .rob { min-height: 40px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; background: #EEF1F4; color: #4A5763; min-width: 88px; font-variant-numeric: tabular-nums; }
   .rob.n { justify-content: flex-end; }
@@ -185,7 +195,8 @@
   /* the Items card narrower than the picture's (a laptop; the Store's own menu beside it): the boxes closer, the table still whole */
   .gcard.gitems { container-type: inline-size; }
   @container (max-width: 1400px) { .lines.boxes td { padding: 7px 5px; } .lines.boxes th { padding: 10px 6px; } .lines.boxes .it { min-width: 230px; } .lines.boxes .q { width: 88px; } .lines.boxes [data-k="gst_pct"] { width: 62px; }
-    .lines.boxes .s { min-width: 110px; } .rob { min-width: 74px; padding: 0 8px; } .lines.boxes th.x, .lines.boxes td.x { width: 52px; } }
+    .lines.boxes .s { min-width: 110px; } .rob { min-width: 74px; padding: 0 8px; } .lines.boxes th.x, .lines.boxes td.x { width: 52px; }
+    .lines.boxes [data-k="disc"] { width: 78px; } .lines.boxes select[data-k="disc_on"] { width: 100px; } .rob.ic { min-width: 80px; } .lines.boxes td:nth-child(3) { width: auto; } }
   /* (28-10-2026) the GRN list – after Show; each GRN a card: its own details once at the top, its materials under it */
   .glhead { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 10px; } .glhead h3 { margin: 0; font-size: 17px; } .glhead .count { margin: 0; }
   .grnc { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; overflow: hidden; background: #fff; }

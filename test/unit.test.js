@@ -402,7 +402,7 @@ test('(28-10-2026, his formats) the PO in the company\'s format: Disc. %, HSN, C
   // the server: a PO not approved is not taken in; poDecide – only one who approves, never his own, only a PO waiting
   const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
   assert.match(src, /if \(apprOf\(po\) !== 'Approved' && !\(cur && Number\(cur\.po_no\) === poNo\)\) throw fail\(409/);
-  assert.match(src, /filter\(p => p\.state !== 'Received' && p\.appr === 'Approved'\)/);
+  assert.match(src, /filter\(p => \(p\.state !== 'Received' && p\.appr === 'Approved'\) \|\| Number\(p\.no\) === ownPo\)/);      // (29-10-2026: a GRN being changed – its own PO too)
   assert.match(src, /'store_po\?no=eq\.' \+ no \+ '&status=eq\.Open&appr=eq\.Waiting'/);
 });
 
@@ -425,4 +425,88 @@ test('(29-10-2026) a Store User makes an entry only of today – the Store Admin
   for (const c of ["todayOnly(s, r.date, 'Requirement', cur ? String(cur.date).slice(0, 10) : '');", "todayOnly(s, p.date, 'Purchase order', cur ? String(cur.date).slice(0, 10) : '');", "todayOnly(s, g.head.date, 'GRN');", "todayOnly(s, date, 'Issue');", "todayOnly(s, g.head.date, 'Return');"]) assert.ok(src.includes(c), c);
   assert.match(page, /const entryDate = \(\) => ' type="date"' \+ \(backOk\(\) \? '' : ' min="' \+ today\(\) \+ '" max="' \+ today\(\) \+ '" readonly/);
   for (const id of ['rq_date', 'pu_date', 'gr_date', 'is_date', 'rt_date']) assert.match(page, new RegExp("inp\\('" + id + "', [^)]*today\\(\\), entryDate\\(\\)\\)"), id);
+});
+
+test('(29-10-2026, the review) the rig\'s switch never on Vercel; a page left open past midnight reads its lists and "today" again', () => {
+  const { todayOnly } = require('../api/work.js'), W = require('../lib/work.js'), t = W.today();
+  const back = new Date(t + 'T00:00:00Z'); back.setUTCDate(back.getUTCDate() - 2); const d2 = back.toISOString().slice(0, 10);
+  const was = [process.env.STORE_TODAY_RULE, process.env.VERCEL], put = (k, v) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
+  try {
+    put('STORE_TODAY_RULE', 'off'); put('VERCEL', undefined);
+    assert.doesNotThrow(() => todayOnly({ admin: false, super: false }, d2, 'GRN'), 'the local rig: off');
+    put('VERCEL', '1');
+    assert.throws(() => todayOnly({ admin: false, super: false }, d2, 'GRN'), /a Store User enters only today's entries/, 'on Vercel: never off');
+  } finally { put('STORE_TODAY_RULE', was[0]); put('VERCEL', was[1]); }
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  assert.match(page, /const today = \(\) => \(B && B\.today && B\._day === dayNow\(\) && B\.today\) \|\| dayNow\(\);/);
+  assert.match(page, /async function boot\(force\) \{ if \(!B \|\| force \|\| B\._day !== dayNow\(\)\) \{ B = await W\('boot'\); B\._day = dayNow\(\); lists\(\); \} return B; \}/);
+});
+
+test('(29-10-2026, "bill madh discount … kadhi basic war … kadhi gst war") a GRN\'s discount on a line and on the whole bill, each on the Basic or after GST, % or ₹; the stock\'s net rate with both deducted; the page works it out as the server', () => {
+  const G = (lines, x) => W.checkGrn(Object.assign({ date: back(0), supplier: 'AB Traders', lines: lines }, x || {}), ITEMS);
+  const L1 = { code: 'ITM-0001', qty: 10, rate: 100, gst_pct: 18 }, L2 = { code: 'ITM-0002', qty: 30, rate: 100, gst_pct: 5 };
+  const pick = l => [l.basic, l.disc, l.bill_disc, l.taxable, l.gst, l.gross, l.net_rate];
+  // a line's 10% on its Basic: off the taxable, GST on what is left
+  let g = G([Object.assign({}, L1, { disc: '10%' })]);
+  assert.deepStrictEqual(pick(g.lines[0]), [1000, 100, 0, 900, 162, 1062, 90]);
+  assert.deepStrictEqual([g.lines[0].disc_pct, g.lines[0].disc_on, g.head.basic, g.head.disc, g.head.gross], [10, 'basic', 1000, 100, 1062]);
+  // a line's ₹500 after GST: the GST as billed, only what is paid less; its net rate (1000 − 500) ÷ 10
+  g = G([Object.assign({}, L1, { disc: '500', disc_on: 'gst' })]);
+  assert.deepStrictEqual(pick(g.lines[0]), [1000, 500, 0, 1000, 180, 680, 50]);
+  assert.deepStrictEqual([g.lines[0].disc_pct, g.lines[0].disc_on], [null, 'gst']);
+  // the bill's 10% on the Basic: shared by the lines' taxable (100 + 300), GST on each line's rest
+  g = G([L1, L2], { bill_disc: '10%' });
+  assert.deepStrictEqual(g.lines.map(pick), [[1000, 0, 100, 900, 162, 1062, 90], [3000, 0, 300, 2700, 135, 2835, 90]]);
+  assert.deepStrictEqual([g.head.basic, g.head.disc, g.head.bill_disc, g.head.bill_disc_pct, g.head.bill_disc_on, g.head.taxable, g.head.gst, g.head.gross], [4000, 400, 400, 10, 'basic', 3600, 297, 3897]);
+  // the bill's ₹100 after GST: shared by the lines' amounts (1180 : 3150), to the paisa – all of it
+  g = G([L1, L2], { bill_disc: '₹ 100', bill_disc_on: 'gst' });
+  assert.deepStrictEqual(g.lines.map(l => [l.bill_disc, l.gross, l.net_rate]), [[27.25, 1152.75, 97.275], [72.75, 3077.25, 97.575]]);
+  assert.deepStrictEqual([g.head.taxable, g.head.gst, g.head.gross, g.head.disc, g.head.bill_disc_pct], [4000, 330, 4230, 100, null]);
+  // no discount: every figure as before – the net rate IS the basic rate
+  g = G([{ code: 'ITM-0001', qty: '2.345', rate: '12.37', gst_pct: 18 }]);      // (29.01 ÷ 2.345 would be 12.371 – the rate stays 12.37)
+  assert.deepStrictEqual([g.lines[0].taxable, g.lines[0].disc, g.lines[0].bill_disc, g.lines[0].net_rate, g.lines[0].disc_on, g.head.disc, g.head.bill_disc_on], [29.01, 0, 0, 12.37, null, 0, null]);
+  // what is refused
+  throwsMsg(() => G([Object.assign({}, L1, { disc: '100%' })]), /must be below 100 %/);
+  throwsMsg(() => G([Object.assign({}, L1, { disc: 'ten' })]), /is not a number \(e\.g\. 10% or 500\)/);
+  throwsMsg(() => G([Object.assign({}, L1, { disc: '1500' })]), /is more than its Basic amount/);
+  throwsMsg(() => G([L1], { bill_disc: '5000', bill_disc_on: 'gst' }), /The discount of the bill .* is more than its amount with GST/);
+  // the page's money (public/work.js grnMoney) = the server's, case by case (a line's and the bill's, each kind)
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8'), at = page.indexOf('  function grnMoney(rows, bill) {'), end = page.indexOf('  // (grnMoney:end)');
+  assert.ok(at > 0 && end > at, 'grnMoney on the page');
+  const grnMoney = new Function(page.slice(at, end) + '\nreturn grnMoney;')();
+  const cases = [[[Object.assign({}, L1, { disc: '10%' })], {}], [[Object.assign({}, L1, { disc: '500', disc_on: 'gst' })], {}], [[L1, L2], { bill_disc: '10%' }], [[L1, L2], { bill_disc: '100', bill_disc_on: 'gst' }],
+    [[Object.assign({}, L1, { disc: '5%' }), Object.assign({}, L2, { disc: '250', disc_on: 'gst' })], { bill_disc: '2%', bill_disc_on: 'gst' }], [[Object.assign({}, L1, { disc: '7.5%', disc_on: 'gst' }), { code: 'ITM-0002', qty: '7.25', rate: '12.35', gst_pct: 28 }], { bill_disc: '33.33' }]];
+  for (const [ls, b] of cases) {
+    const sv = G(ls, b), pg = grnMoney(ls, { disc: b.bill_disc, on: b.bill_disc_on });
+    assert.deepStrictEqual([pg.basic, pg.disc, pg.bill_disc, pg.taxable, pg.gst, pg.gross], [sv.head.basic, sv.head.disc, sv.head.bill_disc, sv.head.taxable, sv.head.gst, W.r2(sv.head.gross - sv.head.tcs)], JSON.stringify(b));
+    assert.deepStrictEqual(pg.lines.map(l => [l.basic, l.disc, l.bill_disc, l.taxable, l.gst, l.gross]), sv.lines.map(l => [l.basic, l.disc, l.bill_disc, l.taxable, l.gst, l.gross]), JSON.stringify(b));
+  }
+});
+
+test('(29-10-2026) the GRN\'s discounts need the database\'s step 6 – it only adds; the form: a line\'s discount and the bill\'s, the PO\'s Qty / received before / shortage, the code in its own column; the register\'s new columns', () => {
+  const sql = fs.readFileSync(path.join(root, 'sql', 'store_step6_grn_discount.sql'), 'utf8'), body = sql.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.ok(!/\bdrop\s+(table|column|function|view)\b|\btruncate\b/i.test(body), 'nothing dropped');
+  assert.strictEqual((body.match(/alter table public\.store_grn(_lines)? add column if not exists /g) || []).length, 11);
+  assert.match(body, /'GRN', g\.no, coalesce\(l\.net_rate, l\.rate\), 'GRN:' \|\| l\.id/);
+  assert.strictEqual((body.match(/delete from public\.store_grn_lines where grn_no = v_no;/g) || []).length, 1, 'only the lines of the GRN being changed – as step 3');
+  for (const f of ['store_grn_put(bigint, jsonb, jsonb, text, text)', 'store_grn_new(jsonb, jsonb, text, text, text)']) assert.ok(body.includes('grant execute on function public.' + f + ' to service_role;'), f);
+  const step3 = fs.readFileSync(path.join(root, 'sql', 'store_step3_grn_import.sql'), 'utf8');
+  assert.ok(step3.includes('delete from public.store_grn_lines where grn_no = v_no;'), 'the same as step 3');
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  assert.match(src, /if \(\(g\.head\.disc > 0 \|\| g\.lines\.some\(l => l\.disc > 0\)\) && !\(await step6On\(s\.site\)\)\) throw fail\(400, STEP6, 'sql'\);/);
+  assert.match(src, /return \{ next: next, step4: on, step6: s6 \};/);
+  assert.match(src, /const rec = await receivedOf\(s\.site, pos\.map\(p => p\.no\), gno \|\| undefined\);/, 'a GRN changed: what came on its PO before it');
+  // the form
+  assert.match(page, /const s6 = !!\(nx && nx\.step6\);/);
+  assert.ok(page.includes("{ k: 'disc', h: 'Disc. (% or ₹)', type: 'text', ph: '10% / 500' }, { k: 'disc_on', h: 'Disc. on', type: 'sel', opts: [['basic', 'Basic'], ['gst', 'After GST']] }"));
+  for (const h of ["h: 'PO Qty'", "h: 'Received before'", "h: 'Shortage'"]) assert.ok(page.includes(h), h);
+  assert.ok(page.includes("bill_disc: s6 && String(bill.disc).trim() ? String(bill.disc).trim() : undefined, bill_disc_on: s6 && String(bill.disc).trim() ? bill.on : undefined,"));
+  assert.ok(page.includes("s6 && String(l.disc || '').trim() ? { disc: String(l.disc).trim(), disc_on: l.disc_on === 'gst' ? 'gst' : 'basic' } : {}"));
+  assert.match(page, /disc: s6 && Number\(l\.disc_pct\) \? Number\(l\.disc_pct\) \+ '%' : ''/, "a PO line's Disc. % comes with it");
+  assert.match(page, /codeCol \? \(bx \? '<td><div class="rob ic">'/, 'the code in its own column (every form)');
+  // the register: his columns, then the code, the discount, the net rate
+  const R = require('../lib/sreport.js');
+  const reg = R.grnRegister([{ no: 5, ref: '5', date: back(0), supplier: 'AB', tcs: 0, lines: [{ line: 1, code: 'ITM-0001', name: 'Cement', qty: 10, unit: 'Bag', rate: 100, taxable: 900, gst: 162, gross: 1062, disc: 100, bill_disc: 0, net_rate: 90 }] }], back(1), back(0));
+  assert.deepStrictEqual(reg.cols.slice(-4).map(c => c.h), ['PO No', 'Item Code', 'Discount ₹', 'Net Rate']);
+  assert.deepStrictEqual(reg.rows[0].slice(-3), ['ITM-0001', 100, 90]);
 });
