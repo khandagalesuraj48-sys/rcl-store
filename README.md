@@ -164,6 +164,27 @@ and `test/work.browser.test.js` 33/33 with `STORE_TODAY_RULE=off` (only the rig 
 the new day (`boot()` / `dayNow()`), so a Store User's date is the new day's (before: yesterday's, refused); `STORE_TODAY_RULE=off` is never
 obeyed on Vercel (`process.env.VERCEL`).
 
+## A GRN's discounts, the PO's shortage, the item's code in its own column (step 6 – `sql/store_step6_grn_discount.sql`, run once in EVERY site's Supabase after step 5; 29-10-2026)
+Asked (his GRN picture): "iteam code ani name weg wegle de … bill madh discount pn kadhi kdhi dettat mg to kadhi basic war asu shakto tr
+kadhi gst war … mala pefect hawa … material ch shortage pn yet re mhanje po qty ste 10 ania ahe 5". His answers: the code apart in every
+form; a discount on a line AND on the whole bill; the stock's rate with both deducted; "PO Qty, आलेले, Shortage दिसावे" (the PO stays open).
+* **The item's code** in its own column before the item's name – every form's lines (requirement, PO, GRN, issue, return), the GRN's card,
+  its print and the GRN register (Excel: after his columns – Item Code, Discount ₹, Net Rate).
+* **A discount** typed "10%" or "500" (₹): on a line (its own column and "Disc. on": Basic / After GST) and on the whole bill (below the
+  items, the same choice). **On the Basic** – off the taxable before GST (a line's first, then the bill's shared by the lines' taxable);
+  **after GST** – the GST stays as billed, only what is paid is less (a line's on its own amount, then the bill's shared by the lines'
+  amounts; to the paisa – what is left goes to the biggest). The form shows Basic, Discount (of it on the bill), Taxable, GST, TCS, Gross –
+  worked out as the server does (`grnMoney` = `checkGrn`; the unit test compares them).
+* **The stock's rate** of a GRN line is its **net rate**: (taxable − its after-GST discounts) ÷ qty – what was really paid, without GST
+  (`store_moves`); a line without a discount keeps its basic rate exactly. A PO line's Disc. % comes into the GRN with it.
+* **Against a PO:** each line shows the PO's Qty, what was received before (a GRN being changed: before it) and the **Shortage** after
+  this GRN (red; more than the PO: "+…", asked as before). The PO stays open for the rest.
+* **Without step 6** a discount is not offered (a note says what to run) and one sent is refused – a GRN as before is saved as before.
+* **Step 6 last:** it puts in again the GRN's two saves (`store_grn_put`, `store_grn_new`) and the view `store_moves`. If step 2, 3 or 4
+  is ever run again after it, run step 6 again after that.
+Tests: unit (the money case by case, the page = the server, the SQL only adds, the register's columns); rig `test/grndisc.test.js`
+(PART=a without step 6, PART=b with it – the database, the stock's rate, the form in a browser, its card and the PO's columns).
+
 ## Parts
 | Part | File |
 |---|---|

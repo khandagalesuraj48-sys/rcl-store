@@ -77,13 +77,13 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
       ref: (document.getElementById('gr_ref') || {}).value, refAt: !!document.querySelector('#gr_form .ghead .gact #gr_ref') }));
     ok('the GRN form of his picture: GRN Details (Clear, GRN Date at the top right; PO / Supplier / Challan No; Invoice No / Invoice Date / Vehicle No / TCS; the Remark box), Items (+ Add Row; one row, its bin; "Search item…")',
       JSON.stringify(st.heads) === '["GRN Details","Items"]' && st.date && st.clear && JSON.stringify(st.grid) === JSON.stringify(['Against PO', 'Supplier *', 'Challan No', 'Invoice No', 'Invoice Date', 'Vehicle No', 'TCS ₹']) && st.rem === 'TEXTAREA' && st.add && st.rows === 1 && st.bins === 1 && st.ph === 'Search item…' &&
-      JSON.stringify(st.th) === JSON.stringify(['#', 'Item *', 'Received Qty *', 'Unit', 'Basic Rate ₹', 'GST %', 'Taxable', 'GST', 'Gross', 'Remark', 'Action']), st);
+      JSON.stringify(st.th) === JSON.stringify(['#', 'Item Code', 'Item *', 'Received Qty *', 'Unit', 'Basic Rate ₹'].concat(st.th.indexOf('Disc. (% or ₹)') > -1 ? ['Disc. (% or ₹)', 'Disc. on'] : []).concat(['GST %', 'Taxable', 'GST', 'Gross', 'Remark', 'Action'])), st);      // (29-10-2026: the item's code in its own column; with step 6 a line's discount)
     ok('   (28-10-2026) its GRN No at the top right: the next number by itself (' + st.ref + ')', st.refAt && /^\d+$/.test(st.ref || ''), st);
     await set(K, 'gr_sup', 'Shree Auto Spares'); await set(K, 'gr_inv', 'SA-77'); await set(K, 'gr_veh', 'mh12 xy 4455');
     await line(K, 'gr_lines', 0, 'item', label(OIL)); await line(K, 'gr_lines', 0, 'qty', '6'); await line(K, 'gr_lines', 0, 'rate', '335');
     await K.click('#gr_add'); await wait(300);
     st = await K.evaluate(() => ({ rows: document.querySelectorAll('#gr_lines tbody tr[data-i]').length, focus: document.activeElement && document.activeElement.dataset.k, row: document.activeElement && document.activeElement.closest('tr').dataset.i, unit: [...document.querySelectorAll('#gr_lines tr[data-i] .rob')].map(x => x.textContent) }));
-    ok('   + Add Row: a second row, the cursor in its Item box; the unit is the item\'s (Item Master), a row without an item –', st.rows === 2 && st.focus === 'item' && st.row === '1' && st.unit[0] === sql('rcl', "select unit from items where code = '" + OIL + "'") && st.unit[4] === '–', st);
+    ok('   + Add Row: a second row, the cursor in its Item box; the unit is the item\'s (Item Master), a row without an item –', st.rows === 2 && st.focus === 'item' && st.row === '1' && st.unit[0] === OIL && st.unit[1] === sql('rcl', "select unit from items where code = '" + OIL + "'") && st.unit[5] === '–' && st.unit[6] === '–', st);      // (29-10-2026: each row its code's box first)
     await K.evaluate(() => document.querySelector('#gr_lines tr[data-i="1"] .binb').click()); await wait(300);
     ok('   its bin: the row taken out', await K.evaluate(() => document.querySelectorAll('#gr_lines tbody tr[data-i]').length) === 1);
     await K.click('#gr_clr'); await wait(400);

@@ -138,6 +138,9 @@ const prefixOf = (pp, h, site) => pp.prefix || [W.initialsOf(h && h.company), si
 // is the Store's step 5 (the PO's own fields, its approval) in this site's database?
 const step5On = site => kept(site, 'step5', async () => { try { await db(site, 'GET', 'store_po?select=appr&limit=1'); return true; } catch (e) { if (e && e.code === 'notinstalled') throw e; return false; } });
 const STEP5 = 'The purchase order\'s Credit Period, Site Contact, Shipping Address, Freight, Load / Unload and its approval need the Store\'s database step 5 at this site: the Admin runs sql/store_step5_po_format.sql once in Supabase → SQL Editor (in every site). Until then a PO is saved without them – leave them empty.';
+// (29-10-2026) is the Store's step 6 (the GRN's discounts, a line's net rate) in this site's database?
+const step6On = site => kept(site, 'step6', async () => { try { await db(site, 'GET', 'store_grn_lines?select=net_rate&limit=1'); return true; } catch (e) { if (e && e.code === 'notinstalled') throw e; return false; } });
+const STEP6 = 'A discount on a GRN (on a line or on the whole bill) needs the Store\'s database step 6 at this site: the Admin runs sql/store_step6_grn_discount.sql once in Supabase → SQL Editor (in every site). Until then a GRN is saved without a discount – leave it empty.';
 // who approves the POs of a site (the Portal tells: store_settings 'approvers' → po)
 const poPeople = async site => { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.approvers')) || [])[0]; return W.poApprovers(r ? r.value : null); };
 const apprOf = p => p.appr || 'Approved';      // a PO made before step 5: as approved
@@ -403,16 +406,20 @@ const ACTIONS = {
     return { from: p.from, to: p.to, grns: g.sort((a, b) => b.date.localeCompare(a.date) || R.refCmp(b, a)).map(r => Object.assign({}, r, { ref: R.refOf(r), lines: sortLines(r.store_grn_lines), store_grn_lines: undefined })) };
   },
   // this site's open POs with what is still to come (a GRN against a PO)
-  async poOpen(s) {
+  async poOpen(s, x) {
     need(s, 'grn', 'Edit');
-    const pos = await dbAll(s.site, 'store_po?select=*&status=eq.Open', 'no'), rec = await receivedOf(s.site, pos.map(p => p.no));
-    return { pos: pos.sort(byNo).map(p => poView(p, rec)).filter(p => p.state !== 'Received' && p.appr === 'Approved') };      // (28-10-2026) a PO not approved yet: its material is not taken in on it
+    // (29-10-2026, "PO Qty, आलेले, Shortage दिसावे") a GRN being changed (x.grn): its own PO too, and what came on it BEFORE that GRN
+    const gno = x && x.grn ? noOf(x.grn) : null, own = gno ? ((await db(s.site, 'GET', 'store_grn?select=po_no&no=eq.' + gno)) || [])[0] : null, ownPo = own && own.po_no ? Number(own.po_no) : null;
+    const pos = await dbAll(s.site, 'store_po?select=*&status=eq.Open', 'no');
+    if (ownPo && !pos.some(p => Number(p.no) === ownPo)) { const p = ((await db(s.site, 'GET', 'store_po?select=*&no=eq.' + ownPo)) || [])[0]; if (p) pos.push(p); }
+    const rec = await receivedOf(s.site, pos.map(p => p.no), gno || undefined);
+    return { pos: pos.sort(byNo).map(p => poView(p, rec)).filter(p => (p.state !== 'Received' && p.appr === 'Approved') || Number(p.no) === ownPo) };      // (28-10-2026) a PO not approved yet: its material is not taken in on it
   },
   // (28-10-2026) the new GRN's form: the next GRN No (it can be changed by hand where step 4 is run)
   async grnNext(s) {
     need(s, 'grn', 'Edit');
-    const [next, on] = await Promise.all([nextGrn(s.site), step4On(s.site)]);
-    return { next: next, step4: on };
+    const [next, on, s6] = await Promise.all([nextGrn(s.site), step4On(s.site), step6On(s.site)]);
+    return { next: next, step4: on, step6: s6 };
   },
   async grnSave(s, x) {
     const no = x.no ? noOf(x.no) : null;
@@ -428,6 +435,8 @@ const ACTIONS = {
     }
     let g; try { g = W.checkGrn(x.grn, items, { po: po, had: new Set(cur ? (cur.store_grn_lines || []).map(l => l.code) : []) }); } catch (e) { userErr(e); }
     todayOnly(s, g.head.date, 'GRN');
+    // (29-10-2026) a discount needs step 6 (else it would be lost)
+    if ((g.head.disc > 0 || g.lines.some(l => l.disc > 0)) && !(await step6On(s.site))) throw fail(400, STEP6, 'sql');
     g.head.supplier = party(g.head.supplier, (await names(s.site)).suppliers.concat(po ? [po.vendor] : []), x.confirmParty, 'supplier');
     if (po && !x.confirmOver) {      // more than the PO still has to come: asked first
       const rec = await receivedOf(s.site, [poNo], no), over = [];
