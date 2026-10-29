@@ -20,6 +20,7 @@ const G = require('../lib/grnimport');
 const AI = require('../lib/ai');
 const AL = require('../lib/ailook');
 const { codesAll, nextCode, codeOnce } = require('../lib/itemcodes');
+const ML = require('../lib/mlog');
 const { r2, r3, dmy } = W;
 const enc = encodeURIComponent;
 
@@ -111,6 +112,11 @@ function said(e, items) {
   if ((x = /^STORE_OVER_ORDER (\d+)\|(.*)\|(.*)\|(.*)$/.exec(m))) throw fail(409, 'Requirement ' + x[1] + ', ' + x[2] + ': ordered ' + r3(x[4]) + ', asked ' + r3(x[3]) + ' – never more than asked. Nothing was saved.', 'overorder');
   if ((x = /^STORE_REQ_NOT_APPROVED (\d+)/.exec(m))) throw fail(409, 'Requirement ' + x[1] + ' is not approved (or no longer open) – it cannot be ordered.', 'notapproved');
   if (/^STORE_NO_LINES/.test(m)) throw fail(400, 'Add at least one item.', 'field');
+  // (29-10-2026, the Store's step 8) a requirement in a purchase order; a paper changed meanwhile; a PO whose material came
+  if ((x = /^STORE_REQ_ORDERED (\d+)\|(\d+)/.exec(m))) throw fail(409, 'Requirement ' + x[1] + ' is in PO ' + x[2] + ' – delete PO ' + x[2] + ' first (HO Purchase), then change or delete the requirement.', 'ordered', { po: Number(x[2]) });
+  if ((x = /^STORE_REQ_STATE (\d+)\|(.*)$/.exec(m))) throw fail(409, 'Requirement ' + x[1] + ' is ' + String(x[2]).toLowerCase() + ' – it is not changed.', 'decided');
+  if (/^STORE_CHANGED/.test(m)) throw fail(409, 'It was changed by someone else just now – refresh and look.', 'decided');
+  if ((x = /^STORE_PO_RECEIVED (\d+)/.exec(m))) throw fail(409, 'Material of PO ' + x[1] + ' has come (a GRN has it) – it cannot be deleted. Close it (the rest will not come).', 'received');
   if (/^STORE_GONE/.test(m)) throw gone('This paper');
   throw fail(409, m, 'rule');
 }
@@ -226,14 +232,45 @@ async function siteFor(s, x) {
   if (site !== s.site) { buyerOnly(s); if (!(await storeSites()).some(y => y.code === site)) throw fail(400, 'No such site (' + site + ').', 'site'); }
   return site;
 }
-// the heading of a PO's paper: the site's company (Mechanical's list of sites and companies, in the first site's database)
-async function headingOf(site) {
+/* (29-10-2026) the Store's step 8 at this site: the requirement's own Indent No. (each financial year and letter from 0001), its contact,
+ * its maintenance log book; a requirement changed after its approval, deleted; a PO deleted */
+const step8On = site => kept(site, 'step8', () => colOn(site, 'store_req?select=indent_no&limit=1'));
+const STEP8 = 'This needs the Store\'s database step 8 at this site: the Admin runs sql/store_step8_req_indent.sql once in Supabase → SQL Editor (in every site). Until then a requirement keeps its number and is changed only while nobody approved it.';
+/* (29-10-2026, "mala te kahi save karayla nko sangu … mi agodar sagle save keley") THE PAPERS' HEADING – as the Super Admin gave it in the
+ * Portal: the site's company (name, address, GSTIN, PAN, logo) and the site's own address and contact. It comes with every ticket of the
+ * Portal (api/sso – each sign-in and its renewal every 10 minutes) and is kept in the site's settings ("portal_paper") for another
+ * site's papers (HO Purchase). A site nobody signed in to since: Mechanical's list of sites, as before. */
+const portalPaper = site => kept(site, 'pportal', async () => { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.portal_paper')) || [])[0]; return r && r.value && typeof r.value === 'object' ? r.value : null; });
+// the heading of a site's papers: the Portal's; else the site's company in Mechanical's list of sites and companies (the first site's database)
+async function headingOf(site, s) {
   try {
+    let p = s && s.site === site && s.info && s.info.paper && typeof s.info.paper === 'object' ? s.info.paper : null;
+    if (!p) { try { p = await portalPaper(site); } catch (e) { p = null; } }
+    if (p && (p.company || (p.site && (p.site.address || p.site.contact || p.site.phone)))) {
+      const co = p.company || {}, st = p.site || {};
+      return { site: st.name || site, company: co.name || '', address: co.address || '', gstin: co.gstin || '', pan: co.pan || '', logo: /^(https:\/\/|data:image\/)/.test(String(co.logo || '')) ? co.logo : '',
+        siteAddr: st.address || '', siteContact: st.contact || '', sitePhone: st.phone || '' };
+    }
     const home = (await registry()).find(x => x.home); if (!home) return null;
     const st = ((await db(home.code, 'GET', 'rcl_sites?select=code,name,company_id&code=eq.' + enc(site))) || [])[0];
     const co = st && st.company_id ? ((await db(home.code, 'GET', 'rcl_companies?select=id,name,address,gstin,pan,logo&id=eq.' + enc(st.company_id))) || [])[0] : null;
     return { site: st ? st.name : site, company: co ? co.name : '', address: co ? co.address || '' : '', gstin: co ? co.gstin || '' : '', pan: co ? co.pan || '' : '', logo: co && /^(https:\/\/|data:image\/)/.test(String(co.logo || '')) ? co.logo : '' };
   } catch (e) { return null; }
+}
+// the heading a paper prints: the company's, the Papers' e-mail / contact / CIN / web, the site's address (the Portal's; else the Papers')
+const headOut = (h, pp) => Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '', site_address: (h && h.siteAddr) || pp.site_address || pp.ship_to || '' });
+/* (29-10-2026, "jewa purchase order banwali jail or requirement banwali jail tewa contact name ani number je default ahe te auto yetil but
+ * user … edit pn karta yeil") what a new requirement / PO starts with: the site's contact and address from the Portal (Sites); not given
+ * there: the Store's own Papers settings, as before. The person changes them in the form. */
+const startOf = (h, pp) => ({ contact_name: (h && h.siteContact) || '', contact_phone: (h && h.sitePhone) || '', ship_to: (h && h.siteAddr) || pp.ship_to || '',
+  site_contact: [h && h.siteContact, h && h.sitePhone].filter(Boolean).join(' – ') || pp.site_contact || '', terms: pp.terms || '' });
+// the POs (not cancelled) that have a requirement: req no → [PO nos]
+function posOfReq(pos) { const o = {}; (pos || []).forEach(p => { if (p.status === 'Cancelled') return; (p.lines || []).forEach(l => { const n = Number(l.req_no); if (n) { o[n] = o[n] || []; if (o[n].indexOf(p.no) === -1) o[n].push(p.no); } }); }); return o; }
+// (29-10-2026) a requirement's maintenance log book, attached when it is made / changed: up to which date it is written, how many bills
+async function logbookOf(site, s, forText) {
+  const m = (await machinery(site)).find(y => y.no === forText); if (!m) return null;
+  const i = await ML.infoOf(dbAll, site, m.no);
+  return i.bills ? { no: m.no, upto: i.upto, bills: i.bills, at: new Date().toISOString(), by: s.name || s.email } : null;
 }
 const brief = i => ({ code: i.code, name: i.name, unit: i.unit, category: i.category, hsn: i.hsn || '', gst_pct: i.gst_pct, min_stock: i.min_stock, status: i.status });
 
@@ -245,12 +282,13 @@ const ACTIONS = {
   },
   /* ---------- what the pages need to start ---------- */
   async boot(s) {
-    const [items, st, mach, lv, nm] = await Promise.all([itemsOf(s.site), stockOn(s.site), machinery(s.site), levels(s.site), names(s.site)]);
+    const [items, st, mach, lv, nm, h, pp, s8] = await Promise.all([itemsOf(s.site), stockOn(s.site), machinery(s.site), levels(s.site), names(s.site), headingOf(s.site, s), papersOf(s.site), step8On(s.site).catch(() => false)]);
     const stock = {}, avg = {}; st.forEach(r => { stock[r.code] = r3(num(r.qty)); avg[r.code] = r2(avgOf(r)); });
     return { site: s.site, today: W.today(), me: { email: s.email, name: s.name, admin: s.admin, super: s.super, pages: s.pages, buyer: isBuyer(s) },
       items: Object.values(items).map(brief).sort((a, b) => a.name.localeCompare(b.name)), stock: stock, avg: avg, machinery: mach, names: nm,
       levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })), myLevels: lv.filter(l => l.people.some(p => p.email === String(s.email).toLowerCase())).map(l => l.level),
-      kinds: { for: W.FOR_KINDS, to: W.TO_KINDS, sides: W.SIDES } };
+      kinds: { for: W.FOR_KINDS, to: W.TO_KINDS, sides: W.SIDES },
+      start: startOf(h, pp), step8: s8 };      // (29-10-2026) a new requirement's contact; step 8 at this site
   },
   async dash(s) {
     const t = W.today(), out = { today: t };
@@ -274,22 +312,45 @@ const ACTIONS = {
     if (!can(s, 'req', 'View') && !isBuyer(s) && !lv.some(l => l.people.some(p => p.email === String(s.email).toLowerCase()))) need(s, 'req', 'View');
     const [reqs, pos] = await Promise.all([dbAll(s.site, 'store_req?select=*', 'no'), dbAll(s.site, 'store_po?select=no,status,lines', 'no')]);
     const ordered = orderedOf(pos);
-    const [h, pp, s7] = await Promise.all([headingOf(s.site), papersOf(s.site), step7On(s.site)]), pre = prefixOf(pp, h, s.site);
-    return { reqs: reqs.sort(byNo).map(r => Object.assign(reqView(r, ordered, lv, s), { ref: W.refOf(pre, 'PR', r.date, r.no), photos: phList(r.photos) })), levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })),
-      heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '', site_address: pp.site_address || pp.ship_to || '' }),      // (28-10-2026) for its paper (the Purchase Requisition Form); (29-10-2026) the site's address – else the Shipping Address
-      step7: s7 };      // (29-10-2026) photos can be added (step 7 at this site)
+    const [h, pp, s7, s8] = await Promise.all([headingOf(s.site, s), papersOf(s.site), step7On(s.site), step8On(s.site)]), inPo = posOfReq(pos);
+    const mayEd = can(s, 'req', 'Edit');
+    return { reqs: reqs.sort(byNo).map(r => { const mine = String(r.created_by || '').toLowerCase() === String(s.email).toLowerCase(), po = inPo[r.no] || [], own = mayEd && (mine || s.admin);
+      return Object.assign(reqView(r, ordered, lv, s), { ref: W.indentOf(r, h, s.site), photos: phList(r.photos), pos: po, logbook: r.logbook || null, contact_name: r.contact_name || '', contact_phone: r.contact_phone || '',
+        // (29-10-2026, "ekda banwaleli requirement edit delet krta yeil … approval nantr … jr requirement chi PO banli aahe … adhi PO delet") who made
+        // it (or the Store Admin): Change – also when approved or rejected (it is approved again), Delete; not while a PO has it
+        edit: own && !po.length && (s8 ? ['Pending', 'Approved', 'Rejected'].indexOf(r.status) > -1 : r.status === 'Pending' && !(r.approvals || []).length),
+        del: own && !po.length && s8, attach: own && ['Closed', 'Cancelled'].indexOf(r.status) === -1 }); }),
+      levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })),
+      heading: headOut(h, pp),      // (28-10-2026) for its paper (the Purchase Requisition Form); (29-10-2026) the Portal's heading and the site's address
+      step7: s7, step8: s8, start: startOf(h, pp) };      // (29-10-2026) photos can be added (step 7); the Indent No., contact, log book (step 8)
   },
   async reqSave(s, x) {
     need(s, 'req', 'Edit');
-    const items = await itemsOf(s.site), mach = await machinery(s.site), no = x.no ? noOf(x.no) : null;
-    let cur = null;
+    const items = await itemsOf(s.site), mach = await machinery(s.site), no = x.no ? noOf(x.no) : null, s8 = await step8On(s.site);
+    let cur = null, again = false;
     if (no) {
       cur = ((await db(s.site, 'GET', 'store_req?select=*&no=eq.' + no)) || [])[0]; if (!cur) throw gone('Requirement ' + no);
       if (String(cur.created_by).toLowerCase() !== String(s.email).toLowerCase() && !s.admin) throw fail(403, 'Only who made a requirement (or the Store Admin) changes it.', 'admin');
-      if (cur.status !== 'Pending' || (cur.approvals || []).length) throw fail(409, 'Requirement ' + no + ' is already ' + (cur.status === 'Pending' ? 'approved at a level' : cur.status.toLowerCase()) + ' – it cannot be changed now. Cancel it and make a new one.', 'decided');
+      if (s8) {      // (29-10-2026) also when approved or rejected – then it is approved again; never while a PO has it
+        if (['Pending', 'Approved', 'Rejected'].indexOf(cur.status) === -1) throw fail(409, 'Requirement ' + no + ' is ' + String(cur.status).toLowerCase() + ' – it is not changed.', 'decided');
+        const po = posOfReq(await dbAll(s.site, 'store_po?select=no,status,lines', 'no'))[no] || [];
+        if (po.length) throw fail(409, 'Requirement ' + no + ' is in PO ' + po.join(', ') + ' – delete PO ' + po.join(', ') + ' first (HO Purchase), then change the requirement.', 'ordered', { po: po });
+        again = cur.status !== 'Pending' || (cur.approvals || []).length > 0;
+      } else if (cur.status !== 'Pending' || (cur.approvals || []).length) throw fail(409, 'Requirement ' + no + ' is already ' + (cur.status === 'Pending' ? 'approved at a level' : cur.status.toLowerCase()) + ' – it cannot be changed now. Cancel it and make a new one.', 'decided');
     }
     let r; try { r = W.checkReq(x.req, items, { machinery: mach, had: new Set(cur ? (cur.lines || []).map(l => l.code) : []) }); } catch (e) { userErr(e); }
     todayOnly(s, r.date, 'Requirement', cur ? String(cur.date).slice(0, 10) : '');
+    if (!s8) { delete r.contact_name; delete r.contact_phone; }      // (kept only with step 8 – the page asks for them only then)
+    /* (29-10-2026) its maintenance log book (a machinery's requirement – "auto requirement madhe attach hoil … jr nasel karaych tr te hi
+     * option"): a new one gets it by itself (as it is written now – up to its last bill) unless false is sent; a change: true = attached
+     * (it keeps the one it has for the same machinery), false = taken off, not sent (an older page / app) = as it was */
+    let lb;
+    if (s8) {
+      const same = cur && cur.logbook && cur.logbook.no === r.for_text ? cur.logbook : null;
+      if (r.for_kind !== 'Machinery' || x.logbook === false) lb = null;
+      else if (x.logbook === true || !cur) lb = same || await logbookOf(s.site, s, r.for_text);
+      else lb = same;
+    }
     // (29-10-2026) its photos: the list sent (none sent – an older page: as they are); before step 7 only an empty list is taken
     let ph = null;
     if (x.photos !== undefined && x.photos !== null) {
@@ -303,6 +364,14 @@ const ACTIONS = {
         ph = ph.concat(more);
       }
     }
+    if (no && s8) {      // (step 8) in the database, at one time with the purchase orders: never while a PO has it
+      const row = Object.assign({}, r, ph !== null ? { photos: ph } : {}, lb !== undefined ? { logbook: lb } : {});
+      if (again) { const level = W.nextLevel(await levels(s.site), 0, cur.created_by); Object.assign(row, { status: level ? 'Pending' : 'Approved', level: level, approvals: [] }); }
+      const out = await rpc(s.site, 'store_req_change', { p_no: no, p_at: cur.updated_at, p_row: row, p_by: s.email }).catch(e => said(e, items));
+      await activity(s.site, s.email, 'Requirement changed', 'REQ ' + no, Object.assign({ lines: r.lines.length }, ph !== null ? { photos: ph.length } : {}, lb !== undefined ? { logbook: lb ? lb.upto : null } : {},
+        again ? { approvedAgain: true, was: cur.status, approvals: (cur.approvals || []).map(a => a.name + (a.ok ? ' approved' : ' rejected') + ' (level ' + a.level + ')') } : {}));
+      return { ok: true, no: no, status: out && out.status, level: out && out.level, again: again };
+    }
     if (no) {
       const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&status=eq.Pending&updated_at=eq.' + enc(cur.updated_at), Object.assign({}, r, ph !== null ? { photos: ph } : {}, { updated_by: s.email }), 'return=representation')) || [])[0];
       if (!out) throw fail(409, 'Requirement ' + no + ' was changed or decided by someone else just now – refresh and look.', 'decided');
@@ -310,13 +379,16 @@ const ACTIONS = {
       return { ok: true, no: no, status: out.status, level: out.level };
     }
     const lv = await levels(s.site), level = W.nextLevel(lv, 0, s.email);
-    const row = Object.assign({}, r, { status: level ? 'Pending' : 'Approved', level: level, approvals: [] });
+    const row = Object.assign({}, r, { status: level ? 'Pending' : 'Approved', level: level, approvals: [] }, s8 && lb ? { logbook: lb } : {});
     const n = await rpc(s.site, 'store_req_put', { p_row: row, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
     // (the photos: on the row just made – a second write; if it fails the requirement stays saved and the person is told)
     let phNote = '';
     if (ph && ph.length) { try { await db(s.site, 'PATCH', 'store_req?no=eq.' + Number(n), { photos: ph }, 'return=minimal'); } catch (e) { phNote = 'Requirement ' + Number(n) + ' is saved, but its photos were not kept – add them again with "Photos" on it.'; } }
-    await activity(s.site, s.email, 'Requirement made', 'REQ ' + n, Object.assign({ lines: r.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), status: row.status }, ph && ph.length && !phNote ? { photos: ph.length } : {}));
-    return Object.assign({ ok: true, no: Number(n), status: row.status, level: level }, phNote ? { photoNote: phNote } : {});
+    // (29-10-2026) its Indent No. (step 8: given in the database when it is made)
+    let ref = '';
+    try { const [x1, h] = await Promise.all([db(s.site, 'GET', 'store_req?select=*&no=eq.' + Number(n)), headingOf(s.site, s)]); if (x1 && x1[0]) ref = W.indentOf(x1[0], h, s.site); } catch (e) { ref = ''; }
+    await activity(s.site, s.email, 'Requirement made', 'REQ ' + n, Object.assign({ lines: r.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), status: row.status }, ref ? { indent: ref } : {}, ph && ph.length && !phNote ? { photos: ph.length } : {}, row.logbook ? { logbook: row.logbook.upto } : {}));
+    return Object.assign({ ok: true, no: Number(n), ref: ref, status: row.status, level: level }, phNote ? { photoNote: phNote } : {});
   },
   /* ---------- (29-10-2026) A REQUIREMENT'S PHOTOS ---------- */
   // one photo, as it is added (made smaller where it was taken): kept once under its fingerprint; its proof for the save
@@ -378,6 +450,66 @@ const ACTIONS = {
     await activity(s.site, s.email, 'Requirement cancelled', 'REQ ' + no, null);
     return { ok: true };
   },
+  /* (29-10-2026, "ekda banwaleli requirement edit delet krta yeil … jr requirement chi po banli aahe … sagalyat adhi po delet krayla lagel")
+   * DELETE a requirement – who made it or the Store Admin; never while a purchase order (not cancelled) has it: that PO first. */
+  async reqDelete(s, x) {
+    need(s, 'req', 'Edit');
+    if (!(await step8On(s.site))) throw fail(400, STEP8, 'sql');
+    const no = noOf(x.no), cur = ((await db(s.site, 'GET', 'store_req?select=*&no=eq.' + no)) || [])[0];
+    if (!cur) throw gone('Requirement ' + no);
+    if (String(cur.created_by).toLowerCase() !== String(s.email).toLowerCase() && !s.admin) throw fail(403, 'Only who made a requirement (or the Store Admin) deletes it.', 'admin');
+    await rpc(s.site, 'store_req_del', { p_no: no, p_at: cur.updated_at }).catch(e => said(e));
+    changed(s.site);
+    await activity(s.site, s.email, 'Requirement deleted', 'REQ ' + no, { date: cur.date, status: cur.status, for: cur.for_kind + (cur.for_text ? ' – ' + cur.for_text : ''), lines: (cur.lines || []).map(l => l.name + ' ' + l.qty + ' ' + l.unit),
+      indent: cur.indent_no ? [cur.indent_fy, cur.indent_kind, String(cur.indent_no).padStart(4, '0')].join('/') : undefined, photos: phList(cur.photos).length || undefined });
+    return { ok: true };
+  },
+  // (29-10-2026, "upload keleli photo … edit or delet krta yetil ek ek") one photo taken off a requirement (its file stays kept – as every file)
+  async reqPhotoDel(s, x) {
+    need(s, 'req', 'Edit');
+    const no = noOf(x.no), sha = String(x.sha || '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(sha)) throw fail(400, 'Which photo? – refresh and try again.', 'field');
+    const cur = ((await db(s.site, 'GET', 'store_req?select=*&no=eq.' + no)) || [])[0]; if (!cur) throw gone('Requirement ' + no);
+    if (String(cur.created_by).toLowerCase() !== String(s.email).toLowerCase() && !s.admin) throw fail(403, 'Only who made a requirement (or the Store Admin) takes its photos out.', 'admin');
+    if (['Closed', 'Cancelled'].indexOf(cur.status) > -1) throw fail(409, 'Requirement ' + no + ' is ' + String(cur.status).toLowerCase() + ' – its photos stay as they are.', 'decided');
+    const had = phList(cur.photos), list = had.filter(p => p.sha !== sha);
+    if (list.length === had.length) throw fail(409, 'This photo is not on requirement ' + no + ' any more – refresh.', 'decided');
+    const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&updated_at=eq.' + enc(cur.updated_at), { photos: list, updated_by: s.email }, 'return=representation')) || [])[0];
+    if (!out) throw fail(409, 'Requirement ' + no + ' was changed by someone else just now – refresh and look.', 'decided');
+    await activity(s.site, s.email, 'Requirement photo taken out', 'REQ ' + no, { photo: sha.slice(0, 12), photos: list.length });
+    return { ok: true, no: no, photos: list.length };
+  },
+  /* (29-10-2026) a machinery's maintenance log book: what the form shows when it is picked (up to which date it is written, how many
+   * bills); attached to a requirement or taken off it (attach: true = as it is written now) – who made it or the Store Admin */
+  async mlogInfo(s, x) {
+    if (!can(s, 'req', 'View')) need(s, 'req', 'Edit');
+    const m = (await machinery(s.site)).find(y => y.no === I.clean(x.no, 60)); if (!m) throw fail(400, 'Machinery "' + I.clean(x.no, 60) + '" is not in the Asset Master of this site.', 'field');
+    return Object.assign(await ML.infoOf(dbAll, s.site, m.no), { name: m.name });
+  },
+  async reqLogbook(s, x) {
+    need(s, 'req', 'Edit');
+    if (!(await step8On(s.site))) throw fail(400, STEP8, 'sql');
+    const no = noOf(x.no), cur = ((await db(s.site, 'GET', 'store_req?select=*&no=eq.' + no)) || [])[0]; if (!cur) throw gone('Requirement ' + no);
+    if (String(cur.created_by).toLowerCase() !== String(s.email).toLowerCase() && !s.admin) throw fail(403, 'Only who made a requirement (or the Store Admin) attaches its log book.', 'admin');
+    if (['Closed', 'Cancelled'].indexOf(cur.status) > -1) throw fail(409, 'Requirement ' + no + ' is ' + String(cur.status).toLowerCase() + ' – it stays as it is.', 'decided');
+    if (cur.for_kind !== 'Machinery') throw fail(400, 'Requirement ' + no + ' is not for a machinery – it has no log book.', 'field');
+    const lb = x.attach === true ? await logbookOf(s.site, s, cur.for_text) : null;
+    if (x.attach === true && !lb) throw fail(400, cur.for_text + ' has no maintenance log book yet (no bill, nothing issued to it).', 'field');
+    const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&updated_at=eq.' + enc(cur.updated_at), { logbook: lb, updated_by: s.email }, 'return=representation')) || [])[0];
+    if (!out) throw fail(409, 'Requirement ' + no + ' was changed by someone else just now – refresh and look.', 'decided');
+    await activity(s.site, s.email, lb ? 'Requirement log book attached' : 'Requirement log book taken out', 'REQ ' + no, lb ? { machinery: lb.no, upto: lb.upto, bills: lb.bills } : { machinery: cur.for_text });
+    return { ok: true, no: no, logbook: lb };
+  },
+  // the attached log book for the print – one piece of HTML (the web page and the app put it on the pages after the form); HO Purchase: any site
+  async reqLogbookHtml(s, x) {
+    const site = await siteFor(s, x), no = noOf(x.no);
+    if (site === s.site && !can(s, 'req', 'View') && !isBuyer(s)) { const lv = await levels(s.site); if (!lv.some(l => l.people.some(p => p.email === String(s.email).toLowerCase()))) need(s, 'req', 'View'); }
+    if (!(await step8On(site))) return { no: no, html: '' };
+    const r = ((await db(site, 'GET', 'store_req?select=no,for_kind,for_text,logbook&no=eq.' + no)) || [])[0]; if (!r) throw gone('Requirement ' + no);
+    const lb = r.logbook && r.logbook.no ? r.logbook : null; if (!lb) return { no: no, html: '' };
+    const m = (await machinery(site)).find(y => y.no === lb.no) || { no: lb.no, name: '', type: '' };
+    return { no: no, upto: lb.upto, html: ML.htmlOf(m, await ML.billsOf(dbAll, site, lb.no, lb.upto), lb.upto), css: ML.CSS };
+  },
   // approve (or reject, with why) – one or many at once; any one person of the level it waits for; never one's own
   async reqDecide(s, x) {
     const nos = (Array.isArray(x.nos) ? x.nos : [x.no]).slice(0, 100).map(noOf), ok = x.ok === true, note = I.clean(x.note, 300);
@@ -417,8 +549,8 @@ const ACTIONS = {
     const out = [];
     for (const st of await storeSites()) {
       try {
-        const [reqs, pos] = await Promise.all([dbAll(st.code, 'store_req?select=*&status=eq.Approved', 'no'), dbAll(st.code, 'store_po?select=no,status,lines', 'no')]);
-        const o = orderedOf(pos), list = reqs.sort((a, b) => a.no - b.no).map(r => reqView(r, o, [], s)).filter(r => r.lines.some(l => l.left > 0.0005));
+        const [reqs, pos, h] = await Promise.all([dbAll(st.code, 'store_req?select=*&status=eq.Approved', 'no'), dbAll(st.code, 'store_po?select=no,status,lines', 'no'), headingOf(st.code, s)]);
+        const o = orderedOf(pos), list = reqs.sort((a, b) => a.no - b.no).map(r => Object.assign(reqView(r, o, [], s), { ref: W.indentOf(r, h, st.code) })).filter(r => r.lines.some(l => l.left > 0.0005));      // (29-10-2026) with its Indent No.
         out.push({ site: st.code, name: st.name, reqs: list, open: pos.filter(p => p.status === 'Open').length });
       } catch (e) { out.push({ site: st.code, name: st.name, reqs: [], error: e && e.code === 'notinstalled' ? 'The Store\'s step 2 is not run in this site\'s database yet.' : 'Could not be read now.' }); }
     }
@@ -427,9 +559,10 @@ const ACTIONS = {
   // a site's items and vendors (to make its PO)
   async purItems(s, x) {
     const site = await siteFor(s, x); if (site === s.site && !isBuyer(s)) buyerOnly(s);
-    const [items, nm, pp, s5] = await Promise.all([itemsOf(site), names(site), papersOf(site), step5On(site)]);
+    const [items, nm, pp, s5, h, s8] = await Promise.all([itemsOf(site), names(site), papersOf(site), step5On(site), headingOf(site, s), step8On(site).catch(() => false)]);
+    const st0 = startOf(h, pp);
     return { site: site, items: Object.values(items).filter(i => i.status === 'Active').map(brief).sort((a, b) => a.name.localeCompare(b.name)), vendors: nm.vendors, gst: nm.gst,
-      papers: { ship_to: pp.ship_to || '', site_contact: pp.site_contact || '', terms: pp.terms || '' }, step5: s5 };      // (28-10-2026) what a new PO of this site starts with
+      papers: { ship_to: st0.ship_to, site_contact: st0.site_contact, terms: st0.terms, contact_name: st0.contact_name, contact_phone: st0.contact_phone }, step5: s5, step8: s8 };      // (28-10-2026) what a new PO of this site starts with; (29-10-2026) the site's address and contact from the Portal
   },
   async poList(s, x) {
     const site = await siteFor(s, x), mine = await poPeople(s.site);      // (28-10-2026) one who approves POs sees them (as one who approves requirements)
@@ -439,6 +572,10 @@ const ACTIONS = {
       try {
         const pos = await dbAll(st.code, 'store_po?select=*', 'no'), rec = await receivedOf(st.code, pos.map(p => p.no));
         const who = st.code === s.site ? mine : [];      // a PO is approved by a person of its own site, signed in there
+        // (29-10-2026) each line of a requirement with its Indent No.
+        const rn = [...new Set([].concat(...pos.map(p => (p.lines || []).map(l => Number(l.req_no)))).filter(n => n > 0))], rq = {};
+        if (rn.length) { try { const h = await headingOf(st.code, s); for (let i = 0; i < rn.length; i += 150) (await dbAll(st.code, 'store_req?select=*&no=in.(' + rn.slice(i, i + 150).join(',') + ')', 'no')).forEach(r => { rq[r.no] = W.indentOf(r, h, st.code); }); } catch (e) { /* (the number alone) */ } }
+        pos.forEach(p => { p.lines = (p.lines || []).map(l => l.req_no && rq[l.req_no] ? Object.assign({}, l, { req_ref: rq[l.req_no] }) : l); });
         pos.sort(byNo).forEach(p => { const v = poView(p, rec);
           out.push(Object.assign(v, { site: st.code, siteName: st.name, mayApprove: p.status === 'Open' && v.appr === 'Waiting' && W.mayApprovePo(who, s.email, p.created_by),
             waitFor: v.appr === 'Waiting' ? who.filter(q => q.email !== String(p.created_by || '').toLowerCase()).map(q => q.name) : [] })); });
@@ -450,14 +587,17 @@ const ACTIONS = {
     const site = await siteFor(s, x), no = noOf(x.no), mine = await poPeople(s.site);
     if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View') && !mine.some(p => p.email === String(s.email).toLowerCase())) need(s, 'po', 'View');
     const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
-    const [h, pp, items] = await Promise.all([headingOf(site), papersOf(site), itemsOf(site)]);
+    const [h, pp, items] = await Promise.all([headingOf(site, s), papersOf(site), itemsOf(site)]);
     // (28-10-2026, his format) the supplier's details from the Vendor Master of the site (Mechanical's – the same database): address,
     // mobile, e-mail, the Owner Name as the contact person, GSTIN – what is not there stays blank
     let v = null; try { v = ((await dbAll(site, 'vendors?select=*', 'id')) || []).find(r => I.keyOf(r.vendor_name) === I.keyOf(p.vendor)) || null; } catch (e) { v = null; }
     const supplier = { name: p.vendor, address: v ? v.address || '' : '', mobile: v ? v.phone || '' : '', email: v ? v.email || '' : '', contact: v ? v.owner_name || '' : '', gstin: p.vendor_gst || (v ? v.gst_number || '' : '') };
+    // (29-10-2026) each line of a requirement with its Indent No.
+    const rn = [...new Set((p.lines || []).map(l => Number(l.req_no)).filter(n => n > 0))], rq = {};
+    if (rn.length) { try { (await dbAll(site, 'store_req?select=*&no=in.(' + rn.join(',') + ')', 'no')).forEach(r => { rq[r.no] = W.indentOf(r, h, site); }); } catch (e) { /* (the number alone) */ } }
     const po = Object.assign(poView(p, await receivedOf(site, [no])), { site: site, ref: W.refOf(prefixOf(pp, h, site), 'PO', p.date, p.no), words: W.inWords(p.total),
-      lines: sortLines(p.lines).map(l => Object.assign({}, l, { hsn: l.hsn || (items[l.code] || {}).hsn || '' })) });
-    return { po: po, supplier: supplier, heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '', site_address: pp.site_address || pp.ship_to || '' }) };
+      lines: sortLines(p.lines).map(l => Object.assign({}, l, { hsn: l.hsn || (items[l.code] || {}).hsn || '' }, l.req_no && rq[l.req_no] ? { req_ref: rq[l.req_no] } : {})) });
+    return { po: po, supplier: supplier, heading: headOut(h, pp) };
   },
   async poSave(s, x) {
     buyerOnly(s);
@@ -509,6 +649,18 @@ const ACTIONS = {
     if ((await dbAll(site, 'store_grn?select=no&po_no=eq.' + no, 'no')).length) throw fail(409, 'Material of PO ' + no + ' has come (a GRN has it) – it cannot be cancelled. Close it (the rest will not come).', 'received');
     await db(site, 'PATCH', 'store_po?no=eq.' + no + '&status=eq.Open', { status: 'Cancelled', close_note: W.dmy(W.today()) + ' cancelled by ' + s.name, updated_by: s.email }, 'return=minimal');
     await activity(site, s.email, 'PO cancelled', 'PO ' + no, null);
+    return { ok: true };
+  },
+  /* (29-10-2026) DELETE a purchase order – HO Purchase; never one whose material came (a GRN has it). Its requirements are then free to
+   * be changed or deleted (his words: "jr requirement chi po banli aahe … sagalyat adhi po delet krayla lagel mgch same requirement edit") */
+  async poDelete(s, x) {
+    buyerOnly(s);
+    const site = await siteFor(s, x), no = noOf(x.no);
+    if (!(await step8On(site))) throw fail(400, STEP8, 'sql');
+    const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
+    await rpc(site, 'store_po_del', { p_no: no }).catch(e => said(e));
+    changed(site);
+    await activity(site, s.email, 'PO deleted', 'PO ' + no, { date: p.date, vendor: p.vendor, total: num(p.total), status: p.status, requirements: [...new Set((p.lines || []).map(l => l.req_no).filter(Boolean))], by: s.site !== site ? 'HO Purchase (' + s.site + ')' : undefined });
     return { ok: true };
   },
   async poClose(s, x) {
@@ -855,7 +1007,7 @@ const ACTIONS = {
       iss.forEach(i => { i.lines = lines.filter(l => l.issue_no === i.no); });
       return R.returnable(iss, back, { party: x.party });
     }
-    if (k === 'req') { const [reqs, pos] = await Promise.all([dbAll(s.site, 'store_req?select=*', 'no'), dbAll(s.site, 'store_po?select=no,status,lines', 'no')]); return R.requirements(reqs, orderedOf(pos), { status: x.status, from: x.from, to: x.to }); }
+    if (k === 'req') { const [reqs, pos, h] = await Promise.all([dbAll(s.site, 'store_req?select=*', 'no'), dbAll(s.site, 'store_po?select=no,status,lines', 'no'), headingOf(s.site, s)]); return R.requirements(reqs, orderedOf(pos), { status: x.status, from: x.from, to: x.to, ref: r => W.indentOf(r, h, s.site) }); }      // (29-10-2026) with its Indent No.
     if (k === 'po') {
       const sites = x.all && isBuyer(s) ? await storeSites() : [{ code: s.site, name: s.site }], rows = [], o = { from: x.from, to: x.to, pending: !!x.pending, vendor: x.vendor };
       let t = null;
@@ -883,7 +1035,7 @@ const ACTIONS = {
     // number of its own beyond 1,000,000,000 – not one the next GRN goes on from
     const [nums, g, o] = await Promise.all([db(s.site, 'GET', 'store_numbers?select=kind,next_no'), db(s.site, 'GET', 'store_grn?select=no&no=lt.1000000000&order=no.desc&limit=1'), db(s.site, 'GET', 'store_issue?select=no&order=no.desc&limit=1')]);
     const n = {}; (nums || []).forEach(r => { n[r.kind] = Number(r.next_no); });
-    const [pp, h, s5] = await Promise.all([papersOf(s.site), headingOf(s.site), step5On(s.site)]);
+    const [pp, h, s5] = await Promise.all([papersOf(s.site), headingOf(s.site, s), step5On(s.site)]);
     return { next: { GRN: n.GRN || 1, OUT: n.OUT || 1 }, used: { GRN: g && g[0] ? Number(g[0].no) : 0, OUT: o && o[0] ? Number(o[0].no) : 0 }, papers: pp, prefixNow: prefixOf(pp, h, s.site), step5: s5 };
   },
   // (28-10-2026) the papers' settings (the Store Admin): the numbers' prefix, the heading's e-mail / contact / CIN / web, a new PO's

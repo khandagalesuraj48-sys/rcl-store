@@ -338,7 +338,7 @@ const D10 = day(10), D8 = day(8), D6 = day(6), D5 = day(5), D3 = day(3), D2 = da
   ok('the PO paper: PO No RCL/VTR/PO/' + D1.slice(0, 4) + '/' + String(P5).padStart(4, '0') + ', the amount in words, the HSN, Approved By, the heading\'s e-mail and CIN',
     r.status === 200 && r.j.po.ref === 'RCL/VTR/PO/' + D1.slice(0, 4) + '/' + String(P5).padStart(4, '0') && /Only$/.test(r.j.po.words) && r.j.po.lines[0].hsn === '2710' && r.j.po.appr_name && r.j.heading.email === 'purchase@rcl.test' && r.j.heading.cin === 'U00000MH0000PLC000000' && r.j.supplier.name === 'Bedrok Chem Infra', r.j);
   r = await V.w('reqList');
-  ok('   a requirement\'s Indent No: RCL/VTR/PR/<year>/<4 digits>', r.status === 200 && r.j.reqs.length && r.j.reqs.every(x => /^RCL\/VTR\/PR\/\d{4}\/\d{4,}$/.test(x.ref)) && r.j.heading, r.j.reqs && r.j.reqs.map(x => x.ref));
+  ok('   a requirement\'s Indent No (29-10-2026): <company>/VTR/<financial year>/<M | P>/<4 digits> – the papers\' prefix is not used for it', r.status === 200 && r.j.reqs.length && r.j.reqs.every(x => /^(?:[A-Z]{1,6}\/)?VTR\/\d{4}-\d{2}\/[MP]\/\d{4,}$/.test(x.ref) && (x.for_kind === 'Machinery') === /\/M\//.test(x.ref)) && r.j.heading, r.j.reqs && r.j.reqs.map(x => x.ref));
 
   console.log(out.join('\n'));
   console.log('TOTAL ' + pass + ' passed, ' + fail + ' failed  (' + Math.round((Date.now() - T0) / 1000) + ' s)');
