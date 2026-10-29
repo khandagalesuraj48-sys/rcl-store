@@ -730,3 +730,14 @@ test('(29-10-2026, "ekda banwaleli requirement edit delet krta yeil … approval
     "W('reqLogbook', { no: x.no, attach: !!on })", "W('poDelete', { site: site, no: p.no })", "(buyer() && p.status !== 'Closed' && !p.lines.some(l => l.received > 0) ? '<button type=\"button\" class=\"link del po-del\">Delete</button>' : '')",
     "logbook: lbx ? lbx.checked : undefined", "W('reqLogbookHtml', { no: x.no })"].forEach(k => assert.ok(page.includes(k), k));
 });
+
+test('(29-10-2026, "logo ala nahi") a Rachana paper: the logo he gave, always (the Portal\'s logo link is not shown for it); another company: its own logo, else its name', () => {
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  const at = page.indexOf('  const logoOf = h =>'), to = page.indexOf('\n  const PCSS');
+  const esc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const logoOf = new Function('esc', 'RLOGO', page.slice(at, to) + '; return logoOf;')(esc, 'https://store.test/img/rcl-logo.png');
+  assert.strictEqual(logoOf({ company: 'RACHANA CONSTRUCTION LIMITED', logo: 'https://ibb.co/abc123' }), '<img class="plogo" src="https://store.test/img/rcl-logo.png" alt="RACHANA CONSTRUCTION LIMITED">');
+  assert.strictEqual(logoOf({ company: 'Rachana Construction Limited' }), '<img class="plogo" src="https://store.test/img/rcl-logo.png" alt="Rachana Construction Limited">');
+  assert.strictEqual(logoOf({ company: 'Sketchline Industries', logo: 'https://x.example/s.png' }), '<img src="https://x.example/s.png" alt="" style="max-height:70px;max-width:100%">');
+  assert.strictEqual(logoOf({ company: 'Sketchline Industries' }), '<b style="font-size:22px">Sketchline Industries</b>');
+});
