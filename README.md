@@ -196,6 +196,15 @@ blank. The print waits for the logo to load before it opens (8 s at most). With 
 Tests: unit 36/36; rig `test/work.test.js` 108/108 (site_address saved, kept, in the heading), `test/work.browser.test.js` 34/34
 (the paper shows the company's details and the Site Address; with a rig company with an address and a logo: both printed).
 
+## The requirement's print as his paper, with his logo (29-10-2026; no database step)
+Asked (with his "REQUIREMENT OF FOUNDATION BOLT" and the logo): "requirement format ha fix kar format fkt logo dilay to pn fix kr"; his
+answer: as the PDF, and keep the company's and the site's address. **The Purchase Requisition Form** (`reqPrint`, its look `RCSS`): the
+**logo he gave** (`public/img/rcl-logo.png`, 26 KB – also the PO's; a company's own logo from the Portal still goes first) | the company's
+**name** big and its **address** under it, then "Purchase Requisition Form"; **Project Name · Sub Project (NA)**, **Indent No. · Date**,
+the **Site Address**; Sr No · Item Code · Item Description · **Item Specification line by line** · Unit · Quantity · Required Date;
+**"Remark:Require For :"** what it is for (Site work – …), then its remark; Prepared By · Checked By · Approved By; one border round the
+page. No Email ID / CIN / GST / PAN rows on it any more (not on his paper – the PO keeps them). With the phone app 3.69.0 (the same).
+
 ## A requirement's photos (step 7 – `sql/store_step7_req_photos.sql`, run once in EVERY site's Supabase after step 6; 29-10-2026)
 Asked: "requirement madhe attachment cha option add karaycha aahe attachment madhe material photo je aahet te user add kru shakel multiple
 photos ani ha laptop warun or asel jo app madhe open hoi ani app madhun photo kadhla tri laptop web madhe yeil photo". His answers: for the

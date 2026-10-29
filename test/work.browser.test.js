@@ -185,11 +185,13 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
     await until(() => R2.evaluate(n => !!document.querySelector('tr[data-rq="' + n + '"] .rq-print, tr[data-req="' + n + '"] .rq-print, [data-no="' + n + '"] .rq-print'), rqn), 15000);
     const rsel = await R2.evaluate(n => { const b = document.querySelector('tr[data-rq="' + n + '"] .rq-print') ? 'tr[data-rq="' + n + '"] .rq-print' : document.querySelector('tr[data-req="' + n + '"] .rq-print') ? 'tr[data-req="' + n + '"] .rq-print' : '[data-no="' + n + '"] .rq-print'; return b; }, rqn);
     html = await printed(R2, rsel); txt = html ? await keep(html, 'work_req_print') : '';
-    ok('   the requirement\'s Print – his Purchase Requisition Form: Indent No. ' + ref + '/PR/<year>/' + String(rqn).padStart(4, '0') + ', Sub Project (what it is for), Item Code / Description / Specification / Unit / Quantity / Required Date, Prepared / Checked / Approved By',
+    ok('   the requirement\'s Print – his Purchase Requisition Form: Indent No. ' + ref + '/PR/<year>/' + String(rqn).padStart(4, '0') + ', what it is for, Item Code / Description / Specification / Unit / Quantity / Required Date, Prepared / Checked / Approved By',
       !!txt && /Purchase Requisition Form/.test(txt) && txt.indexOf(ref + '/PR/' + today.slice(0, 4) + '/' + String(rqn).padStart(4, '0')) > -1 && /Ch 545\+417 toe wall/.test(txt) && /Item Code/.test(txt) && /Required Date/.test(txt) && /Brand: ACC/.test(txt) &&
       /Prepared By/.test(txt) && /Checked By/.test(txt) && /Approved By/.test(txt), txt.slice(0, 1500));
-    // (29-10-2026) its heading as the PO's: the company's details, the site's address (Papers → Site Address)
-    ok('   …its heading: the company\'s details (Email ID., CIN No, GST No, PAN No) and the Site Address', /Email ID\./.test(txt) && /CIN No/.test(txt) && /GST No/.test(txt) && /PAN No/.test(txt) && /Site Address/.test(txt) && /Site office at Valshind/.test(txt), txt.slice(0, 1500));
+    // (29-10-2026) its heading as his paper ("REQUIREMENT OF FOUNDATION BOLT"; his answer: the addresses kept): the logo, the company's name and
+    // address, "Purchase Requisition Form", the Site Address (Papers → Site Address) – no e-mail / CIN / GST / PAN rows; "Remark:Require For :"
+    ok('   …its heading as his paper: the Site Address; no e-mail / GST rows; "Sub Project : NA"; "Remark:Require For : Site work – Ch 545+417 toe wall"',
+      /Site Address/.test(txt) && /Site office at Valshind/.test(txt) && !/Email ID\./.test(txt) && !/GST No/.test(txt) && /Sub Project :\s*NA/.test(txt) && /Remark:Require For :Site work – Ch 545\+417 toe wall/.test(txt), txt.slice(0, 1500));      // (the logo: a Rachana company – the unit test; the rig's site has none)
     // ---- the Store Admin: Opening stock & Numbers ----
     const A = await as('sujit@rcl.test', 'Nashik#Road848!', 'S1', 'settings');
     st = await A.evaluate(() => ({ title: document.getElementById('pg_title').textContent, rows: document.querySelectorAll('#op_list tr[data-c]').length, nm: !!document.getElementById('nm_grn') }));

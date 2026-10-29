@@ -514,7 +514,9 @@ test('(29-10-2026) the GRN\'s discounts need the database\'s step 6 – it only 
 test('(29-10-2026, "print war rachana address nahi site address nahi ani rachana logo nahiye") the requirement\'s paper as the PO\'s heading: the company\'s address and details, the Site Address; the print waits for its pictures; a papers\' box not sent keeps what it has', () => {
   const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8'), src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
   const rp = page.slice(page.indexOf('  function reqPrint(x, h, ph) {'), page.indexOf('  function reqPrint(x, h, ph) {') + 4000);
-  for (const k of ["(h.address ? '<div class=\"c\">' + nl(h.address) + '</div>' : '')", '<b>Email ID.</b>', '<b>GST No</b>', '<b>PAN No</b>', "'<tr><td>Site Address :</td><td colspan=\"3\">' + nl(h.site_address || '') + '</td></tr>'", 'logoOf(h)']) assert.ok(rp.includes(k), k);
+  // (29-10-2026, his "REQUIREMENT OF FOUNDATION BOLT"; his answer: as the PDF, the company's and the site's address kept) – no e-mail / GST rows
+  for (const k of ["(h.address ? '<div class=\"pa\">' + nl(h.address) + '</div>' : '')", "(h.site_address ? '<tr><td>Site Address :</td><td colspan=\"3\">' + nl(h.site_address) + '</td></tr>' : '')", 'logoOf(h)']) assert.ok(rp.includes(k), k);
+  ['<b>Email ID.</b>', '<b>GST No</b>', '<b>PAN No</b>'].forEach(k => assert.ok(!rp.includes(k), 'not on his paper: ' + k));
   assert.match(page, /lim = Math\.min\(25000, 8000 \+ 2000 \* Math\.max\(0, imgs\.length - 1\)\);/, '(29-10-2026) 8 s, 2 s more a photo');
   assert.match(page, /const wait = \(\) => \(imgs\.every\(i => i\.complete\) \|\| Date\.now\(\) - t0 > lim\) \? setTimeout\(go, 150\) : setTimeout\(wait, 150\);/, 'the logo loaded before the print box');
   assert.ok(src.includes("'terms', 'site_address'];"));
@@ -603,4 +605,23 @@ test('(29-10-2026, "supabase 2 second … saving mahtwachi … data real time di
   assert.ok(page.includes('liveSoon(liveIdle() ? 15000 : 2000);'));
   assert.ok(page.includes("document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(LV.t); LV.t = null; } else liveSoon(0); });"));
   assert.ok(page.includes("const liveHeld = pg => !!document.querySelector('#pg_' + pg + ' tr.det')"), 'details / photos open: read when closed');
+});
+
+test('(29-10-2026, "requirement format ha fix kar format fkt logo dilay to pn fix kr"; his answer: as the PDF + the addresses) the Purchase Requisition Form as his paper, with the logo he gave', () => {
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  const rp = page.slice(page.indexOf('  function reqPrint(x, h, ph) {'), page.indexOf('  /* ====================== PURCHASE ORDERS OF THIS SITE'));
+  const png = fs.readFileSync(path.join(root, 'public', 'img', 'rcl-logo.png'));
+  assert.ok(png.slice(1, 4).toString() === 'PNG' && png.length < 60000, 'his logo – a small PNG of this module (' + png.length + ' bytes)');
+  assert.ok(!/i\.ibb\.co/.test(page), 'no logo from another site any more');
+  assert.ok(page.includes("const RLOGO = (() => { try { return new URL('img/rcl-logo.png', location.href).href; } catch (e) { return 'img/rcl-logo.png'; } })();"), 'by its full address (the paper is drawn in a frame of its own)');
+  assert.ok(page.includes(`'<img class="plogo" src="' + esc(RLOGO) + '" alt="' + esc(h.company) + '">'`), 'the PO and the requirement: the same logo');
+  // his paper: the logo | the name (its address) / "Purchase Requisition Form"; Project Name · Sub Project; Indent No. · Date; the columns; the remark; the three names
+  for (const k of [`'<table><tr><td rowspan="2" style="width:50%;text-align:center;vertical-align:middle">' + logoOf(h) + '</td>'`, '<tr><td class="pt">Purchase Requisition Form</td></tr></table>',
+    "'<table class=\"nb pi\"><tr><td style=\"width:15%\">Project Name :</td><td style=\"width:45%\">' + esc(h.site || '') + '</td><td style=\"width:15%\">Sub Project :</td><td>NA</td></tr>'",
+    "'<tr><td>Indent No. :</td><td>' + esc(x.ref || x.no) + '</td><td>Date :</td><td>' + d(x.date) + '</td></tr>'",
+    '<th style="width:6%">Sr No</th><th style="width:11%">Item Code</th><th style="width:17%">Item Description</th><th>Item Specification</th><th style="width:7%">Unit</th><th style="width:9%">Quantity</th><th style="width:10%">Required Date</th>',
+    "'<div class=\"prm\">Remark:Require For :' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + (x.remark ? '<br>' + nl(x.remark) : '') + '</div>'",
+    "'<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div>"]) assert.ok(rp.includes(k), k);
+  assert.ok(rp.includes("const spec = l => [l.spec ? nl(l.spec) : '', l.brand ? 'Brand: ' + esc(l.brand) : '', l.note ? nl(l.note) : ''].filter(Boolean).join('<br>');"), 'the specification line by line');
+  assert.ok(page.includes('.prf{border:1px solid #000;min-height:268mm;font-size:12px}'), 'the page in one border');
 });

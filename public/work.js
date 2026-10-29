@@ -443,11 +443,13 @@
   /* (28-10-2026) THE COMPANY'S OWN PAPERS – his formats: "DIESEL PURCHASE ORDER – NEW POPULAR SERVICE STATION" (the Purchase Order) and
    * "REQUIREMENT OF EXHAUST FANS" (the Purchase Requisition Form): the logo and the company's details on top, the boxes and columns as
    * there. The company's name, address, GST, PAN and logo from the site's company; its e-mail, contact, CIN and web from Store Settings. */
-  const RLOGO = 'https://i.ibb.co/CpSfBqXX/RCL-LOGO-PDF.png';      // (the Rachana logo of the menu – its words cut out of the big picture)
+  // (29-10-2026, "format fkt logo dilay to pn fix kr") the Rachana logo he gave – this module's own file (img/rcl-logo.png), by its full address
+  // (the paper is drawn in a frame of its own)
+  const RLOGO = (() => { try { return new URL('img/rcl-logo.png', location.href).href; } catch (e) { return 'img/rcl-logo.png'; } })();
   const logoOf = h => h.logo ? '<img src="' + esc(h.logo) + '" alt="" style="max-height:70px;max-width:100%">'
-    : /rachana/i.test(h.company || '') ? '<span class="plogo"><img src="' + RLOGO + '" alt="' + esc(h.company) + '"></span>' : '<b style="font-size:22px">' + esc(h.company || '') + '</b>';
+    : /rachana/i.test(h.company || '') ? '<img class="plogo" src="' + esc(RLOGO) + '" alt="' + esc(h.company) + '">' : '<b style="font-size:22px">' + esc(h.company || '') + '</b>';
   const PCSS = '<style>.fm{font:11px Arial,sans-serif}.fm table{border-collapse:collapse;width:100%}.fm td,.fm th{border:1px solid #000;padding:2px 5px;vertical-align:top}.fm .nb td{border:0;padding:1px 3px}' +
-    '.fm .plogo{position:relative;overflow:hidden;display:inline-block;width:250px;aspect-ratio:3.724}.fm .plogo img{position:absolute;max-width:none;width:209.2%;left:-54.8%;top:-227.8%;height:auto}' +
+    '.fm .plogo{display:inline-block;width:250px;max-width:92%;height:auto;vertical-align:middle}' +
     '.fm .cn{font-size:18px;font-weight:700;text-align:center}.fm .ttl{text-align:center;font-weight:700;font-size:14px}.fm .sh{text-align:center;font-weight:700;border-bottom:1px solid #000;margin:0 -5px 3px;padding-bottom:2px}' +
     '.fm .r{text-align:right}.fm .c{text-align:center}.fm .sig{display:flex;justify-content:space-between;margin-top:120px;padding:0 40px}.fm .sig div{text-align:center;font-weight:700}.fm .cg{text-align:center;font-weight:700;margin-top:6px}' +
     '.fm ol{margin:4px 0 0 18px;padding:0}.fm li{margin:6px 0}.fm .s2{margin-top:90px;display:flex;justify-content:space-between;padding:0 10px}.fm .s2 div{text-align:center;min-width:150px}.fm .s2 span{display:block;border-top:1px solid #000;margin-top:2px}' +
@@ -479,29 +481,37 @@
       '<div class="sig"><div>' + esc(p.created_name || '') + '<br><br>Prepared By</div><div>' + ap + '<br><br>Approved By</div></div><div class="cg">This Purchase Order is computer generated it does not require signature.</div></div>');
   }
   // the Purchase Requisition Form of a requirement: Prepared By – who made it; Checked By – the levels before the last; Approved By – the last
+  /* (29-10-2026, his "REQUIREMENT OF FOUNDATION BOLT" – "requirement format ha fix kar … logo … to pn fix kr"; his answer: as the PDF, and
+   * keep the company's and the site's address) THE FORM AS HIS PAPER: the logo | the company's name (its address under it) and "Purchase
+   * Requisition Form"; Project Name · Sub Project, Indent No. · Date (and the Site Address); the items with their specification line by
+   * line; "Remark:Require For :" what it is for, then its remark; Prepared By · Checked By · Approved By; the page in one border. */
   function reqPrint(x, h, ph) {
     h = h || {}; ph = (ph || []).filter(p => p.url);
     const ok = (x.approvals || []).filter(a => a.ok), last = x.status === 'Approved' || x.status === 'Closed' ? ok[ok.length - 1] : null, checked = (last ? ok.slice(0, -1) : ok).map(a => a.name).join(', ');
     const appr = last ? last.name : x.status === 'Pending' ? '(waiting – level ' + x.level + ')' : x.status === 'Rejected' ? '(rejected)' : '';
-    // (29-10-2026, "print war rachana address nahi site address nahi ani rachana logo nahiye") the company's address and details (Portal →
-    // Companies; e-mail, contact, CIN, web – Store Settings → Papers) as the PO's, and the site's address (Papers → Site Address)
-    const head = '<table><tr><td style="width:50%;text-align:center;vertical-align:middle;border-right:0">' + logoOf(h) + '</td><td style="border-left:1px solid #000"><div class="cn">' + esc(h.company || '') + '</div>' +
-      (h.address ? '<div class="c">' + nl(h.address) + '</div>' : '') + '<table class="nb">' +
-      '<tr><td><b>Email ID.</b> : ' + esc(h.email || '') + '</td><td><b>Contact</b> : ' + esc(h.phone || '') + '</td></tr><tr><td><b>CIN No</b> : ' + esc(h.cin || '') + '</td><td><b>Web</b> : ' + esc(h.web || '') + '</td></tr>' +
-      '<tr><td><b>GST No</b> : ' + esc(h.gstin || '') + '</td><td><b>PAN No</b> : ' + esc(h.pan || '') + '</td></tr></table></td></tr>' +
-      '<tr><td colspan="2" class="ttl" style="font-size:16px">Purchase Requisition Form</td></tr></table>' +
-      '<table class="nb" style="border:1px solid #000;border-top:0"><tr><td style="width:15%">Project Name :</td><td style="width:45%">' + esc(h.site || '') + '</td><td style="width:15%">Sub Project :</td><td>' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + '</td></tr>' +
-      '<tr><td>Site Address :</td><td colspan="3">' + nl(h.site_address || '') + '</td></tr>' +
-      '<tr><td>Indent No. :</td><td>' + esc(x.ref || x.no) + '</td><td>Date :</td><td>' + dmy(x.date).replace(/-/g, '/') + '</td></tr></table>';
-    const items = '<table><thead><tr><th>Sr No</th><th>Item Code</th><th>Item Description</th><th>Item Specification</th><th>Unit</th><th>Quantity</th><th>Required Date</th></tr></thead><tbody>' +
-      x.lines.map((l, i) => '<tr><td class="c">' + (i + 1) + '</td><td class="c">' + esc(l.code) + '</td><td>' + esc(l.name) + '</td><td>' + esc([l.brand ? 'Brand: ' + l.brand : '', l.spec || '', l.note || ''].filter(Boolean).join(' · ')) + '</td><td class="c">' + esc(l.unit) +
-        '</td><td class="r">' + Number(l.qty).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 3 }) + '</td><td class="c">' + dmy(x.need_by || x.date).replace(/-/g, '/') + '</td></tr>').join('') + '</tbody></table>';
+    const d = v => dmy(v).replace(/-/g, '/');
+    const head = '<table><tr><td rowspan="2" style="width:50%;text-align:center;vertical-align:middle">' + logoOf(h) + '</td>' +
+      '<td style="text-align:center;vertical-align:middle;padding:6px"><div class="pn">' + esc(h.company || '') + '</div>' + (h.address ? '<div class="pa">' + nl(h.address) + '</div>' : '') + '</td></tr>' +
+      '<tr><td class="pt">Purchase Requisition Form</td></tr></table>' +
+      '<table class="nb pi"><tr><td style="width:15%">Project Name :</td><td style="width:45%">' + esc(h.site || '') + '</td><td style="width:15%">Sub Project :</td><td>NA</td></tr>' +
+      '<tr><td>Indent No. :</td><td>' + esc(x.ref || x.no) + '</td><td>Date :</td><td>' + d(x.date) + '</td></tr>' +
+      (h.site_address ? '<tr><td>Site Address :</td><td colspan="3">' + nl(h.site_address) + '</td></tr>' : '') + '</table>';
+    const spec = l => [l.spec ? nl(l.spec) : '', l.brand ? 'Brand: ' + esc(l.brand) : '', l.note ? nl(l.note) : ''].filter(Boolean).join('<br>');
+    const items = '<table class="pr"><thead><tr><th style="width:6%">Sr No</th><th style="width:11%">Item Code</th><th style="width:17%">Item Description</th><th>Item Specification</th><th style="width:7%">Unit</th><th style="width:9%">Quantity</th><th style="width:10%">Required Date</th></tr></thead><tbody>' +
+      x.lines.map((l, i) => '<tr><td class="c m">' + (i + 1) + '</td><td class="c m">' + esc(l.code) + '</td><td class="c m">' + esc(l.name) + '</td><td>' + spec(l) + '</td><td class="c m">' + esc(l.unit) +
+        '</td><td class="c m">' + Number(l.qty).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 3 }) + '</td><td class="c m">' + d(x.need_by || x.date) + '</td></tr>').join('') + '</tbody></table>';
+    const remark = '<div class="prm">Remark:Require For :' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + (x.remark ? '<br>' + nl(x.remark) : '') + '</div>';
     // (29-10-2026, "Print मध्ये photos पण") its photos on the pages after the form – two a row, each with who added it and when
     const photos = ph.length ? '<div class="fm" style="page-break-before:always;border:1px solid #000;padding:6px"><div class="ttl" style="margin-bottom:6px">Photos of the material – ' + esc(x.ref || x.no) + ' (' + ph.length + ')</div><div class="phg">' +
       ph.map((p, i) => '<figure><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '"><figcaption>Photo ' + (i + 1) + (p.by ? ' · ' + esc(p.by) : '') + (p.at ? ' · ' + esc(dmyAt(p.at)) : '') + '</figcaption></figure>').join('') + '</div></div>' : '';
-    printHtml('Requirement ' + (x.ref || x.no), PCSS + '<div class="fm" style="border:1px solid #000;min-height:260mm;padding:0">' + head + items + '<p style="margin:6px">Remark:' + esc(x.remark || '') + '</p>' +
-      '<div class="s2"><div>' + esc(x.created_name || '') + '<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div></div></div>' + photos);
+    printHtml('Requirement ' + (x.ref || x.no), PCSS + RCSS + '<div class="fm prf">' + head + items + remark +
+      '<div class="s2 ps"><div>' + esc(x.created_name || '') + '<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div></div></div>' + photos);
   }
+  // (29-10-2026) the Purchase Requisition Form's own look (his paper): the name big, the title under a line, the boxes' text not bold
+  const RCSS = '<style>.prf{border:1px solid #000;min-height:268mm;font-size:12px}.prf>table{border-left:0;border-right:0}.prf>table:first-child td{border-top:0}.prf>table td:first-child{border-left:0}.prf>table td:last-child{border-right:0}' +
+    '.prf .pn{font-size:25px;line-height:1.15}.prf .pa{font-size:11px;margin-top:4px}.prf .pt{text-align:center;font-size:16px;padding:5px}.prf .plogo{width:270px}' +
+    '.prf .pi{border-bottom:1px solid #000}.prf .pi td{padding:4px 6px}.prf .pi td:nth-child(odd){white-space:nowrap}.prf .pr{margin-top:0}.prf .pr th{background:#fff;font-weight:400;text-align:center;vertical-align:middle}.prf .pr td.m{vertical-align:middle}.prf .pr td,.prf .pr th{padding:3px 4px}' +
+    '.prf .prm{margin:10px 6px}.prf .ps{margin-top:210px;padding:0 6px}.prf .ps div{min-width:170px}</style>';
 
   /* ====================== PURCHASE ORDERS OF THIS SITE ====================== */
   async function poPage() {
