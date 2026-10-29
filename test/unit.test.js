@@ -588,3 +588,19 @@ test('(29-10-2026, "jithe jithe type krun entry hotat … voice mick … hindi e
   const pp = (JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'vercel.json'), 'utf8')).headers || []).flatMap(h => h.headers || []).find(h => h.key === 'Permissions-Policy').value;
   assert.strictEqual(pp, 'camera=(), microphone=(self), geolocation=()', 'the microphone for its own pages only; the camera and the place still off');
 });
+
+test('(29-10-2026, "supabase 2 second … saving mahtwachi … data real time disne … niyojan tu kar") LIVE: every save of the Store notes an activity row (the live answer is the newest one); the server reads it once in 2 s for a site; the page asks only on a page with others\' entries, 2 s / 15 s idle / nothing hidden', () => {
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  const re = /\n  async ([a-zA-Z]+)\(s, x\) \{/g, pos = []; let m;
+  while ((m = re.exec(src))) pos.push([m[1], m.index]);
+  const writes = pos.map(([n, i], k) => [n, src.slice(i, k + 1 < pos.length ? pos[k + 1][1] : i + 8000)]).filter(([n, b]) => /db\([^)]*'(POST|PATCH|DELETE)'|rpc\(/.test(b));
+  assert.ok(writes.length >= 20, 'the saves found: ' + writes.length);
+  writes.forEach(([n, b]) => assert.ok(/activity\(/.test(b), n + ' notes an activity row'));
+  assert.ok(src.includes("p: db(site, 'GET', 'store_activity?select=id&order=id.desc&limit=1')"));
+  assert.ok(src.includes('if (c && Date.now() - c.at < 2000) return c.p;'), 'one read in 2 s for every page of the site on this server');
+  assert.ok(src.includes('LIVE.delete(site); };'), "this server's own save: its live answer read again");
+  assert.match(page, /const LIVE_PAGES = \{ dashboard: .*, req: .*, purchase: .*, po: .*, grn: .*, issue: .* \};/);
+  assert.ok(page.includes('liveSoon(liveIdle() ? 15000 : 2000);'));
+  assert.ok(page.includes("document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(LV.t); LV.t = null; } else liveSoon(0); });"));
+  assert.ok(page.includes("const liveHeld = pg => !!document.querySelector('#pg_' + pg + ' tr.det')"), 'details / photos open: read when closed');
+});

@@ -241,6 +241,22 @@ digits; a text box the words at the cursor. Never in a password box or where a p
 off). Tests: unit (the number cases, the page loads it, the rule); `test/voice.browser.test.js` 21/21; the rig's work / photo / today
 tests as before with it on the page.
 
+## Live: another person's save shows by itself (29-10-2026; no database step)
+Asked: "supabase 2 second cha vishay he bgh ata aapi ERP mothi hotey ok so saving mahtwachi aahe but data real time disne user laa he pn
+mahtwach aahe tya pramne niyojan tu kar pratek gosti madhe logic use kr". As Mechanical's pages (the standard of 24-10-2026): a page asks
+only **"what changed at this site?"** (`live` – the newest row of the site's activity: every save of the Store notes one, the unit test
+checks it; about 40 bytes) and reads its list again **only when it changed**.
+* **The rhythm:** every 2 s on a page with others' entries (Dashboard, Requirements, Purchase – every site, Purchase Orders, Inward, Issue
+  & Return) while it is used; every 15 s after 5 minutes nobody touched it; **nothing** while the tab is hidden; at once when it is seen
+  again. Stock & Reports, Opening stock & Numbers: nothing asked.
+* **The cost:** the server reads that one row **once in 2 s for every open page of the site** on it (kept in memory, never for a save);
+  its own save reads it again at once. Many people on one site ≈ one small read every 2 s per server – not one per page.
+* **What stays:** a form being typed is never touched (only the list under it is drawn again); a row's details / photos open, a
+  question open: the change is drawn when they are closed.
+* With the phone app 3.68.0 (its Store lists and the Dashboard the same way). Tests: unit (every save notes activity; the rhythm); rig
+  `test/live.test.js` 10/10 (another's save on the page within 4 s, details held, hidden tab, Stock & Reports nothing, two pages → one
+  read every 2 s); `work.test.js` 108/108, `work.browser.test.js` 34/34, `reqphoto.test.js` 7/7 + 52/52, `today.test.js` 6/6 with it.
+
 ## Parts
 | Part | File |
 |---|---|

@@ -70,7 +70,7 @@ async function kept(site, what, f) {
   const e = { at: Date.now(), p: f() }; CACHE.set(k, e); e.p.catch(() => { if (CACHE.get(k) === e) CACHE.delete(k); });
   return e.p;
 }
-const changed = site => [...CACHE.keys()].forEach(k => { if (k.startsWith(site + '|')) CACHE.delete(k); });
+const changed = site => { [...CACHE.keys()].forEach(k => { if (k.startsWith(site + '|')) CACHE.delete(k); }); LIVE.delete(site); };      // (29-10-2026) and its live answer: the next look sees the change
 // the site's machinery (Mechanical's Asset Master – the same database)
 const machinery = site => kept(site, 'mach', async () => {
   let rows = []; try { rows = await dbAll(site, 'master?select=id,machinery_number,machinery_name,type,owner_name,ownership,status,unit,active_from,inactive_from', 'id'); } catch (e) { rows = []; }
@@ -184,6 +184,16 @@ async function phLinks(site, list) {
   const out = {}; (Array.isArray(r.json) ? r.json : []).forEach(y => { if (y && y.path && y.signedURL) out[y.path] = r.base + y.signedURL; });
   return out;
 }
+/* (29-10-2026) LIVE – the site's last change: the newest activity row's number (every save of the Store notes one – the unit test checks
+ * it). One read of the database for every open page of the site on this server in 2 seconds (kept in memory; never used for a save). */
+const LIVE = new Map();
+function liveOf(site) {
+  const c = LIVE.get(site); if (c && Date.now() - c.at < 2000) return c.p;
+  const e = { at: Date.now(), p: db(site, 'GET', 'store_activity?select=id&order=id.desc&limit=1').then(r => Number((r && r[0] && r[0].id) || 0)) };
+  LIVE.set(site, e); e.p.catch(() => { if (LIVE.get(site) === e) LIVE.delete(site); });
+  if (LIVE.size > 200) LIVE.clear();
+  return e.p;
+}
 // who approves the POs of a site (the Portal tells: store_settings 'approvers' → po)
 const poPeople = async site => { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.approvers')) || [])[0]; return W.poApprovers(r ? r.value : null); };
 const apprOf = p => p.appr || 'Approved';      // a PO made before step 5: as approved
@@ -228,6 +238,11 @@ async function headingOf(site) {
 const brief = i => ({ code: i.code, name: i.name, unit: i.unit, category: i.category, hsn: i.hsn || '', gst_pct: i.gst_pct, min_stock: i.min_stock, status: i.status });
 
 const ACTIONS = {
+  /* ---------- (29-10-2026) LIVE: what changed at this site? (the page reads its list again only when this changes) ---------- */
+  async live(s, x) {
+    if (x.all && isBuyer(s)) return { v: (await Promise.all((await storeSites()).map(st => liveOf(st.code).catch(() => 0)))).join('.') };      // (HO Purchase: every site)
+    return { v: await liveOf(s.site) };
+  },
   /* ---------- what the pages need to start ---------- */
   async boot(s) {
     const [items, st, mach, lv, nm] = await Promise.all([itemsOf(s.site), stockOn(s.site), machinery(s.site), levels(s.site), names(s.site)]);
