@@ -158,10 +158,10 @@
     d.open(); d.write('<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>@page{size:A4 ' + (land ? 'landscape' : 'portrait') + ';margin:10mm}body{font:12px Arial,sans-serif;color:#000}h1{font-size:17px;margin:0 0 2px}h2{font-size:14px;margin:8px 0 4px}' +
       'table{border-collapse:collapse;width:100%}th,td{border:1px solid #444;padding:3px 5px;text-align:left;vertical-align:top}th{background:#eee}td.n,th.n{text-align:right}.muted{color:#555}.hd{display:flex;justify-content:space-between;gap:12px;margin-bottom:8px}.sign{margin-top:40px;display:flex;justify-content:space-between}</style></head><body>' + html + '</body></html>');
     d.close();
-    // (29-10-2026, "rachana logo nahiye") its pictures (the logo, the photos) loaded first – at most 8 s – then the print box
+    // (29-10-2026, "rachana logo nahiye") its pictures (the logo, the photos) loaded first – at most 8 s, 2 s more a photo (25 s at most)
     const go = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Could not print here.', true); } setTimeout(() => f.remove(), 60000); };
-    const imgs = [...d.images], t0 = Date.now();
-    const wait = () => (imgs.every(i => i.complete) || Date.now() - t0 > 8000) ? setTimeout(go, 150) : setTimeout(wait, 150);
+    const imgs = [...d.images], t0 = Date.now(), lim = Math.min(25000, 8000 + 2000 * Math.max(0, imgs.length - 1));
+    const wait = () => (imgs.every(i => i.complete) || Date.now() - t0 > lim) ? setTimeout(go, 150) : setTimeout(wait, 150);
     setTimeout(wait, 150);
   }
   // a report (one table) as an Excel file – its title and dates on top
@@ -175,6 +175,68 @@
     (rep.rows.length ? rep.rows.map(r => '<tr>' + r.map((v, i) => '<td' + (rep.cols[i] && rep.cols[i].n ? ' class="n"' : '') + '>' + esc(rep.cols[i] && rep.cols[i].n && v !== '' ? n2(v) : v) + '</td>').join('') + '</tr>').join('') : '<tr><td colspan="' + rep.cols.length + '" class="empty">Nothing in these dates.</td></tr>') +
     (rep.total ? '<tr class="tot" style="font-weight:700;background:#F6F8FB">' + rep.total.map((v, i) => '<td' + (rep.cols[i] && rep.cols[i].n ? ' class="n"' : '') + '>' + esc(rep.cols[i] && rep.cols[i].n && v !== '' ? n2(v) : v) + '</td>').join('') + '</tr>' : '') + '</tbody></table></div>';
   const head = (title, sub) => '<div class="hd"><div><h1>' + esc(title) + '</h1><div class="muted">' + esc(sub || '') + '</div></div><div class="muted" style="text-align:right">' + esc((K().S.me || {}).siteName || '') + '<br>Store · ' + dmy(today()) + '</div></div>';
+
+  /* ====================== (29-10-2026) A REQUIREMENT'S PHOTOS ======================
+   * "requirement madhe attachment cha option … material photo … multiple photos … app madhun photo kadhla tri laptop web madhe yeil":
+   * up to 10 photos of the whole requirement – from this computer's files, or a phone's camera (its browser offers it); each is made
+   * smaller here (at most 1600 px, a JPEG of a few hundred KB) and sent at once (reqPhotoUp); the save takes the list. The photos sent
+   * from the app are the same ones (the site's store) – seen here, big, and in the print. */
+  const PHMAX = 10;
+  const dmyAt = t => { const d = Date.parse(t); return isNaN(d) ? dmy(t) : dmy(new Date(d + 330 * 60000).toISOString()); };      // (a photo's time, kept in UTC: its date in India)
+  async function phMake(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('"' + (file.name || 'This file') + '" is not a photo this page can read – add a JPG or PNG photo.')); i.src = url; });
+      const sc = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight)), w = Math.max(1, Math.round(im.naturalWidth * sc)), h = Math.max(1, Math.round(im.naturalHeight * sc));
+      const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h);
+      let d = c.toDataURL('image/jpeg', 0.82); if (d.length > 1100000) d = c.toDataURL('image/jpeg', 0.7);
+      return d;
+    } finally { URL.revokeObjectURL(url); }
+  }
+  // a photo picked → sent (its fingerprint and the server's proof come back)
+  async function phSend(file) { const d = await phMake(file); const r = await W('reqPhotoUp', { data: d }); return { sha: r.sha, size: r.size, t: r.t, url: d, state: 'ok' }; }
+  // the photos seen big, one by one (‹ › or the arrow keys; Esc closes)
+  function phView(list, i) {
+    list = (list || []).filter(p => p.url); if (!list.length) return toast('The photos could not be opened – try again.', true);
+    let k = Math.max(0, Math.min(i || 0, list.length - 1));
+    const o = document.createElement('div'); o.className = 'phview'; o.id = 'ph_view'; o.setAttribute('role', 'dialog'); o.setAttribute('aria-modal', 'true'); o.setAttribute('aria-label', 'Photos');
+    const draw = () => { const p = list[k]; o.innerHTML = '<div class="phbar"><span>' + (k + 1) + ' / ' + list.length + (p.by ? ' · ' + esc(p.by) : '') + (p.at ? ' · ' + dmyAt(p.at) : '') + '</span>' +
+      (/^https?:/.test(p.url) ? '<a class="link" href="' + esc(p.url) + '" target="_blank" rel="noopener">Open full size</a>' : '') + '<button type="button" class="phclose" aria-label="Close">✕</button></div><img src="' + esc(p.url) + '" alt="Photo ' + (k + 1) + '">' +
+      (list.length > 1 ? '<button type="button" class="phprev" aria-label="Previous photo">‹</button><button type="button" class="phnext" aria-label="Next photo">›</button>' : ''); };
+    const step = n => { k = (k + n + list.length) % list.length; draw(); };
+    const key = e => { if (e.key === 'Escape') close(); else if (e.key === 'ArrowRight') step(1); else if (e.key === 'ArrowLeft') step(-1); };
+    const close = () => { o.remove(); document.removeEventListener('keydown', key); };
+    o.addEventListener('click', e => { if (e.target.closest('.phclose') || e.target === o) close(); else if (e.target.closest('.phnext')) step(1); else if (e.target.closest('.phprev')) step(-1); });
+    document.addEventListener('keydown', key); draw(); document.body.appendChild(o); const c = o.querySelector('.phclose'); if (c) c.focus();
+  }
+  // the photos' box of a form: tiles (a tile opens big, ✕ takes it out), "Add photos"; P.get() → the list for the save
+  function PhotoBox(box, had) {
+    const P = { list: (had || []).map(p => Object.assign({ state: 'ok' }, p)) };
+    P.draw = () => {
+      box.innerHTML = '<div class="phbox"><div class="phhead"><b>Photos of the material</b><span class="muted">' + (P.list.length ? P.list.length + ' of ' + PHMAX : 'optional – up to ' + PHMAX + ' photos') + '</span></div>' +
+        (P.list.length ? '<div class="phtiles">' + P.list.map((p, i) => '<div class="phtile' + (p.state === 'err' ? ' bad' : '') + '">' + (p.url ? '<img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '" data-v="' + i + '">' : '<span class="phspin">' + (p.state === 'send' ? 'Sending…' : 'Photo') + '</span>') +
+          (p.state === 'send' ? '' : '<button type="button" class="phx" data-x="' + i + '" title="Take this photo out" aria-label="Take photo ' + (i + 1) + ' out">✕</button>') + (p.err ? '<small>' + esc(p.err) + '</small>' : '') + '</div>').join('') + '</div>' : '') +
+        (P.list.length < PHMAX ? '<label class="btn small phadd">📷 Add photos<input type="file" accept="image/*" multiple hidden></label>' : '') + '</div>';
+    };
+    box.addEventListener('change', async e => {
+      const inp = e.target.closest('input[type=file]'); if (!inp) return;
+      const fs = [...inp.files], room = PHMAX - P.list.length; inp.value = '';
+      if (fs.length > room) toast('A requirement keeps at most ' + PHMAX + ' photos – ' + (fs.length - room) + ' left out.', true);
+      for (const f of fs.slice(0, Math.max(0, room))) {
+        const p = { state: 'send', url: '', err: '' }; P.list.push(p); P.draw();
+        try { const r = await phSend(f); if (P.list.some(q => q !== p && q.sha === r.sha)) { P.list.splice(P.list.indexOf(p), 1); toast('This photo is already added – not added twice.'); } else Object.assign(p, r); }
+        catch (x) { p.state = 'err'; p.err = x.message; }
+        P.draw();
+      }
+    });
+    box.addEventListener('click', e => { const x = e.target.closest('[data-x]'); if (x) { P.list.splice(Number(x.dataset.x), 1); P.draw(); return; } const v = e.target.closest('[data-v]'); if (v) phView(P.list, Number(v.dataset.v)); });
+    P.get = () => {
+      if (P.list.some(p => p.state === 'send')) throw new Error('Wait a moment – a photo is still being sent.');
+      if (P.list.some(p => p.state === 'err')) throw new Error('A photo was not sent (marked red) – take it out (✕) or add it again.');
+      return P.list.map(p => p.t ? { sha: p.sha, size: p.size, t: p.t } : { sha: p.sha });
+    };
+    P.draw(); return P;
+  }
 
   /* ====================== MATERIAL REQUIREMENTS ====================== */
   const RQ = { list: [], filter: 'open' };
@@ -191,7 +253,7 @@
     await reqLoad();
   }
   async function reqLoad() {
-    try { await boot(); const r = await W('reqList'); RQ.list = r.reqs; RQ.levels = r.levels; RQ.heading = r.heading;
+    try { await boot(); const r = await W('reqList'); RQ.list = r.reqs; RQ.levels = r.levels; RQ.heading = r.heading; RQ.step7 = !!r.step7;
       $('rq_lv').textContent = r.levels.length ? 'Approved by: ' + r.levels.map(l => 'Level ' + l.level + ' – ' + l.people.join(', ')).join(' · ') : 'No approver set for this site – a requirement is approved when it is made.';
       B.waiting = RQ.list.filter(x => x.mayApprove).length; lists(); reqDraw(); }
     catch (e) { failed(e); $('rq_list').innerHTML = '<p class="empty">' + esc(e.message) + '</p>'; }
@@ -204,13 +266,15 @@
     $('rq_bulk').hidden = !rows.some(x => x.mayApprove);
     $('rq_list').innerHTML = '<div class="tw"><table><thead><tr><th></th><th>No</th><th>Date</th><th>Needed by</th><th>For</th><th>Items</th><th>State</th><th>Asked by</th><th></th></tr></thead><tbody>' +
       (rows.map(x => '<tr data-no="' + x.no + '"><td>' + (x.mayApprove ? '<input type="checkbox" class="rq-tick" value="' + x.no + '" style="width:auto;min-height:0">' : '') + '</td><td><b>' + x.no + '</b></td><td>' + dmy(x.date) + '</td><td>' + dmy(x.need_by) + '</td><td style="white-space:normal">' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + '</td>' +
-        '<td style="white-space:normal">' + x.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (x.status === 'Approved' && l.left < l.qty ? ' <small>(ordered ' + n2(l.ordered) + ')</small>' : '')).join('<br>') + '</td>' +
+        '<td style="white-space:normal">' + x.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (x.status === 'Approved' && l.left < l.qty ? ' <small>(ordered ' + n2(l.ordered) + ')</small>' : '')).join('<br>') + ((x.photos || []).length ? '<br><span class="phn">📷 ' + x.photos.length + ' photo' + (x.photos.length === 1 ? '' : 's') + '</span>' : '') + '</td>' +
         '<td>' + stateTag(x.status) + (x.status === 'Pending' ? '<small>Level ' + x.level + (x.waitFor.length ? ' – ' + esc(x.waitFor.join(', ')) : '') + '</small>' : '') + '</td><td><small>' + esc(x.created_name || x.created_by || '') + '</small></td>' +
         '<td><div class="acts">' + (x.mayApprove ? '<button type="button" class="btn small primary rq-ok">Approve</button><button type="button" class="btn small bad rq-no">Reject</button>' : '') +
-        '<button type="button" class="link rq-det">Details</button><button type="button" class="link rq-print">Print</button>' + ((x.mine || admin()) && x.status === 'Pending' && !(x.approvals || []).length && canEdit('req') ? '<button type="button" class="link rq-edit">Change</button>' : '') +
+        '<button type="button" class="link rq-det">Details</button>' + ((x.photos || []).length || phAddOk(x) ? '<button type="button" class="link rq-ph">Photos' + ((x.photos || []).length ? ' (' + x.photos.length + ')' : '') + '</button>' : '') + '<button type="button" class="link rq-print">Print</button>' + ((x.mine || admin()) && x.status === 'Pending' && !(x.approvals || []).length && canEdit('req') ? '<button type="button" class="link rq-edit">Change</button>' : '') +
         ((x.mine || admin()) && (x.status === 'Pending' || x.status === 'Approved') && !x.lines.some(l => l.ordered > 0) ? '<button type="button" class="link del rq-cancel">Cancel</button>' : '') +
         ((buyer() || admin()) && x.status === 'Approved' && x.lines.some(l => l.left > 0) ? '<button type="button" class="link rq-close">Close</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="9" class="empty">No requirement here.</td></tr>') + '</tbody></table></div>';
   }
+  // (29-10-2026) photos added to a requirement made already: who made it or the Store Admin, while it waits or is approved (step 7)
+  const phAddOk = x => !!RQ.step7 && canEdit('req') && (x.mine || admin()) && (x.status === 'Pending' || x.status === 'Approved');
   const reqIn = (x, f) => f === 'all' || (f === 'mine' ? x.mayApprove : f === 'open' ? (x.status === 'Pending' || (x.status === 'Approved' && x.lines.some(l => l.left > 0))) : x.status === f);
   async function reqClick(e) {
     const tr = e.target.closest('tr[data-no]'); if (!tr) return; const x = RQ.list.find(r => r.no === Number(tr.dataset.no)); if (!x) return;
@@ -223,7 +287,8 @@
         ((x.approvals || []).length ? '<p class="sub2" style="margin:6px 0 0">' + x.approvals.map(a => 'Level ' + a.level + ': ' + (a.ok ? 'approved' : 'rejected') + ' by ' + esc(a.name) + ' on ' + dmy(a.at) + (a.note ? ' – "' + esc(a.note) + '"' : '')).join('<br>') + '</p>' : '') + (x.close_note ? '<p class="sub2">' + esc(x.close_note) + '</p>' : '') + '</td>';
       tr.after(d); return;
     }
-    if (b.classList.contains('rq-print')) return reqPrint(x, RQ.heading);      // (28-10-2026) his Purchase Requisition Form
+    if (b.classList.contains('rq-print')) return busy(b, async () => reqPrint(x, RQ.heading, (x.photos || []).length ? (await W('reqPhotos', { no: x.no })).photos : []));      // (28-10-2026) his Purchase Requisition Form; (29-10-2026) its photos after it
+    if (b.classList.contains('rq-ph')) return reqPhotoRow(tr, x, b);
     if (b.classList.contains('rq-ok')) return busy(b, async () => { await W('reqDecide', { no: x.no, ok: true }); toast('Requirement ' + x.no + ' approved.'); reqLoad(); });
     if (b.classList.contains('rq-no')) {
       const v = await ask('Reject requirement ' + x.no + '?', '<p>Say why (the person who made it sees it):</p><input id="rq_why" maxlength="300" style="width:100%"><p class="mr">का नाकारले ते लिहा.</p>', [{ label: 'Cancel', value: false }, { label: 'Reject', value: true, bad: true }]);
@@ -234,12 +299,39 @@
     if (b.classList.contains('rq-cancel')) { const v = await ask('Cancel requirement ' + x.no + '?', '<p>It will not be ordered.</p><p class="mr">ही मागणी रद्द होईल.</p>', [{ label: 'No', value: false }, { label: 'Cancel it', value: true, bad: true }]); if (!v) return; return busy(b, async () => { await W('reqCancel', { no: x.no }); toast('Requirement ' + x.no + ' cancelled.'); reqLoad(); }); }
     if (b.classList.contains('rq-close')) { const v = await ask('Close requirement ' + x.no + '?', '<p>What is still to order will not be bought.</p>', [{ label: 'No', value: false }, { label: 'Close', value: true, primary: true }]); if (!v) return; return busy(b, async () => { await W('reqClose', { no: x.no }); toast('Requirement ' + x.no + ' closed.'); reqLoad(); }); }
   }
+  // (29-10-2026) a requirement's photos under its row: each opens big; "Add photos" – who made it or the Store Admin (made on the laptop,
+  // its photos taken with the phone's browser or the app – the same requirement)
+  async function reqPhotoRow(tr, x, b) {
+    const nx = tr.nextElementSibling; if (nx && nx.classList.contains('phrow')) { nx.remove(); return; }
+    let ph = []; if ((x.photos || []).length) { try { b.disabled = true; ph = (await W('reqPhotos', { no: x.no })).photos; } catch (e) { return failed(e); } finally { b.disabled = false; } }
+    const d = document.createElement('tr'); d.className = 'det phrow';
+    d.innerHTML = '<td colspan="9"><b>Photos of requirement ' + x.no + '</b> <span class="muted">' + (ph.length ? ph.length + ' of ' + PHMAX : 'none yet') + '</span>' +
+      (ph.length ? '<div class="phtiles" style="margin-top:8px">' + ph.map((p, i) => '<div class="phtile"><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '" data-v="' + i + '"><small style="color:var(--muted)">' + esc(p.by || '') + (p.at ? ' · ' + dmyAt(p.at) : '') + '</small></div>').join('') + '</div>' : '') +
+      (phAddOk(x) && ph.length < PHMAX ? '<div class="bar" style="margin-top:6px"><label class="btn small phadd">📷 Add photos<input type="file" accept="image/*" multiple hidden></label><span class="count" id="rq_phmsg_' + x.no + '"></span></div>' : '') + '</td>';
+    tr.after(d);
+    d.addEventListener('click', e => { const v = e.target.closest('[data-v]'); if (v) phView(ph, Number(v.dataset.v)); });
+    d.addEventListener('change', async e => {
+      const inp = e.target.closest('input[type=file]'); if (!inp) return;
+      const fs = [...inp.files].slice(0, PHMAX - ph.length), msg = document.getElementById('rq_phmsg_' + x.no); inp.value = ''; const sent = [];
+      try {
+        inp.disabled = true;
+        for (const [i, f] of fs.entries()) { if (msg) msg.textContent = 'Sending photo ' + (i + 1) + ' of ' + fs.length + '…'; const r = await phSend(f); if (!sent.some(q => q.sha === r.sha)) sent.push({ sha: r.sha, size: r.size, t: r.t }); }
+        if (!sent.length) return;
+        const r = await W('reqPhotoAdd', { no: x.no, photos: sent });
+        toast(sent.length + ' photo' + (sent.length === 1 ? '' : 's') + ' added to requirement ' + x.no + ' (' + r.photos + ' now).');
+        await reqLoad();
+        const t2 = document.querySelector('#rq_list tr[data-no="' + x.no + '"]'), b2 = t2 && t2.querySelector('.rq-ph'), y = RQ.list.find(q => q.no === x.no);
+        if (t2 && b2 && y) reqPhotoRow(t2, y, b2);
+      } catch (er) { failed(er); if (msg) msg.textContent = ''; } finally { inp.disabled = false; }
+    });
+  }
   function reqForm(x) {
     if (!B) return void boot().then(() => reqForm(x)).catch(failed);      // (pressed before the page had its lists)
     const f = $('rq_form'); f.hidden = false;
     f.innerHTML = '<h2>' + (x ? 'Change requirement ' + x.no : 'New requirement') + '</h2><div class="grid" style="margin-top:10px">' +
       field('rq_date', 'Date *', inp('rq_date', x ? x.date : today(), entryDate())) + field('rq_need', 'Needed by', inp('rq_need', x ? x.need_by : '', ' type="date"')) +
       field('rq_kind', 'For *', sel('rq_kind', B.kinds.for, x ? x.for_kind : 'Site work')) + '<div class="field wide" id="rq_whichw"></div>' + field('rq_rem', 'Remark', inp('rq_rem', x ? x.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="rq_lines"></div>' +
+      (RQ.step7 ? '<div id="rq_photos"></div>' : '') +      // (29-10-2026) its photos (step 7 at this site)
       '<div class="bar"><button type="button" class="btn primary" id="rq_save">Save requirement</button><button type="button" class="btn" id="rq_x">Cancel</button></div>';
     const which = () => { const k = val('rq_kind'), cur = x ? x.for_text : '';
       $('rq_whichw').innerHTML = k === 'Machinery' ? '<label for="rq_for">Machinery *</label>' + sel('rq_for', [['', 'Pick…']].concat((B.machinery || []).map(m => [m.no, m.no + (m.name ? ' – ' + m.name : '')])), cur) : '<label for="rq_for">' + (k === 'Site work' ? 'Location / work (e.g. Ch 540+450 toe wall)' : 'Which') + '</label>' + inp('rq_for', cur, ' maxlength="120"'); };
@@ -247,11 +339,15 @@
     const L = Lines($('rq_lines'), [{ k: 'item', h: 'Item *', type: 'item' }, { k: 'qty', h: 'Qty *', type: 'num' }, { k: 'unit', h: 'Unit', type: 'ro', calc: r => esc((itemOf(r.code) || {}).unit || '') }, { k: 'stock', h: 'Stock now', type: 'ro', n: true, calc: r => r.code ? n2(stockOf(r.code)) : '' },
       { k: 'brand', h: 'Brand', type: 'text', w: 140 }, { k: 'spec', h: 'Material specification', type: 'text', w: 230 }, { k: 'note', h: 'Note', type: 'text' }],
       x ? x.lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand || '', spec: l.spec || '', note: l.note || '' })) : []);
+    // (29-10-2026) the photos: a requirement changed shows those it has (their links asked); a new one none
+    const PB = RQ.step7 ? PhotoBox($('rq_photos'), x ? (x.photos || []).map(p => ({ sha: p.sha, size: p.size, by: p.by, at: p.at, url: '' })) : []) : null;
+    if (PB && x && (x.photos || []).length) W('reqPhotos', { no: x.no }).then(r => { r.photos.forEach(p => { const q = PB.list.find(y => y.sha === p.sha); if (q) q.url = p.url; }); PB.draw(); }).catch(failed);
     $('rq_x').onclick = () => { f.hidden = true; };
     $('rq_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Line ' + (L.rows.indexOf(lines.find(l => !l.code)) + 1) + ': pick the item from the list (as it is in the Item Master).');
-      const r = await W('reqSave', { no: x ? x.no : undefined, req: { date: val('rq_date'), need_by: val('rq_need'), for_kind: val('rq_kind'), for_text: val('rq_for'), remark: val('rq_rem'), lines: lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) } });
-      toast('Requirement ' + r.no + ' saved – ' + (r.status === 'Approved' ? 'approved (no approver set for this site).' : 'it waits for Level ' + r.level + '.'));
+      const photos = PB ? PB.get() : undefined;
+      const r = await W('reqSave', { no: x ? x.no : undefined, req: { date: val('rq_date'), need_by: val('rq_need'), for_kind: val('rq_kind'), for_text: val('rq_for'), remark: val('rq_rem'), lines: lines.map(l => ({ code: l.code, qty: l.qty, brand: l.brand, spec: l.spec, note: l.note })) }, photos: photos });
+      toast(r.photoNote || ('Requirement ' + r.no + ' saved – ' + (r.status === 'Approved' ? 'approved (no approver set for this site).' : 'it waits for Level ' + r.level + '.')), !!r.photoNote);
       f.hidden = true; reqLoad();
     });
     f.scrollIntoView({ block: 'nearest' });
@@ -266,7 +362,8 @@
       '<section class="panel"><h2>Purchase orders of every site</h2><div id="pu_pos" style="margin-top:8px"></div></section>';
     $('pu_ref').onclick = () => purLoad();
     $('pu_xl').onclick = () => busy($('pu_xl'), async () => toExcel(await W('report', { kind: 'po', all: true }), 'Purchase_orders'));
-    $('pu_sites').onclick = e => { const b = e.target.closest('[data-mk]'); if (b) purForm(b.dataset.mk, null); };
+    $('pu_sites').onclick = e => { const b = e.target.closest('[data-mk]'); if (b) return purForm(b.dataset.mk, null);
+      const ph = e.target.closest('.pu-ph'); if (ph) busy(ph, async () => phView((await W('reqPhotos', { site: ph.dataset.site, no: Number(ph.dataset.req) })).photos, 0)); };      // (29-10-2026) a requirement's photos
     $('pu_pos').onclick = e => poClick(e, PU.pos, () => purLoad());
     await purLoad();
   }
@@ -275,7 +372,7 @@
       const [p, l] = await Promise.all([W('purPending'), W('poList', { all: true })]); PU.sites = p.sites; PU.pos = l.pos;
       $('pu_sites').innerHTML = PU.sites.map(s => '<section class="panel" data-site="' + esc(s.site) + '"><h2>' + esc(s.name) + ' <small class="muted">(' + esc(s.site) + ')</small></h2>' + (s.error ? '<p class="muted">' + esc(s.error) + '</p>' :
         (s.reqs.length ? '<div class="tw" style="margin-top:8px"><table><thead><tr><th></th><th>Req</th><th>Date</th><th>Needed by</th><th>For</th><th>Item</th><th class="n">Asked</th><th class="n">Ordered</th><th class="n">To order</th></tr></thead><tbody>' +
-          s.reqs.map(r => r.lines.filter(l => l.left > 0).map(l => '<tr><td><input type="checkbox" class="pu-tick" data-site="' + esc(s.site) + '" data-req="' + r.no + '" data-line="' + l.line + '" style="width:auto;min-height:0"></td><td>' + r.no + '</td><td>' + dmy(r.date) + '</td><td>' + dmy(r.need_by) + '</td><td style="white-space:normal">' + esc(r.for_kind + (r.for_text ? ' – ' + r.for_text : '')) + '</td><td style="white-space:normal">' + esc(l.name) + bsOf(l) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered) + '</td><td class="n"><b>' + n2(l.left) + '</b></td></tr>').join('')).join('') + '</tbody></table></div>'
+          s.reqs.map(r => r.lines.filter(l => l.left > 0).map(l => '<tr><td><input type="checkbox" class="pu-tick" data-site="' + esc(s.site) + '" data-req="' + r.no + '" data-line="' + l.line + '" style="width:auto;min-height:0"></td><td>' + r.no + ((r.photos || []).length ? '<br><button type="button" class="link pu-ph" data-site="' + esc(s.site) + '" data-req="' + r.no + '" title="The photos of requirement ' + r.no + '">📷 ' + r.photos.length + '</button>' : '') + '</td><td>' + dmy(r.date) + '</td><td>' + dmy(r.need_by) + '</td><td style="white-space:normal">' + esc(r.for_kind + (r.for_text ? ' – ' + r.for_text : '')) + '</td><td style="white-space:normal">' + esc(l.name) + bsOf(l) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered) + '</td><td class="n"><b>' + n2(l.left) + '</b></td></tr>').join('')).join('') + '</tbody></table></div>'
           : '<p class="muted">Nothing to order.</p>') + '<div class="bar"><button type="button" class="btn primary small" data-mk="' + esc(s.site) + '">Make a PO for ' + esc(s.site) + (s.reqs.length ? ' (the ticked lines)' : '') + '</button>' + (s.open ? '<span class="count">' + s.open + ' PO(s) open</span>' : '') + '</div>') + '</section>').join('');
       $('pu_pos').innerHTML = poTable(PU.pos, true);
     } catch (e) { failed(e); }
@@ -349,7 +446,8 @@
     '.fm .plogo{position:relative;overflow:hidden;display:inline-block;width:250px;aspect-ratio:3.724}.fm .plogo img{position:absolute;max-width:none;width:209.2%;left:-54.8%;top:-227.8%;height:auto}' +
     '.fm .cn{font-size:18px;font-weight:700;text-align:center}.fm .ttl{text-align:center;font-weight:700;font-size:14px}.fm .sh{text-align:center;font-weight:700;border-bottom:1px solid #000;margin:0 -5px 3px;padding-bottom:2px}' +
     '.fm .r{text-align:right}.fm .c{text-align:center}.fm .sig{display:flex;justify-content:space-between;margin-top:120px;padding:0 40px}.fm .sig div{text-align:center;font-weight:700}.fm .cg{text-align:center;font-weight:700;margin-top:6px}' +
-    '.fm ol{margin:4px 0 0 18px;padding:0}.fm li{margin:6px 0}.fm .s2{margin-top:90px;display:flex;justify-content:space-between;padding:0 10px}.fm .s2 div{text-align:center;min-width:150px}.fm .s2 span{display:block;border-top:1px solid #000;margin-top:2px}</style>';
+    '.fm ol{margin:4px 0 0 18px;padding:0}.fm li{margin:6px 0}.fm .s2{margin-top:90px;display:flex;justify-content:space-between;padding:0 10px}.fm .s2 div{text-align:center;min-width:150px}.fm .s2 span{display:block;border-top:1px solid #000;margin-top:2px}' +
+    '.fm .phg{display:grid;grid-template-columns:1fr 1fr;gap:8px}.fm figure{margin:0;break-inside:avoid;page-break-inside:avoid;text-align:center;border:1px solid #ccc;padding:4px}.fm figure img{max-width:100%;max-height:115mm;object-fit:contain}.fm figcaption{font-size:10px;color:#333;margin-top:2px}</style>';
   const kv = rows => '<table class="nb">' + rows.map(r => '<tr><td style="width:' + (r[2] || 95) + 'px">' + esc(r[0]) + '</td><td style="width:10px">-</td><td>' + (r[1] || '') + '</td></tr>').join('') + '</table>';
   const nl = t => esc(t || '').replace(/\n/g, '<br>');
   function poPrint(p, h, sup) {
@@ -377,8 +475,8 @@
       '<div class="sig"><div>' + esc(p.created_name || '') + '<br><br>Prepared By</div><div>' + ap + '<br><br>Approved By</div></div><div class="cg">This Purchase Order is computer generated it does not require signature.</div></div>');
   }
   // the Purchase Requisition Form of a requirement: Prepared By – who made it; Checked By – the levels before the last; Approved By – the last
-  function reqPrint(x, h) {
-    h = h || {};
+  function reqPrint(x, h, ph) {
+    h = h || {}; ph = (ph || []).filter(p => p.url);
     const ok = (x.approvals || []).filter(a => a.ok), last = x.status === 'Approved' || x.status === 'Closed' ? ok[ok.length - 1] : null, checked = (last ? ok.slice(0, -1) : ok).map(a => a.name).join(', ');
     const appr = last ? last.name : x.status === 'Pending' ? '(waiting – level ' + x.level + ')' : x.status === 'Rejected' ? '(rejected)' : '';
     // (29-10-2026, "print war rachana address nahi site address nahi ani rachana logo nahiye") the company's address and details (Portal →
@@ -394,8 +492,11 @@
     const items = '<table><thead><tr><th>Sr No</th><th>Item Code</th><th>Item Description</th><th>Item Specification</th><th>Unit</th><th>Quantity</th><th>Required Date</th></tr></thead><tbody>' +
       x.lines.map((l, i) => '<tr><td class="c">' + (i + 1) + '</td><td class="c">' + esc(l.code) + '</td><td>' + esc(l.name) + '</td><td>' + esc([l.brand ? 'Brand: ' + l.brand : '', l.spec || '', l.note || ''].filter(Boolean).join(' · ')) + '</td><td class="c">' + esc(l.unit) +
         '</td><td class="r">' + Number(l.qty).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 3 }) + '</td><td class="c">' + dmy(x.need_by || x.date).replace(/-/g, '/') + '</td></tr>').join('') + '</tbody></table>';
+    // (29-10-2026, "Print मध्ये photos पण") its photos on the pages after the form – two a row, each with who added it and when
+    const photos = ph.length ? '<div class="fm" style="page-break-before:always;border:1px solid #000;padding:6px"><div class="ttl" style="margin-bottom:6px">Photos of the material – ' + esc(x.ref || x.no) + ' (' + ph.length + ')</div><div class="phg">' +
+      ph.map((p, i) => '<figure><img src="' + esc(p.url) + '" alt="Photo ' + (i + 1) + '"><figcaption>Photo ' + (i + 1) + (p.by ? ' · ' + esc(p.by) : '') + (p.at ? ' · ' + dmyAt(p.at) : '') + '</figcaption></figure>').join('') + '</div></div>' : '';
     printHtml('Requirement ' + (x.ref || x.no), PCSS + '<div class="fm" style="border:1px solid #000;min-height:260mm;padding:0">' + head + items + '<p style="margin:6px">Remark:' + esc(x.remark || '') + '</p>' +
-      '<div class="s2"><div>' + esc(x.created_name || '') + '<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div></div></div>');
+      '<div class="s2"><div>' + esc(x.created_name || '') + '<span>Prepared By</span></div><div>' + esc(checked) + '<span>Checked By</span></div><div>' + esc(appr) + '<span>Approved By</span></div></div></div>' + photos);
   }
 
   /* ====================== PURCHASE ORDERS OF THIS SITE ====================== */

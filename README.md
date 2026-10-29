@@ -196,6 +196,32 @@ blank. The print waits for the logo to load before it opens (8 s at most). With 
 Tests: unit 36/36; rig `test/work.test.js` 108/108 (site_address saved, kept, in the heading), `test/work.browser.test.js` 34/34
 (the paper shows the company's details and the Site Address; with a rig company with an address and a logo: both printed).
 
+## A requirement's photos (step 7 – `sql/store_step7_req_photos.sql`, run once in EVERY site's Supabase after step 6; 29-10-2026)
+Asked: "requirement madhe attachment cha option add karaycha aahe attachment madhe material photo je aahet te user add kru shakel multiple
+photos ani ha laptop warun or asel jo app madhe open hoi ani app madhun photo kadhla tri laptop web madhe yeil photo". His answers: for the
+whole requirement, many photos; in the print too.
+* **The form** (new / Change): **Photos of the material** – up to 10; **📷 Add photos** opens the computer's files (a phone's browser offers
+  its camera). Each photo is made smaller on the page (at most 1600 px, a JPEG of a few hundred KB) and sent at once (`reqPhotoUp`); a
+  tile opens it big, ✕ takes it out. The save sends the list (`reqSave` … `photos`).
+* **The list:** "📷 n photos" under the items; **Photos (n)** opens them under the row (each big, with who added it and when) and – for
+  who made it or the Store Admin, while it waits or is approved – **Add photos** (`reqPhotoAdd`): a requirement made on the laptop gets
+  its photos from the phone (the app, or the phone's browser) and the other way round – the same site's file store. A photo is taken
+  out only while nobody has approved it (Change).
+* **The print:** after the Purchase Requisition Form, "Photos of the material – <Indent No.> (n)": two a row, "Photo 1 · who · date".
+* **HO Purchase:** an approved requirement's 📷 in Purchase – every site (another site's too: `reqPhotos` with its site).
+* **Kept:** each photo ONCE in the site's private file store – the bucket `erp-files` (Mechanical's, step 1ze; made here only if it is
+  missing) under its fingerprint: `store/req/<2>/<sha256>.jpg`, never overwritten or deleted. `store_req.photos` keeps the list
+  (`[{ sha, size, by, at }]`). A photo opens only through a link of 15 minutes (`reqPhotos`). A save takes a photo the requirement has,
+  or one THIS person sent to THIS site (the server's proof – an HMAC of site, person, fingerprint and size – given by `reqPhotoUp`); at
+  most 10, each once; only a real JPG of 2 MB at most is kept.
+* **Before step 7 at a site:** no photo box (as before); a photo sent is refused with what to run. Step 7 only ADDS the column (and the
+  bucket if it is missing) – no row, function or rule is changed. The Store finds it within 2 minutes of being run.
+* With the phone app 3.66.0 (its own screens: the form's photos, Photos of a requirement, the print, HO Purchase).
+Tests: unit (step 7 only adds; the proof: another person's / site's / a made-up one refused; at most 10; each once); rig
+`test/reqphoto.test.js` PART=a (before step 7) 7/7, PART=b 46/46 (the store's file, the links, Change, added after approval, HO
+Purchase, a cancelled one; in the browser: the form, the list, seen big, added, the print, a phone's width); `test/work.test.js` and
+`test/work.browser.test.js` as before, with and without step 7.
+
 ## Parts
 | Part | File |
 |---|---|
@@ -205,7 +231,7 @@ Tests: unit 36/36; rig `test/work.test.js` 108/108 (site_address saved, kept, in
 | The rules of an item (names, near names, suggestions, fields) | `lib/items.js` |
 | Which database is a site's | `lib/sites.js` (Mechanical's list of sites, `rcl_sites`) |
 | Ticket check, sign-ins, activity record | `lib/portal.js`, `lib/session.js`, `lib/activity.js` |
-| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql`, `sql/store_step3_grn_import.sql`, `sql/store_step4_grn_no.sql`, `sql/store_step5_po_format.sql` |
+| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql`, `sql/store_step3_grn_import.sql`, `sql/store_step4_grn_no.sql`, `sql/store_step5_po_format.sql`, `sql/store_step6_grn_discount.sql`, `sql/store_step7_req_photos.sql` |
 | The Store's work (step 2) | `api/work.js`, `lib/work.js`, `lib/sreport.js`, `public/work.js`, `api/portal.js` |
 
 ## Settings (Vercel → the Store project → Settings → Environment Variables – never in a file)
