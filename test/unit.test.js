@@ -405,3 +405,24 @@ test('(28-10-2026, his formats) the PO in the company\'s format: Disc. %, HSN, C
   assert.match(src, /filter\(p => p\.state !== 'Received' && p\.appr === 'Approved'\)/);
   assert.match(src, /'store_po\?no=eq\.' \+ no \+ '&status=eq\.Open&appr=eq\.Waiting'/);
 });
+
+test('(29-10-2026) a Store User makes an entry only of today – the Store Admin and the Super Admin any day; a changed requirement / PO keeps its own date; the page fixes his dates', () => {
+  const { todayOnly } = require('../api/work.js'), W = require('../lib/work.js'), t = W.today();
+  const back = n => { const d = new Date(t + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+  const tryIt = f => { try { f(); return 'ok'; } catch (e) { return e; } };
+  const USER = { admin: false, super: false }, ADMIN = { admin: true, super: false }, SUPER = { admin: false, super: true };
+  assert.strictEqual(tryIt(() => todayOnly(USER, t, 'GRN')), 'ok', 'today');
+  const e = tryIt(() => todayOnly(USER, back(1), 'GRN'));
+  assert.strictEqual(e.status, 400); assert.strictEqual(e.code, 'date');
+  assert.strictEqual(e.message, 'GRN of ' + W.dmy(back(1)) + ': a Store User enters only today\'s entries – an entry of an earlier day is made only by the Store Admin or the Super Admin. Ask the Store Admin.');
+  for (const w of ['Requirement', 'Purchase order', 'Issue', 'Return']) assert.match(tryIt(() => todayOnly(USER, back(3), w)).message, new RegExp('^' + w + ' of '));
+  assert.strictEqual(tryIt(() => todayOnly(ADMIN, back(30), 'GRN')), 'ok', 'the Store Admin');
+  assert.strictEqual(tryIt(() => todayOnly(SUPER, back(30), 'GRN')), 'ok', 'the Super Admin');
+  assert.strictEqual(tryIt(() => todayOnly(USER, back(2), 'Purchase order', back(2))), 'ok', 'a PO changed (sent back by its approval) keeps its own date');
+  assert.strictEqual(tryIt(() => todayOnly(USER, back(3), 'Purchase order', back(2))).code, 'date', '…moved to another earlier day: refused');
+  // every save of an entry checks it; the page gives a Store User today's date, fixed
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  for (const c of ["todayOnly(s, r.date, 'Requirement', cur ? String(cur.date).slice(0, 10) : '');", "todayOnly(s, p.date, 'Purchase order', cur ? String(cur.date).slice(0, 10) : '');", "todayOnly(s, g.head.date, 'GRN');", "todayOnly(s, date, 'Issue');", "todayOnly(s, g.head.date, 'Return');"]) assert.ok(src.includes(c), c);
+  assert.match(page, /const entryDate = \(\) => ' type="date"' \+ \(backOk\(\) \? '' : ' min="' \+ today\(\) \+ '" max="' \+ today\(\) \+ '" readonly/);
+  for (const id of ['rq_date', 'pu_date', 'gr_date', 'is_date', 'rt_date']) assert.match(page, new RegExp("inp\\('" + id + "', [^)]*today\\(\\), entryDate\\(\\)\\)"), id);
+});
