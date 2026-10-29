@@ -30,6 +30,16 @@ function need(s, page, lvl) {
   throw fail(403, lvl === 'Edit' && v === 'View' ? 'You may see ' + PAGE_NAME[page] + ' on this site, not add to it (View). Ask the Super Admin for Edit.' : 'You have no access to ' + PAGE_NAME[page] + ' on this site – ask the Super Admin.', 'page');
 }
 const adminOnly = (s, what) => { if (!s.admin) throw fail(403, 'Only the Store Admin can ' + what + '.', 'admin'); };
+/* (29-10-2026, the MD – urgent: "admin ani super admin fkt back dated entry kru shakto baki konich nahi … jo entry user karayla jail tyala
+ * auto aajchi date select aasel tyala date change krta yenar nahi … modual wise") A STORE USER (not the Store Admin of this site, not the
+ * Super Admin) makes an entry – a requirement, a purchase order, a GRN, an issue, a return – only of TODAY. A requirement or a PO he
+ * changes (the PO's approval sends it back to him) keeps its own date; moved, it must be today. Changes and deletions of GRNs, issues
+ * and returns, the imports and the opening stock are the Store Admin's already. */
+const TODAY_RULE = () => process.env.STORE_TODAY_RULE !== 'off';      // ('off' only on the local test rig: its story is dated over ten days)
+const todayOnly = (s, date, what, was) => {
+  if (!TODAY_RULE() || s.admin || s.super || !date || date >= W.today() || (was && date === was)) return;
+  throw fail(400, what + ' of ' + W.dmy(date) + ': a Store User enters only today\'s entries – an entry of an earlier day is made only by the Store Admin or the Super Admin. Ask the Store Admin.', 'date');
+};
 const isBuyer = s => (s.pages || {}).purchase === 'Edit';
 const buyerOnly = s => { if (!isBuyer(s)) throw fail(403, 'Purchase orders are made by HO Purchase – "Store Purchase", given by the Super Admin in the Portal.', 'purchase'); };
 const userErr = e => { if (e && e.user) throw fail(400, e.message, 'field'); throw e; };
@@ -217,6 +227,7 @@ const ACTIONS = {
       if (cur.status !== 'Pending' || (cur.approvals || []).length) throw fail(409, 'Requirement ' + no + ' is already ' + (cur.status === 'Pending' ? 'approved at a level' : cur.status.toLowerCase()) + ' – it cannot be changed now. Cancel it and make a new one.', 'decided');
     }
     let r; try { r = W.checkReq(x.req, items, { machinery: mach, had: new Set(cur ? (cur.lines || []).map(l => l.code) : []) }); } catch (e) { userErr(e); }
+    todayOnly(s, r.date, 'Requirement', cur ? String(cur.date).slice(0, 10) : '');
     if (no) {
       const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&status=eq.Pending&updated_at=eq.' + enc(cur.updated_at), Object.assign({}, r, { updated_by: s.email }), 'return=representation')) || [])[0];
       if (!out) throw fail(409, 'Requirement ' + no + ' was changed or decided by someone else just now – refresh and look.', 'decided');
@@ -330,6 +341,7 @@ const ACTIONS = {
     const rn = [...new Set(((x.po && x.po.lines) || []).map(l => Number(l && l.req_no)).filter(n => Number.isInteger(n) && n > 0))];
     const reqs = {}; if (rn.length) (await dbAll(site, 'store_req?select=no,status,lines&no=in.(' + rn.join(',') + ')', 'no')).forEach(r => { reqs[r.no] = r; });
     let p; try { p = W.checkPo(x.po, items, { reqs: reqs, had: new Set(cur ? (cur.lines || []).map(l => l.code) : []) }); } catch (e) { userErr(e); }
+    todayOnly(s, p.date, 'Purchase order', cur ? String(cur.date).slice(0, 10) : '');
     const fresh = rn.filter(n => !cur || !(cur.lines || []).some(l => Number(l.req_no) === n));
     fresh.forEach(n => { if (!reqs[n] || reqs[n].status !== 'Approved') throw fail(409, 'Requirement ' + n + ' is not approved (or no longer open) – it cannot be ordered.', 'notapproved'); });
     p.vendor = party(p.vendor, (await names(site)).vendors, x.confirmParty, 'vendor');
@@ -415,6 +427,7 @@ const ACTIONS = {
       if (apprOf(po) !== 'Approved' && !(cur && Number(cur.po_no) === poNo)) throw fail(409, 'PO ' + poNo + ' is ' + (apprOf(po) === 'Rejected' ? 'rejected' : 'not approved yet') + ' – its material is taken in on it only after it is approved.', 'notapproved');
     }
     let g; try { g = W.checkGrn(x.grn, items, { po: po, had: new Set(cur ? (cur.store_grn_lines || []).map(l => l.code) : []) }); } catch (e) { userErr(e); }
+    todayOnly(s, g.head.date, 'GRN');
     g.head.supplier = party(g.head.supplier, (await names(s.site)).suppliers.concat(po ? [po.vendor] : []), x.confirmParty, 'supplier');
     if (po && !x.confirmOver) {      // more than the PO still has to come: asked first
       const rec = await receivedOf(s.site, [poNo], no), over = [];
@@ -483,6 +496,7 @@ const ACTIONS = {
     const [items, mach] = await Promise.all([itemsOf(s.site), machinery(s.site)]);
     let cur = null; if (no) { cur = ((await db(s.site, 'GET', 'store_issue?select=no,date,store_issue_lines(code)&no=eq.' + no)) || [])[0]; if (!cur) throw gone('Outward ' + no); }
     let date; try { date = W.dayOf(x.issue && x.issue.date, 'issue date'); } catch (e) { userErr(e); }
+    todayOnly(s, date, 'Issue');
     const st = new Map((await stockOn(s.site, date)).map(r => [r.code, r]));
     let g; try { g = W.checkIssue(x.issue, items, { machinery: mach, rateFor: c => avgOf(st.get(c)), had: new Set(cur ? (cur.store_issue_lines || []).map(l => l.code) : []) }); } catch (e) { userErr(e); }
     if (g.head.to_kind === 'Machinery') onSite(mach.find(m => m.no === g.head.machinery), g.head.date);
@@ -505,6 +519,7 @@ const ACTIONS = {
     const iss = (await ACTIONS.issueGet(Object.assign({}, s, { pages: Object.assign({}, s.pages, { issue: 'View' }) }), { no: x.ret && x.ret.issue_no })).issue;
     const back = {}; (iss.returns || []).forEach(r => { if (r.no === no) return; (r.lines || []).forEach(l => { back[l.issue_line] = r3((back[l.issue_line] || 0) + num(l.qty)); }); });
     let g; try { g = W.checkReturn(x.ret, iss, { back: back }); } catch (e) { userErr(e); }
+    todayOnly(s, g.head.date, 'Return');
     const items = await itemsOf(s.site);
     const n = await rpc(s.site, 'store_return_put', { p_no: no, p_head: g.head, p_lines: g.lines, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
     await activity(s.site, s.email, no ? 'Return changed' : 'Return made', 'RET ' + n, { issue: iss.no, lines: g.lines.length });
@@ -775,3 +790,4 @@ module.exports = handler(async (req, res) => {
   catch (e) { if (e && e.code === 'notinstalled') throw fail(500, 'The Store\'s work is not set up in the database of site ' + s.site + ' yet: run sql/store_step2_work.sql once in that site\'s Supabase → SQL Editor.', 'notinstalled'); throw e; }
 });
 module.exports.ACTIONS = ACTIONS;      // (for the unit test)
+module.exports.todayOnly = todayOnly;      // (for the unit test – 29-10-2026)

@@ -151,6 +151,16 @@ and the Exhaust Fans requirement): the PO's print is the Diesel PO's format, the
 * Actions: `poDecide` (approve / reject), `papersSave` (Store Admin); `poGet` gives the print's supplier, words and heading. The
   Portal's console (`rcl-portal`, "Approves purchase orders") signs the list into the Store's approvers ticket (`po`).
 
+## A Store User enters only today's entries (29-10-2026 – urgent; no database step)
+Asked: "admin ani super admin fkt back dated entry kru shakto baki konich nahi … jo entry user karayla jail tyala auto aajchi date select
+aasel tyala date change krta yenar nahi … modual wise". **A Store User** (not the Store Admin of the site, not the Super Admin) makes a
+requirement, a purchase order, a GRN, an issue or a return only of **today** – the date comes by itself and is not changed on the page
+(`entryDate()`); any other day is refused by the server (`todayOnly` in `api/work.js`): "GRN of 28-10-2026: a Store User enters only
+today's entries – an entry of an earlier day is made only by the Store Admin or the Super Admin. Ask the Store Admin." A requirement or a
+PO he changes (the PO's approval sends it back to him) keeps its own date. The Store Admin and the Super Admin: any day, as before.
+With Mechanical update-187 and the phone app. Tests: unit (32/32); rig `test/today.test.js` (the rule on) 6/6; `test/work.test.js` 105/105
+and `test/work.browser.test.js` 33/33 with `STORE_TODAY_RULE=off` (only the rig sets it – its story is dated over ten days).
+
 ## Parts
 | Part | File |
 |---|---|
@@ -184,7 +194,10 @@ timeout 900 node test/grnreg.test.js          # rig: the old inward register (a 
                                               # Store started with ANTHROPIC_API_KEY=test-key-s ANTHROPIC_API_BASE=http://127.0.0.1:3996
 timeout 600 node test/grnreg.browser.test.js  # rig + Chromium: the register's check and import on the page
 timeout 300 node test/grnno.test.js           # rig: a new GRN with its GRN No – before and after step 4 (run after grnreg.test.js)
+timeout 300 node test/today.test.js           # rig (29-10-2026): a Store User only today (run after work.test.js, the Store without the switch)
 ```
+The rig's stories are dated over ten days by Store Users: the Store on the rig is started with `STORE_TODAY_RULE=off` for them
+(`STORE_TODAY_RULE=off bash /home/claude/rig/store_srv.sh`); never set in Vercel.
 
 ## Fewer reads, every item, no second copy (24-10-2026, with Mechanical's update-155)
 * **Every item, page by page** (`lib/sites.js` `dbAll`): the database gives at most 1,000 rows to one question, so the list, the

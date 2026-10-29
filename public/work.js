@@ -18,6 +18,10 @@
   const monthStart = () => today().slice(0, 8) + '01';
   const keyOf = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const pg = k => ((K().S.me || {}).pages || {})[k] || 'None', admin = () => !!(K().S.me && K().S.me.user.admin), buyer = () => pg('purchase') === 'Edit';
+  // (29-10-2026, the MD: "jo entry user karayla jail tyala auto aajchi date select aasel tyala date change krta yenar nahi") a Store User:
+  // an entry's date is today, by itself, not to be changed – the Store Admin and the Super Admin any day (the server refuses another)
+  const backOk = () => admin() || !!(K().S.me && K().S.me.user && K().S.me.user.super);
+  const entryDate = () => ' type="date"' + (backOk() ? '' : ' min="' + today() + '" max="' + today() + '" readonly title="Today – an entry of an earlier day is made by the Store Admin."');
   const canEdit = k => pg(k) === 'Edit';
   const toast = (t, bad) => K().toast(t, bad), failed = e => K().failed(e), ask = (t, h, b) => K().ask(t, h, b);
   async function boot(force) { if (!B || force) { B = await W('boot'); lists(); } return B; }
@@ -198,7 +202,7 @@
     if (!B) return void boot().then(() => reqForm(x)).catch(failed);      // (pressed before the page had its lists)
     const f = $('rq_form'); f.hidden = false;
     f.innerHTML = '<h2>' + (x ? 'Change requirement ' + x.no : 'New requirement') + '</h2><div class="grid" style="margin-top:10px">' +
-      field('rq_date', 'Date *', inp('rq_date', x ? x.date : today(), ' type="date"')) + field('rq_need', 'Needed by', inp('rq_need', x ? x.need_by : '', ' type="date"')) +
+      field('rq_date', 'Date *', inp('rq_date', x ? x.date : today(), entryDate())) + field('rq_need', 'Needed by', inp('rq_need', x ? x.need_by : '', ' type="date"')) +
       field('rq_kind', 'For *', sel('rq_kind', B.kinds.for, x ? x.for_kind : 'Site work')) + '<div class="field wide" id="rq_whichw"></div>' + field('rq_rem', 'Remark', inp('rq_rem', x ? x.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="rq_lines"></div>' +
       '<div class="bar"><button type="button" class="btn primary" id="rq_save">Save requirement</button><button type="button" class="btn" id="rq_x">Cancel</button></div>';
     const which = () => { const k = val('rq_kind'), cur = x ? x.for_text : '';
@@ -249,7 +253,7 @@
     const rows = po ? po.lines.map(l => Object.assign({ fixedItem: !!l.req_no }, l, { disc_pct: l.disc_pct || '', hsn: l.hsn || '' })) : ticked.map(t => { const r = st.reqs.find(q => q.no === Number(t.dataset.req)), l = r.lines.find(z => z.line === Number(t.dataset.line)); const i = it.items.find(z => z.code === l.code) || {};
       return { code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: '', disc_pct: '', hsn: i.hsn || '', gst_pct: i.gst_pct === null || i.gst_pct === undefined ? '' : i.gst_pct, req_no: r.no, req_line: l.line, brand: l.brand || '', spec: l.spec || '', fixedItem: true }; });
     f.innerHTML = '<h2>' + (po ? 'Change PO ' + po.no : 'New purchase order') + ' – ' + esc(site) + '</h2><div class="grid" style="margin-top:10px">' +
-      field('pu_date', 'PO date *', inp('pu_date', po ? po.date : today(), ' type="date"')) + field('pu_ven', 'Vendor (supplier) *', inp('pu_ven', po ? po.vendor : '', ' list="dl_wvendors" maxlength="80" autocomplete="off"'), 'wide') +
+      field('pu_date', 'PO date *', inp('pu_date', po ? po.date : today(), entryDate())) + field('pu_ven', 'Vendor (supplier) *', inp('pu_ven', po ? po.vendor : '', ' list="dl_wvendors" maxlength="80" autocomplete="off"'), 'wide') +
       field('pu_gst', 'Vendor GST no.', inp('pu_gst', po ? po.vendor_gst : '', ' maxlength="15"')) + field('pu_del', 'Delivery by', inp('pu_del', po ? po.deliver_by : '', ' type="date"')) +
       // (28-10-2026, his format) the PO Details: Credit Period, Site Contact, Shipping Address; Freight, Load / Unload; Terms line by line
       // (a new PO starts with the site's Shipping Address, Site Contact and Terms of Store Settings)
@@ -424,7 +428,7 @@
     // (28-10-2026, his picture) two cards: GRN Details – Clear and the GRN date at its top right; Items – + Add Row
     f.innerHTML = '<div class="gcard"><div class="ghead">' + ico('box', 'gico') + '<h3>GRN Details</h3>' + (g ? '<span class="gsub">Change GRN ' + esc(refOf(g)) + '</span>' : '') +
         '<div class="gact"><button type="button" class="btn" id="gr_clr" title="' + (g ? 'Back to the GRN as it is saved' : 'Empty the form') + '">' + ico('clear') + 'Clear</button>' +
-          field('gr_ref', 'GRN No', inp('gr_ref', g ? refOf(g) : '', g ? ' readonly title="The GRN No of a saved GRN stays as it is"' : ' maxlength="20" autocomplete="off" placeholder="…"'), 'gref') + field('gr_date', 'GRN Date *', inp('gr_date', g ? g.date : today(), ' type="date"')) + '</div></div>' +
+          field('gr_ref', 'GRN No', inp('gr_ref', g ? refOf(g) : '', g ? ' readonly title="The GRN No of a saved GRN stays as it is"' : ' maxlength="20" autocomplete="off" placeholder="…"'), 'gref') + field('gr_date', 'GRN Date *', inp('gr_date', g ? g.date : today(), entryDate())) + '</div></div>' +
       '<div class="ggrid g3">' + field('gr_po', 'Against PO', sel('gr_po', [['', 'Direct (no PO)']].concat(pos.map(p => [p.no, 'PO ' + p.no + ' – ' + p.vendor + (p.lines.length ? ' (' + p.lines.filter(l => l.left > 0).map(l => l.name + ' ' + n2(l.left)).join(', ') + ')' : '')])), g ? g.po_no || '' : '')) +
         field('gr_sup', 'Supplier *', '<div class="ib">' + inp('gr_sup', g ? g.supplier : '', ' list="dl_wsuppliers" maxlength="80" autocomplete="off" placeholder="Select or type the supplier"') + ico('down') + '</div>') +
         field('gr_ch', 'Challan No', inp('gr_ch', g ? g.challan_no : '', ' maxlength="40"')) + '</div>' +
@@ -509,7 +513,7 @@
     if (!B) return void boot().then(() => issueForm(i)).catch(failed);      // (pressed before the page had its lists)
     const f = $('is_form'); f.hidden = false;
     f.innerHTML = '<h2>' + (i ? 'Change outward ' + i.no : 'New issue') + '</h2><div class="grid" style="margin-top:10px">' +
-      field('is_date', 'Date *', inp('is_date', i ? i.date : today(), ' type="date"')) + field('is_kind', 'Issued to *', sel('is_kind', B.kinds.to, i ? i.to_kind : 'Site work')) + '<div class="field wide" id="is_whow"></div>' +
+      field('is_date', 'Date *', inp('is_date', i ? i.date : today(), entryDate())) + field('is_kind', 'Issued to *', sel('is_kind', B.kinds.to, i ? i.to_kind : 'Site work')) + '<div class="field wide" id="is_whow"></div>' +
       field('is_loc', 'Location (chainage)', inp('is_loc', i ? i.location : '', ' maxlength="120" placeholder="e.g. 540+450 to 540+480"')) + field('is_side', 'Side', sel('is_side', [['', '–']].concat(B.kinds.sides), i ? i.side : '')) +
       field('is_use', 'Use for (work)', inp('is_use', i ? i.use_for : '', ' maxlength="120" placeholder="e.g. Toe wall, BC, Consumable"'), 'wide') + field('is_rcv', 'Receiver', inp('is_rcv', i ? i.receiver : '', ' maxlength="80"')) +
       '<div class="field" id="is_debw"><label><input type="checkbox" id="is_deb" style="width:auto;min-height:0"' + (i && i.debit ? ' checked' : '') + '> On debit (charged to them, with GST)</label></div>' + field('is_rem', 'Remark', inp('is_rem', i ? i.remark : '', ' maxlength="300"'), 'wide') + '</div><div id="is_lines"></div>' +
@@ -538,7 +542,7 @@
     const f = $('is_form'); f.hidden = false;
     const left = i.lines.filter(l => l.qty - (l.back || 0) > 0.0005);
     if (!left.length) { f.hidden = true; return toast('Everything of outward ' + i.no + ' has come back.', true); }
-    f.innerHTML = '<h2>Return to the store – outward ' + i.no + ' (' + esc(toWho(i)) + ', ' + dmy(i.date) + ')</h2><div class="grid" style="margin-top:10px">' + field('rt_date', 'Return date *', inp('rt_date', today(), ' type="date"')) + field('rt_rem', 'Remark', inp('rt_rem', '', ' maxlength="300"'), 'wide') + '</div>' +
+    f.innerHTML = '<h2>Return to the store – outward ' + i.no + ' (' + esc(toWho(i)) + ', ' + dmy(i.date) + ')</h2><div class="grid" style="margin-top:10px">' + field('rt_date', 'Return date *', inp('rt_date', today(), entryDate())) + field('rt_rem', 'Remark', inp('rt_rem', '', ' maxlength="300"'), 'wide') + '</div>' +
       '<div class="tw"><table class="lines"><thead><tr><th>Item</th><th class="n">Issued</th><th class="n">Back before</th><th class="n">Still out</th><th>Back now</th><th>Remark (condition)</th></tr></thead><tbody>' +
       left.map(l => '<tr data-l="' + l.id + '"><td>' + esc(l.name) + (l.returnable ? ' ' + tag('returnable', 'blue') : '') + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.back || 0) + '</td><td class="n">' + n2(r2(l.qty - (l.back || 0))) + '</td><td><input class="q rt-q" inputmode="decimal"></td><td><input class="s rt-r" maxlength="120"></td></tr>').join('') + '</tbody></table></div>' +
       '<div class="bar"><button type="button" class="btn primary" id="rt_save">Save return</button><button type="button" class="btn" id="rt_x">Cancel</button></div>';
