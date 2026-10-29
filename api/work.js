@@ -262,10 +262,15 @@ async function issuesOut(s, site, iss, wf) {
  * (the paper stays saved; nothing of its stock changes) */
 async function wfSet(site, table, no, s, kind, isNew) {
   if (!(await step9On(site).catch(() => false))) return { state: '', note: '' };
-  const w0 = W.wfStart(await wfAt(site), kind, s.email);
-  if (!w0 && isNew) return { state: '', note: '' };
-  try { await db(site, 'PATCH', table + '?no=eq.' + Number(no), { wf: w0 }, 'return=minimal'); }
-  catch (e) { return { state: '', note: 'It is saved – but its verification / approval could not be noted (' + String((e && e.message) || e).slice(0, 80) + '). The Store Admin opens it with Change and saves it again.' }; }
+  // (29-10-2026, the review) every read and write of it inside the try: the paper is saved already – a fault is only told, never an error;
+  // a change by the Store Admin keeps who made it (neither of them verifies or approves it)
+  let w0 = null;
+  try {
+    const made = isNew ? '' : String((((await db(site, 'GET', table + '?select=created_by&no=eq.' + Number(no))) || [])[0] || {}).created_by || '');
+    w0 = W.wfStart(await wfAt(site), kind, s.email, undefined, made);
+    if (!w0 && isNew) return { state: '', note: '' };
+    await db(site, 'PATCH', table + '?no=eq.' + Number(no), { wf: w0 }, 'return=minimal');
+  } catch (e) { return { state: '', note: 'It is saved – but its verification / approval could not be noted (' + String((e && e.message) || e).slice(0, 80) + '). The Store Admin opens it with Change and saves it again.' }; }
   return { state: w0 ? w0.state : '', note: '' };
 }
 // what is still to come of a PO, line by line; its state: Open / Received (all came) / Closed / Cancelled
@@ -276,11 +281,13 @@ function poView(p, rec) {
 }
 /* (29-10-2026) a PO waiting: for its VERIFICATION (someone verifies the POs of its site – step 9 keeps it: wf.state 'verify'; nobody
  * verifies any more – its approval) or for its APPROVAL. Who decides it: a person of its own site (signed in there), never his own. */
+// (29-10-2026, the review) who made a PO: its maker and who changed it last – neither verifies or approves it (poSave and here the same)
+const poMakers = p => W.makersOf(p.created_by, p.updated_by, p.wf && p.wf.by);
 function poStep(p, wf, approvers, s, here) {
-  const maker = String(p.created_by || '').toLowerCase(), w = p.wf;
+  const mk = poMakers(p), w = p.wf;
   if (p.status !== 'Open' || apprOf(p) !== 'Waiting') return { step: '', may: false, waitFor: [] };
-  if (w && w.state === 'verify' && W.othersOf(wf.verify.po, maker).length) return { step: 'verify', may: here !== false && W.isIn(wf.verify.po, s.email) && me_(s) !== maker, waitFor: W.othersOf(wf.verify.po, maker).map(q => q.name) };
-  return { step: 'approve', may: here !== false && W.mayApprovePo(approvers, s.email, p.created_by), waitFor: approvers.filter(q => q.email !== maker).map(q => q.name) };
+  if (w && w.state === 'verify' && W.othersOf(wf.verify.po, mk).length) return { step: 'verify', may: here !== false && W.isIn(wf.verify.po, s.email) && !mk.includes(me_(s)), waitFor: W.othersOf(wf.verify.po, mk).map(q => q.name) };
+  return { step: 'approve', may: here !== false && W.mayApprovePo(approvers, s.email, mk), waitFor: W.othersOf(approvers, mk).map(q => q.name) };
 }
 /* (29-10-2026) a requirement waiting for its VERIFICATION: Pending at level 0 (someone verifies the requirements of the site – the
  * Portal's workflow). Nobody verifies any more: it waits for its first level of approval instead. Its level NOW: */
@@ -703,7 +710,7 @@ const ACTIONS = {
    * GRNs and its balance */
   async poGrns(s, x) {
     const site = await siteFor(s, x), no = noOf(x.no), [mine, wf0] = await Promise.all([poPeople(s.site), wfAt(s.site)]);
-    if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View') && !mine.some(p => p.email === me_(s)) && !W.isIn(wf0.verify.po, s.email)) need(s, 'po', 'View');
+    if (!isBuyer(s) && !can(s, 'po', 'View') && !seeWork(s, 'grn', wf0, 'grn') && !mine.some(p => p.email === me_(s)) && !W.isIn(wf0.verify.po, s.email)) need(s, 'po', 'View');
     const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
     const grns = await dbAll(site, 'store_grn?select=*,store_grn_lines(*)&po_no=eq.' + no, 'no'), before = beforeOf(grns), rec = recOf(grns), wf = site === s.site ? wf0 : await wfAt(site);
     const [h, pp] = await Promise.all([headingOf(site, s), papersOf(site)]);
@@ -745,9 +752,10 @@ const ACTIONS = {
     const s5 = await step5On(site);
     if (!s5 && (p.credit_days !== null || p.site_contact || p.ship_to || p.freight > 0 || p.load_unload > 0)) throw fail(400, STEP5, 'sql');
     // (29-10-2026) its VERIFICATION first (step 9 at its site), when someone other than its maker verifies the POs of its site; then its approval
-    const s9 = s5 && await step9On(site).catch(() => false), wf = s9 ? await wfAt(site) : null, vf = !!(wf && W.othersOf(wf.verify.po, s.email).length);
+    const mk = W.makersOf(cur ? cur.created_by : '', s.email);      // (29-10-2026, the review) its maker and who saves it now – as poStep
+    const s9 = s5 && await step9On(site).catch(() => false), wf = s9 ? await wfAt(site) : null, vf = !!(wf && W.othersOf(wf.verify.po, mk).length);
     let others = [];
-    if (s5) { others = (await poPeople(site)).filter(q => q.email !== me_(s));
+    if (s5) { others = W.othersOf(await poPeople(site), mk);
       p.appr = others.length || vf ? 'Waiting' : 'Approved'; p.appr_note = others.length || vf ? '' : 'Nobody approves purchase orders at this site – approved when made.'; }
     if (cur) {      // a changed PO: never less than already came
       const rec = await receivedOf(site, [no]);
@@ -770,13 +778,13 @@ const ACTIONS = {
     const no = noOf(x.no), ok = x.ok === true, note = I.clean(x.note, 300), [people, wf] = await Promise.all([poPeople(s.site), wfAt(s.site)]);
     const p = ((await db(s.site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
     if (p.status !== 'Open' || apprOf(p) !== 'Waiting') throw fail(409, 'PO ' + no + ' is not waiting for its approval any more (it is ' + (p.status !== 'Open' ? p.status.toLowerCase() : apprOf(p).toLowerCase()) + ') – refresh.', 'decided');
-    const own = String(p.created_by || '').toLowerCase() === me_(s), ps = poStep(p, wf, people, s, true), at = new Date().toISOString();
+    const own = poMakers(p).includes(me_(s)), ps = poStep(p, wf, people, s, true), at = new Date().toISOString();
     /* (29-10-2026) its VERIFICATION: one who verifies the POs of this site (never his own) – verified: it waits for its approval (nobody
      * approves POs here: approved); not: rejected, saying why (the one who made it changes it – it waits again) */
     if (ps.step === 'verify') {
       if (!ps.may) throw fail(403, own ? 'Nobody verifies his own purchase order.' : 'You do not verify the purchase orders of this site – the Super Admin gives it in the Portal ("Verifies purchase orders").', 'approve');
       if (!ok && !note) throw fail(400, 'Say why the PO is sent back (the one who made it sees it).', 'field');
-      const more = people.filter(q => q.email !== String(p.created_by || '').toLowerCase()).length > 0;
+      const more = W.othersOf(people, poMakers(p)).length > 0;
       const w = Object.assign({}, p.wf, { state: !ok ? 'returned' : more ? 'approve' : 'done', steps: ((p.wf || {}).steps || []).concat([{ step: 'verify', ok: ok, email: me_(s), name: s.name, at: at, note: note || null }]) });
       const patch = !ok ? { appr: 'Rejected', appr_by: s.email, appr_name: s.name, appr_at: at, appr_note: note, wf: w } : more ? { wf: w }
         : { appr: 'Approved', appr_by: s.email, appr_name: s.name, appr_at: at, appr_note: 'Verified by ' + s.name + ' – nobody approves purchase orders at this site.', wf: w };
@@ -786,7 +794,7 @@ const ACTIONS = {
       await activity(s.site, s.email, ok ? 'PO verified' : 'PO rejected (verification)', 'PO ' + no, { vendor: p.vendor, total: num(p.total), note: note || undefined, now: patch.appr || 'Waiting approval' });
       return { ok: true, no: no, appr: patch.appr || 'Waiting', step: w.state };
     }
-    if (!W.mayApprovePo(people, s.email, p.created_by)) throw fail(403, own ? 'Nobody approves his own purchase order.' : 'You do not approve the purchase orders of this site – the Super Admin gives it in the Portal ("Approves purchase orders").', 'approve');
+    if (!W.mayApprovePo(people, s.email, poMakers(p))) throw fail(403, own ? 'Nobody approves his own purchase order.' : 'You do not approve the purchase orders of this site – the Super Admin gives it in the Portal ("Approves purchase orders").', 'approve');
     if (!ok && !note) throw fail(400, 'Say why the PO is rejected (the one who made it sees it).', 'field');
     const patch = { appr: ok ? 'Approved' : 'Rejected', appr_by: s.email, appr_name: s.name, appr_at: at, appr_note: note || null };
     if (p.wf && typeof p.wf === 'object') patch.wf = Object.assign({}, p.wf, { state: ok ? 'done' : 'returned', steps: (p.wf.steps || []).concat([{ step: 'approve', ok: ok, email: me_(s), name: s.name, at: at, note: note || null }]) });
@@ -861,7 +869,7 @@ const ACTIONS = {
     if (!w || (w.state !== 'verify' && w.state !== 'approve')) throw fail(409, label + ' is not waiting for a verification or an approval (any more) – refresh.', 'decided');
     if (!W.wfMay(wf, T[1], w, s.email)) {
       const st = W.wfStepNow(wf, T[1], w);
-      throw fail(403, w.by === me_(s) ? 'Nobody verifies or approves his own entry.' : !st ? 'Nobody ' + (w.state === 'verify' ? 'verifies or approves' : 'approves') + ' the ' + (T[1] === 'grn' ? 'GRNs' : 'issues & returns') + ' of this site now – the Super Admin gives it in the Portal.' : 'You do not ' + (st === 'verify' ? 'verify' : 'approve') + ' the ' + (T[1] === 'grn' ? 'GRNs' : 'issues & returns') + ' of this site – the Super Admin gives it in the Portal.', 'approve');
+      throw fail(403, W.makersOf(w.by, w.made).includes(me_(s)) ? 'Nobody verifies or approves his own entry.' : !st ? 'Nobody ' + (w.state === 'verify' ? 'verifies or approves' : 'approves') + ' the ' + (T[1] === 'grn' ? 'GRNs' : 'issues & returns') + ' of this site now – the Super Admin gives it in the Portal.' : 'You do not ' + (st === 'verify' ? 'verify' : 'approve') + ' the ' + (T[1] === 'grn' ? 'GRNs' : 'issues & returns') + ' of this site – the Super Admin gives it in the Portal.', 'approve');
     }
     if (!ok && !note) throw fail(400, 'Say why it is sent back (the Store Admin corrects it).', 'field');
     const step = W.wfStepNow(wf, T[1], w), nw = W.wfNext(wf, T[1], w, { email: s.email, name: s.name }, ok, note);
@@ -999,7 +1007,7 @@ const ACTIONS = {
     return { from: p.from, to: p.to, issues: await issuesOut(s, s.site, iss, wf) };
   },
   async issueGet(s, x) {
-    need(s, 'issue', 'View');
+    if (!seeWork(s, 'issue', await wfAt(s.site), 'iss')) need(s, 'issue', 'View');      // (29-10-2026) one who verifies or approves the issues too
     const no = noOf(x.no), i = ((await db(s.site, 'GET', 'store_issue?select=*,store_issue_lines(*)&no=eq.' + no)) || [])[0]; if (!i) throw gone('Outward ' + no);
     const rets = await dbAll(s.site, 'store_return?select=*,store_return_lines(*)&issue_no=eq.' + no, 'no'), back = {};
     rets.forEach(r => (r.store_return_lines || []).forEach(l => { back[l.issue_line] = r3((back[l.issue_line] || 0) + num(l.qty)); }));

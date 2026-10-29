@@ -50,6 +50,9 @@ const VPW = 'Audit#PassView9!x', PW = 'Nashik#Road848!', SAPW = 'Super#Admin2041
     const V = await as('view@rcl.test', VPW, 'S1', 'req');
     let st = await V.evaluate(n => { const tr = document.querySelector('#rq_list tr[data-no="' + n + '"]'); return tr ? { tag: tr.querySelector('.tag') && tr.querySelector('.tag').textContent, btn: (tr.querySelector('.rq-ok') || {}).textContent, lv: document.getElementById('rq_lv').textContent } : null; }, made.no);
     ok('view: Requirements – "Waiting verification" and his "Verify"; the line says who verifies and who approves', st && st.tag === 'Waiting verification' && st.btn === 'Verify' && /^Verified by: View User · Approved by: Level 1 – Asha Accounts/.test(st.lv), st);
+    // (the review) every row as many cells as the heading – its State and its "Asked by" (the store keeper)
+    const cells = await V.evaluate(n => { const tr = document.querySelector('#rq_list tr[data-no="' + n + '"]'), t = tr && tr.closest('table'); return tr ? { row: tr.children.length, head: t.querySelectorAll('thead th').length, who: tr.children[tr.children.length - 2].textContent } : null; }, made.no);
+    ok('   the row: as many cells as the heading; Asked by – Store Keeper', cells && cells.row === cells.head && /Store/.test(cells.who), cells);
     await shot(V, 'wf_req_verify');
     await V.click('#rq_list tr[data-no="' + made.no + '"] .rq-ok'); await wait(1500);
     const t1 = await toast(V);

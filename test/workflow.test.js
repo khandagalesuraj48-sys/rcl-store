@@ -201,6 +201,10 @@ const root = path.join(__dirname, '..'), PORTAL_DIR = process.env.PORTAL_DIR || 
     ok('   now as per PO', (r.j.grns.find(g => g.no === g2.j.no) || {}).check.ok === true, r.j.grns);
     r = await A.w('wfDecide', { kind: 'grn', no: g2.j.no, ok: true });
     ok('   the Store Admin who changed it does not verify it (his own entry now)', r.status === 403, r.j);
+    const w3 = JSON.parse(sql('rcl', 'select wf::text from store_grn where no = ' + g2.j.no) || '{}');
+    ok('   (the review) kept: who changed it AND who made it – neither of them verifies or approves it', w3.by === 'sujit@rcl.test' && w3.made === 'store@rcl.test' && w3.state === 'verify', w3);
+    r = await K.w('wfDecide', { kind: 'grn', no: g2.j.no, ok: true });
+    ok('   the store keeper who made it does not either', r.status === 403 && /his own entry/.test(r.j.error), r.j);
     r = await HO.w('hoCheck', { site: 'S1', kind: 'grn', no: g2.j.no });
     ok('   Head Office checks only what was sent to it', r.status === 409, r.j);
     r = await HO.w('hoCheck', { site: 'S1', kind: 'grn', no: g1.j.no, note: 'Bill passed' });

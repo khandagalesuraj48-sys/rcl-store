@@ -797,6 +797,40 @@ test('(29-10-2026, "standard ERP … 500 MT cement … aaj 100 udya 100 … GRN 
   assert.strictEqual(W.poBalance(po, { '7:1': 520 })[0].left, 0, 'more came than ordered: nothing left (never below 0)');
 });
 
+test('(29-10-2026, the review) who made a paper: the one who made it AND the one who changed it last – neither verifies or approves it; the bill check never flags a paisa of rounding; two lines on one PO line', () => {
+  const W = require('../lib/work');
+  const P = (e, n) => ({ email: e, name: n });
+  // U made the GRN and approves GRNs; sent back, the Store Admin corrects it: U never approves it (nor the Admin)
+  const wf = W.wfOf({ wf: { verify: { grn: [P('v@x', 'Vinay')] }, approve: { grn: [P('u@x', 'Umesh'), P('a@x', 'Asha')] } } });
+  let w = W.wfStart(wf, 'grn', 'admin@x', 't', 'U@x');
+  assert.deepStrictEqual(w, { state: 'verify', by: 'admin@x', at: 't', steps: [], made: 'u@x' });
+  assert.strictEqual(W.wfMay(wf, 'grn', w, 'v@x'), true);
+  w = W.wfNext(wf, 'grn', w, { email: 'v@x', name: 'Vinay' }, true, '', 't1');
+  assert.deepStrictEqual([W.wfMay(wf, 'grn', w, 'u@x'), W.wfMay(wf, 'grn', w, 'admin@x'), W.wfMay(wf, 'grn', w, 'a@x')], [false, false, true]);
+  assert.deepStrictEqual(W.wfWaitFor(wf, 'grn', w), ['Asha']);
+  assert.deepStrictEqual(W.wfStart(wf, 'grn', 'u@x', 't', 'u@x'), { state: 'verify', by: 'u@x', at: 't', steps: [] }, 'his own save: as before');
+  // a PO: its maker and who changed it last – neither approves it
+  assert.deepStrictEqual(W.makersOf('Y@x', null, ['x@x', 'y@x']), ['y@x', 'x@x']);
+  assert.deepStrictEqual([W.mayApprovePo([P('x@x', 'X'), P('z@x', 'Z')], 'x@x', ['y@x', 'x@x']), W.mayApprovePo([P('x@x', 'X'), P('z@x', 'Z')], 'z@x', ['y@x', 'x@x']), W.mayApprovePo([P('x@x', 'X')], 'x@x', 'y@x')], [false, true, true]);
+  // the bill at the PO's rate and discount: never flagged for rounding (72.35 less 7.5 % for 2; 10.37 for half a unit)
+  const po = { no: 3, lines: [{ line: 1, name: 'Bolt', unit: 'Nos', qty: 10, rate: 72.35, disc_pct: 7.5, gst_pct: 18 }, { line: 2, name: 'Wire', unit: 'Kg', qty: 5, rate: 10.37, disc_pct: 0, gst_pct: 18 }] };
+  assert.deepStrictEqual(W.billCheck([{ po_line: 1, name: 'Bolt', qty: 2, taxable: 133.85, gst_pct: 18 }, { po_line: 2, name: 'Wire', qty: 0.5, taxable: 5.19, gst_pct: 18 }], po, {}), { ok: true, diffs: [] });
+  // a real rise is still told
+  assert.deepStrictEqual(W.billCheck([{ po_line: 1, name: 'Bolt', unit: 'Nos', qty: 2, taxable: 140, gst_pct: 18 }], po, {}).diffs, [{ kind: 'rate', name: 'Bolt', unit: 'Nos', po: 66.92, bill: 70 }]);
+  // two lines of one GRN on one PO line: the second checked with what the first left (10 ordered: 6 + 6)
+  assert.deepStrictEqual(W.billCheck([{ po_line: 1, name: 'Bolt', unit: 'Nos', qty: 6, taxable: 401.54, gst_pct: 18 }, { po_line: 1, name: 'Bolt', unit: 'Nos', qty: 6, taxable: 401.54, gst_pct: 18 }], po, {}).diffs, [{ kind: 'qty', name: 'Bolt', unit: 'Nos', po: 4, bill: 6 }]);
+  // the page's GRN form the same rule (rateChk), the server's (rateOver)
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  assert.match(page, /bill > po \+ 0\.009 && m\.taxable > r2\(q \* ex\) \+ 0\.02/);
+  assert.strictEqual(W.rateOver(133.85, 2, po.lines[0]), false); assert.strictEqual(W.rateOver(140, 2, po.lines[0]), true);
+  // a GRN / issue / return save: its workflow read and written inside its own try (the paper is saved already – never an error)
+  const api = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), ws = api.slice(api.indexOf('async function wfSet('), api.indexOf('// what is still to come of a PO'));
+  assert.ok(ws.indexOf('try {') > -1 && ws.indexOf('try {') < ws.indexOf('await wfAt(site)'), 'wfAt inside the try');
+  // the Requirements list: every row its State cell and its Asked by cell (no code hidden in a comment)
+  const row = page.split('\n').find(l => l.indexOf("tag('Waiting verification', 'warn')") > -1 && l.indexOf('<td>') > -1) || '';
+  assert.match(row.split('//')[0], /In PO .*<\/td><td><small>' \+ esc\(x\.created_name/);
+});
+
 test('(29-10-2026) the workflow told by the Portal (signed ticket), kept with the approvers; the pages of one who verifies / approves; step 9 only adds', () => {
   const src = fs.readFileSync(path.join(root, 'lib', 'portal.js'), 'utf8'), api = fs.readFileSync(path.join(root, 'api', 'portal.js'), 'utf8'), work = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
   assert.ok(src.includes("wf = { verify: { req: people(v.req), po: people(v.po), grn: people(v.grn), iss: people(v.iss) }, approve: { grn: people(a.grn), iss: people(a.iss) },") && src.includes('ho: { req: h.req !== false, grn: h.grn === true, iss: h.iss === true } };'));
@@ -813,7 +847,7 @@ test('(29-10-2026) the workflow told by the Portal (signed ticket), kept with th
   ['store_po', 'store_grn', 'store_issue', 'store_return'].forEach(tb => assert.ok(body.includes('alter table public.' + tb + ' add column if not exists wf jsonb;'), tb));
   // the server: never one's own; a GRN's stock untouched by the workflow (its own write after the save); HO Purchase only for Head Office's check
   const act = n => { const i = work.indexOf('  async ' + n + '(s, x) {'); assert.ok(i > -1, n); return work.slice(i, work.indexOf('\n  },', i)); };
-  assert.ok(act('wfDecide').includes("w.by === me_(s) ? 'Nobody verifies or approves his own entry.'") && act('wfDecide').includes("'&wf->>state=eq.' + w.state, { wf: nw }") && !/rpc\(/.test(act('wfDecide')), 'only its wf is written');
+  assert.ok(act('wfDecide').includes("W.makersOf(w.by, w.made).includes(me_(s)) ? 'Nobody verifies or approves his own entry.'") && act('wfDecide').includes("'&wf->>state=eq.' + w.state, { wf: nw }") && !/rpc\(/.test(act('wfDecide')), 'only its wf is written');
   assert.ok(act('hoCheck').startsWith('  async hoCheck(s, x) {\n    buyerOnly(s);') && act('hoInbox').startsWith('  async hoInbox(s, x) {\n    buyerOnly(s);'));
   assert.ok(act('poDecide').includes("if (ps.step === 'verify') {") && act('poDecide').includes("'Nobody verifies his own purchase order.'"));
   assert.ok(act('reqDecide').includes("if (own || !W.isIn(wf.verify.req, s.email)) { left.push({ no: no, why: own ? 'your own requirement' : 'it waits for its verification – not yours' }); continue; }"));
