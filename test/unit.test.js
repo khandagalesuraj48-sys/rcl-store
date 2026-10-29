@@ -510,3 +510,14 @@ test('(29-10-2026) the GRN\'s discounts need the database\'s step 6 – it only 
   assert.deepStrictEqual(reg.cols.slice(-4).map(c => c.h), ['PO No', 'Item Code', 'Discount ₹', 'Net Rate']);
   assert.deepStrictEqual(reg.rows[0].slice(-3), ['ITM-0001', 100, 90]);
 });
+
+test('(29-10-2026, "print war rachana address nahi site address nahi ani rachana logo nahiye") the requirement\'s paper as the PO\'s heading: the company\'s address and details, the Site Address; the print waits for its pictures; a papers\' box not sent keeps what it has', () => {
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8'), src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
+  const rp = page.slice(page.indexOf('  function reqPrint(x, h) {'), page.indexOf('  function reqPrint(x, h) {') + 4000);
+  for (const k of ["(h.address ? '<div class=\"c\">' + nl(h.address) + '</div>' : '')", '<b>Email ID.</b>', '<b>GST No</b>', '<b>PAN No</b>', "'<tr><td>Site Address :</td><td colspan=\"3\">' + nl(h.site_address || '') + '</td></tr>'", 'logoOf(h)']) assert.ok(rp.includes(k), k);
+  assert.match(page, /const wait = \(\) => \(imgs\.every\(i => i\.complete\) \|\| Date\.now\(\) - t0 > 8000\) \? setTimeout\(go, 150\) : setTimeout\(wait, 150\);/, 'the logo loaded before the print box');
+  assert.ok(src.includes("'terms', 'site_address'];"));
+  assert.ok(src.includes('if (x[k] === undefined && cur[k] !== undefined) { v[k] = cur[k]; return; }'));
+  assert.ok(src.includes("site_address: pp.site_address || pp.ship_to || ''"), 'else the Shipping Address');
+  assert.ok(page.includes("site_address: val('pp_saddr') });"));
+});

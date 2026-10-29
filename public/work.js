@@ -158,7 +158,11 @@
     d.open(); d.write('<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>@page{size:A4 ' + (land ? 'landscape' : 'portrait') + ';margin:10mm}body{font:12px Arial,sans-serif;color:#000}h1{font-size:17px;margin:0 0 2px}h2{font-size:14px;margin:8px 0 4px}' +
       'table{border-collapse:collapse;width:100%}th,td{border:1px solid #444;padding:3px 5px;text-align:left;vertical-align:top}th{background:#eee}td.n,th.n{text-align:right}.muted{color:#555}.hd{display:flex;justify-content:space-between;gap:12px;margin-bottom:8px}.sign{margin-top:40px;display:flex;justify-content:space-between}</style></head><body>' + html + '</body></html>');
     d.close();
-    setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Could not print here.', true); } setTimeout(() => f.remove(), 60000); }, 300);
+    // (29-10-2026, "rachana logo nahiye") its pictures (the logo, the photos) loaded first – at most 8 s – then the print box
+    const go = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Could not print here.', true); } setTimeout(() => f.remove(), 60000); };
+    const imgs = [...d.images], t0 = Date.now();
+    const wait = () => (imgs.every(i => i.complete) || Date.now() - t0 > 8000) ? setTimeout(go, 150) : setTimeout(wait, 150);
+    setTimeout(wait, 150);
   }
   // a report (one table) as an Excel file – its title and dates on top
   async function toExcel(rep, name) {
@@ -377,9 +381,15 @@
     h = h || {};
     const ok = (x.approvals || []).filter(a => a.ok), last = x.status === 'Approved' || x.status === 'Closed' ? ok[ok.length - 1] : null, checked = (last ? ok.slice(0, -1) : ok).map(a => a.name).join(', ');
     const appr = last ? last.name : x.status === 'Pending' ? '(waiting – level ' + x.level + ')' : x.status === 'Rejected' ? '(rejected)' : '';
-    const head = '<table><tr><td style="width:55%;text-align:center;vertical-align:middle" rowspan="2">' + logoOf(h) + '</td><td class="cn" style="font-size:26px;font-weight:400;height:70px;vertical-align:middle">' + esc(h.company || '') + '</td></tr>' +
-      '<tr><td class="c" style="font-size:16px">Purchase Requisition Form</td></tr></table>' +
+    // (29-10-2026, "print war rachana address nahi site address nahi ani rachana logo nahiye") the company's address and details (Portal →
+    // Companies; e-mail, contact, CIN, web – Store Settings → Papers) as the PO's, and the site's address (Papers → Site Address)
+    const head = '<table><tr><td style="width:50%;text-align:center;vertical-align:middle;border-right:0">' + logoOf(h) + '</td><td style="border-left:1px solid #000"><div class="cn">' + esc(h.company || '') + '</div>' +
+      (h.address ? '<div class="c">' + nl(h.address) + '</div>' : '') + '<table class="nb">' +
+      '<tr><td><b>Email ID.</b> : ' + esc(h.email || '') + '</td><td><b>Contact</b> : ' + esc(h.phone || '') + '</td></tr><tr><td><b>CIN No</b> : ' + esc(h.cin || '') + '</td><td><b>Web</b> : ' + esc(h.web || '') + '</td></tr>' +
+      '<tr><td><b>GST No</b> : ' + esc(h.gstin || '') + '</td><td><b>PAN No</b> : ' + esc(h.pan || '') + '</td></tr></table></td></tr>' +
+      '<tr><td colspan="2" class="ttl" style="font-size:16px">Purchase Requisition Form</td></tr></table>' +
       '<table class="nb" style="border:1px solid #000;border-top:0"><tr><td style="width:15%">Project Name :</td><td style="width:45%">' + esc(h.site || '') + '</td><td style="width:15%">Sub Project :</td><td>' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + '</td></tr>' +
+      '<tr><td>Site Address :</td><td colspan="3">' + nl(h.site_address || '') + '</td></tr>' +
       '<tr><td>Indent No. :</td><td>' + esc(x.ref || x.no) + '</td><td>Date :</td><td>' + dmy(x.date).replace(/-/g, '/') + '</td></tr></table>';
     const items = '<table><thead><tr><th>Sr No</th><th>Item Code</th><th>Item Description</th><th>Item Specification</th><th>Unit</th><th>Quantity</th><th>Required Date</th></tr></thead><tbody>' +
       x.lines.map((l, i) => '<tr><td class="c">' + (i + 1) + '</td><td class="c">' + esc(l.code) + '</td><td>' + esc(l.name) + '</td><td>' + esc([l.brand ? 'Brand: ' + l.brand : '', l.spec || '', l.note || ''].filter(Boolean).join(' · ')) + '</td><td class="c">' + esc(l.unit) +
@@ -952,11 +962,12 @@
     const papers = n => { const pp = n.papers || {}, ta = (id, v) => '<textarea id="' + id + '" rows="3">' + esc(v || '') + '</textarea>';
       $('pp_box').innerHTML = field('pp_prefix', 'Numbers start with', inp('pp_prefix', pp.prefix || '', ' maxlength="30" placeholder="' + esc(n.prefixNow || 'RCL/VTR') + '"')) + field('pp_email', 'Email ID', inp('pp_email', pp.email || '', ' maxlength="80"')) +
         field('pp_phone', 'Contact', inp('pp_phone', pp.phone || '', ' maxlength="60"')) + field('pp_cin', 'CIN No', inp('pp_cin', pp.cin || '', ' maxlength="30"')) + field('pp_web', 'Web', inp('pp_web', pp.web || '', ' maxlength="80"')) +
+        field('pp_saddr', 'Site Address (on the papers – the requirement, the PO)', ta('pp_saddr', pp.site_address), 'wide') +      // (29-10-2026)
         field('pp_sc', 'Site Contact (a new PO)', inp('pp_sc', pp.site_contact || '', ' maxlength="120" placeholder="Name : mobile"')) + field('pp_ship', 'Shipping Address (a new PO)', ta('pp_ship', pp.ship_to), 'wide') +
         field('pp_terms', 'Terms And Conditions (a new PO – one a line)', ta('pp_terms', pp.terms), 'wide') +
         '<p class="muted wide" style="margin:0">PO No: <b>' + esc((pp.prefix || n.prefixNow || '') + '/PO/' + today().slice(0, 4) + '/0001') + '</b> · Indent No: <b>' + esc((pp.prefix || n.prefixNow || '') + '/PR/' + today().slice(0, 4) + '/0001') + '</b>' +
         (n.step5 ? '' : ' · <b>The PO\'s Credit Period, Site Contact, Shipping Address, Freight, Load / Unload and its approval need the Store\'s step 5 (sql/store_step5_po_format.sql) at this site.</b>') + '</p>';
-      $('pp_save').onclick = e => busy(e.target, async () => { const r = await W('papersSave', { prefix: val('pp_prefix'), email: val('pp_email'), phone: val('pp_phone'), cin: val('pp_cin'), web: val('pp_web'), site_contact: val('pp_sc'), ship_to: val('pp_ship'), terms: val('pp_terms') });
+      $('pp_save').onclick = e => busy(e.target, async () => { const r = await W('papersSave', { prefix: val('pp_prefix'), email: val('pp_email'), phone: val('pp_phone'), cin: val('pp_cin'), web: val('pp_web'), site_contact: val('pp_sc'), ship_to: val('pp_ship'), terms: val('pp_terms'), site_address: val('pp_saddr') });
         toast('The papers are saved.'); papers(r); }); };
     try { await load(); await nums(); papers(await W('numbers')); } catch (e) { failed(e); }
   }

@@ -131,7 +131,7 @@ const STEP4 = 'A GRN No typed by hand needs the Store\'s database step 4 at this
 /* (28-10-2026, his formats – "DIESEL PURCHASE ORDER", "REQUIREMENT OF EXHAUST FANS") the papers' own settings of a site (Store
  * Settings – the Store Admin): the numbers' prefix ("RCL/VTR"), the heading's e-mail, contact, CIN, web, and what a new PO starts with
  * (its shipping address, site contact, terms). Kept in store_settings 'papers' (no database step). */
-const PAPERS = ['prefix', 'email', 'phone', 'cin', 'web', 'ship_to', 'site_contact', 'terms'];
+const PAPERS = ['prefix', 'email', 'phone', 'cin', 'web', 'ship_to', 'site_contact', 'terms', 'site_address'];      // (29-10-2026) site_address: the site's address on the papers
 const papersOf = site => kept(site, 'papers', async () => { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.papers')) || [])[0]; return Object.assign({}, r && r.value && typeof r.value === 'object' ? r.value : {}); });
 // the prefix of the papers' numbers: as set, else the company's initials and the site ("RCL/VTR")
 const prefixOf = (pp, h, site) => pp.prefix || [W.initialsOf(h && h.company), site].filter(Boolean).join('/');
@@ -218,7 +218,7 @@ const ACTIONS = {
     const ordered = orderedOf(pos);
     const [h, pp] = await Promise.all([headingOf(s.site), papersOf(s.site)]), pre = prefixOf(pp, h, s.site);
     return { reqs: reqs.sort(byNo).map(r => Object.assign(reqView(r, ordered, lv, s), { ref: W.refOf(pre, 'PR', r.date, r.no) })), levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })),
-      heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '' }) };      // (28-10-2026) for its paper (the Purchase Requisition Form)
+      heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '', site_address: pp.site_address || pp.ship_to || '' }) };      // (28-10-2026) for its paper (the Purchase Requisition Form); (29-10-2026) the site's address – else the Shipping Address
   },
   async reqSave(s, x) {
     need(s, 'req', 'Edit');
@@ -334,7 +334,7 @@ const ACTIONS = {
     const supplier = { name: p.vendor, address: v ? v.address || '' : '', mobile: v ? v.phone || '' : '', email: v ? v.email || '' : '', contact: v ? v.owner_name || '' : '', gstin: p.vendor_gst || (v ? v.gst_number || '' : '') };
     const po = Object.assign(poView(p, await receivedOf(site, [no])), { site: site, ref: W.refOf(prefixOf(pp, h, site), 'PO', p.date, p.no), words: W.inWords(p.total),
       lines: sortLines(p.lines).map(l => Object.assign({}, l, { hsn: l.hsn || (items[l.code] || {}).hsn || '' })) });
-    return { po: po, supplier: supplier, heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '' }) };
+    return { po: po, supplier: supplier, heading: Object.assign({}, h || {}, { email: pp.email || '', phone: pp.phone || '', cin: pp.cin || '', web: pp.web || '', site_address: pp.site_address || pp.ship_to || '' }) };
   },
   async poSave(s, x) {
     buyerOnly(s);
@@ -767,8 +767,9 @@ const ACTIONS = {
   // shipping address, site contact and terms – each as typed (empty = none)
   async papersSave(s, x) {
     adminOnly(s, 'set the papers');
-    const v = {}, max = { prefix: 30, email: 80, phone: 60, cin: 30, web: 80, ship_to: 300, site_contact: 120, terms: 3000 };
-    PAPERS.forEach(k => { const raw = String(x[k] === undefined || x[k] === null ? '' : x[k]); const t = (k === 'terms' || k === 'ship_to' ? raw.split(/\r?\n/).map(l => I.clean(l, 400)).filter(Boolean).join('\n') : I.clean(raw, max[k])).slice(0, max[k]); if (t) v[k] = t; });
+    const v = {}, max = { prefix: 30, email: 80, phone: 60, cin: 30, web: 80, ship_to: 300, site_contact: 120, terms: 3000, site_address: 300 }, cur = await papersOf(s.site);
+    PAPERS.forEach(k => { if (x[k] === undefined && cur[k] !== undefined) { v[k] = cur[k]; return; }      // (29-10-2026) a box not sent (an older app) keeps what it has
+      const raw = String(x[k] === undefined || x[k] === null ? '' : x[k]); const t = (k === 'terms' || k === 'ship_to' || k === 'site_address' ? raw.split(/\r?\n/).map(l => I.clean(l, 400)).filter(Boolean).join('\n') : I.clean(raw, max[k])).slice(0, max[k]); if (t) v[k] = t; });
     if (v.prefix && !/^[A-Za-z0-9][A-Za-z0-9/-]*$/.test(v.prefix)) throw fail(400, 'The prefix of the numbers may have only letters, digits, "/" and "-" (e.g. RCL/VTR).', 'field');
     if (v.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email)) throw fail(400, 'The e-mail "' + v.email + '" is not an e-mail address.', 'field');
     await db(s.site, 'POST', 'store_settings', [{ id: 'papers', value: v, updated_by: s.email }], 'resolution=merge-duplicates,return=minimal');
