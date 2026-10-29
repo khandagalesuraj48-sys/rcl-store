@@ -490,8 +490,10 @@
   // (29-10-2026, "format fkt logo dilay to pn fix kr") the Rachana logo he gave – this module's own file (img/rcl-logo.png), by its full address
   // (the paper is drawn in a frame of its own)
   const RLOGO = (() => { try { return new URL('img/rcl-logo.png', location.href).href; } catch (e) { return 'img/rcl-logo.png'; } })();
-  const logoOf = h => h.logo ? '<img src="' + esc(h.logo) + '" alt="" style="max-height:70px;max-width:100%">'
-    : /rachana/i.test(h.company || '') ? '<img class="plogo" src="' + esc(RLOGO) + '" alt="' + esc(h.company) + '">' : '<b style="font-size:22px">' + esc(h.company || '') + '</b>';
+  // (29-10-2026, "logo ala nahi" – the Portal's logo link of the company is not a picture the print can show) a Rachana company: the logo he
+  // gave, always; another company: its own logo (Portal → Companies), else its name
+  const logoOf = h => /rachana/i.test(h.company || '') ? '<img class="plogo" src="' + esc(RLOGO) + '" alt="' + esc(h.company) + '">'
+    : h.logo ? '<img src="' + esc(h.logo) + '" alt="" style="max-height:70px;max-width:100%">' : '<b style="font-size:22px">' + esc(h.company || '') + '</b>';
   const PCSS = '<style>.fm{font:11px Arial,sans-serif}.fm table{border-collapse:collapse;width:100%}.fm td,.fm th{border:1px solid #000;padding:2px 5px;vertical-align:top}.fm .nb td{border:0;padding:1px 3px}' +
     '.fm .plogo{display:inline-block;width:250px;max-width:92%;height:auto;vertical-align:middle}' +
     '.fm .cn{font-size:18px;font-weight:700;text-align:center}.fm .ttl{text-align:center;font-weight:700;font-size:14px}.fm .sh{text-align:center;font-weight:700;border-bottom:1px solid #000;margin:0 -5px 3px;padding-bottom:2px}' +
