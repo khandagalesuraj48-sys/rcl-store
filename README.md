@@ -283,6 +283,39 @@ nantr tri edit … po banli aahe … sagalyat adhi po delet krayla lagel mgch sa
 * Tests: unit (the Indent No., the heading, the log book drawn as Mechanical's own – compared with rclerp next to this repository, step 8);
   the rig's `test/reqindent.test.js`; `work.test.js` / `work.browser.test.js` (the new Indent No.).
 
+## The workflow: verification, approval, Head Office; a PO's balance; the bill checked with its PO (29-10-2026; the Store's step 9, the Portal's step 6)
+His words (29-10-2026): "pratek kamamadhe … entry krnarana to verification la pathawel … verification kel tr te auto jyanche kadhe
+approval aahe tyanche kade jail … approval zal ki te direct head office la jail … he sagle kam super admin swatache portel madhun krel";
+"pratek task approval nantr HO la nahi janar – konte jail konte nahi jail te super admin tharau shakel"; "500 MT cement … 100 MT … PO
+balance … HO la full PO … site la balance"; "standard ERP level je universal aste".
+* **Who does each step – the Portal.** Users & Access → the person → Pages in the Store: "Verifies requirements / purchase orders / GRN
+  (Inward) / issues & returns", "Approves GRN (Inward) / issues & returns" (Yes); the requirement's levels and the PO's approvers as
+  before. Portal → **Workflow**: for each work of a site who does which step, and **once approved → Head Office: Yes / No** (requirements –
+  to HO Purchase, else the site buys them itself: its Store Admin makes their POs; the GRNs – the suppliers' bills; the issues &
+  returns). The Portal tells the Store at once (`api/portal.js`, kept in the site's `store_settings` `approvers` → `wf`).
+* **The steps** (`lib/work.js` `wfStart` / `wfNext` / `wfMay`): made → **verify** (one of its verifiers, never his own) → **approve**
+  (one of its approvers, never his own) → done (→ at Head Office when the site's Workflow says so; HO's **✓ Checked** – `hoCheck`).
+  **Send back** (why – the Store Admin sees it and corrects it with Change; a change starts it again). Nobody given for a step: that step
+  is passed – as before. A requirement waiting for its verification: Pending at level 0 (no database step); a PO: Waiting with
+  `wf.state = verify`. **The stock is never held back:** a GRN / an issue / a return counts when saved, as always – the workflow is the
+  papers' sign-off.
+* **The pages:** Verify / Approve / Send back on Requirements, Purchase Orders, Inward (GRN – "Waiting for you" above, `wfMine`,
+  `wfDecide`) and Issue & Return; the Dashboard's tiles (what waits for me); Purchase – every site: **Bills (GRN) from the sites** and
+  **Issues & returns from the sites** (`hoInbox`, "Show the checked ones"); a site that buys itself: "To order – this site buys it itself"
+  on its Purchase Orders (`purPending` `mine`); the requirements to order: made by, waiting since.
+* **A PO's balance** (`poBalance`): each line ordered · came (every GRN against it) · **balance** (quantity and value at its rate after
+  the Disc. %); the days it is open, late after its delivery date, its GRNs; **Details** (`poGrns`): every GRN on it with its check.
+  HO Purchase sees the full PO; the site the balance after each GRN.
+* **The bill checked with its PO** (`billCheck`): the rate (taxable ÷ quantity against the PO's rate after its Disc. %), the GST %, more
+  than the PO still had, an item not on the PO. In the GRN form a "PO Rate" column and "The bill is not as per the PO – save anyway?";
+  on the GRN, its print (with the Verified By / Approved By signs) and at Head Office.
+* **Database: `sql/store_step9_workflow.sql`** – once in EVERY site's Supabase after step 8: it only adds one empty column `wf` to
+  store_po, store_grn, store_issue, store_return (and a small index each). Until then POs, GRNs and issues are saved as before (no
+  verification) and the Super Admin is told when he gives a step that needs it. The Portal's `sql/portal_step6_rules.sql` (the Head
+  Office choices) – in the Portal's Supabase.
+* Tests: unit (the steps, the bill check, the balance, the Portal's workflow); the rig's `test/workflow.test.js` (PART a – before step 9,
+  PART b – after; 37/37, 74/74) and `test/workflow.browser.test.js` (21/21); `work.test.js` / `work.browser.test.js` with it.
+
 ## Live: another person's save shows by itself (29-10-2026; no database step)
 Asked: "supabase 2 second cha vishay he bgh ata aapi ERP mothi hotey ok so saving mahtwachi aahe but data real time disne user laa he pn
 mahtwach aahe tya pramne niyojan tu kar pratek gosti madhe logic use kr". As Mechanical's pages (the standard of 24-10-2026): a page asks
@@ -333,6 +366,8 @@ timeout 900 node test/grnreg.test.js          # rig: the old inward register (a 
 timeout 600 node test/grnreg.browser.test.js  # rig + Chromium: the register's check and import on the page
 timeout 300 node test/grnno.test.js           # rig: a new GRN with its GRN No – before and after step 4 (run after grnreg.test.js)
 timeout 300 node test/today.test.js           # rig (29-10-2026): a Store User only today (run after work.test.js, the Store without the switch)
+PART=a timeout 600 node test/workflow.test.js # rig (29-10-2026): the workflow before the Store's step 9; PART=b after it (the step run by the test)
+timeout 600 node test/workflow.browser.test.js # rig + Chromium: the workflow's pages (after PART=b)
 ```
 The rig's stories are dated over ten days by Store Users: the Store on the rig is started with `STORE_TODAY_RULE=off` for them
 (`STORE_TODAY_RULE=off bash /home/claude/rig/store_srv.sh`); never set in Vercel.

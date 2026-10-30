@@ -62,6 +62,12 @@ const rpc = (site, fn, args) => db(site, 'POST', 'rpc/' + fn, args);
 const stockOn = async (site, date) => (await db(site, 'GET', 'rpc/store_stock_on' + (date ? '?p_date=' + date : ''))) || [];
 const avgOf = r => r && num(r.in_qty) > 0 ? num(r.in_value) / num(r.in_qty) : 0;
 async function levels(site) { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.approvers')) || [])[0]; return W.levelsOf(r && r.value); }
+/* (29-10-2026) THE SITE'S WORKFLOW – as the Super Admin set it in the Portal (lib/work.js wfOf): who verifies each work, who approves the
+ * GRN and the issues, what goes to Head Office once approved. Read afresh (one small row) – a person taken off it is off at once. */
+const wfAt = async site => { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.approvers')) || [])[0]; return W.wfOf(r && r.value); };
+const me_ = s => String(s.email || '').toLowerCase();
+// one who verifies or approves a work sees its page (to do it there), as one who approves the requirements sees them
+const seeWork = (s, page, wf, kind) => can(s, page, 'View') || W.isIn(wf.verify[kind], s.email) || W.isIn((wf.approve || {})[kind], s.email);
 // a few lists kept on this server for 2 minutes (machinery, vendors, names typed before) – emptied by this server's own saves
 const CACHE = new Map();
 async function kept(site, what, f) {
@@ -207,13 +213,65 @@ const byNo = (a, b) => b.no - a.no;
 const sortLines = l => (l || []).slice().sort((a, b) => a.line - b.line);
 // ordered so far of each requirement line (POs not cancelled): 'req:line' → qty
 function orderedOf(pos) { const o = {}; (pos || []).forEach(p => { if (p.status === 'Cancelled') return; (p.lines || []).forEach(l => { if (l.req_no) { const k = l.req_no + ':' + l.req_line; o[k] = r3((o[k] || 0) + num(l.qty)); } }); }); return o; }
-// received so far of each PO line (GRN lines): 'po:line' → qty
-async function receivedOf(site, poNos, skipGrn) {
-  const o = {}; if (!poNos.length) return o;
+// the GRNs against some POs (their lines' quantities and PO lines; sel: what else of them)
+async function grnsOfPos(site, poNos, sel) {
   const grns = [];
-  for (let i = 0; i < poNos.length; i += 150) grns.push(...await dbAll(site, 'store_grn?select=no,po_no,store_grn_lines(qty,po_line)&po_no=in.(' + poNos.slice(i, i + 150).join(',') + ')', 'no'));
-  grns.forEach(g => { if (skipGrn && g.no === skipGrn) return; (g.store_grn_lines || []).forEach(l => { if (l.po_line) { const k = g.po_no + ':' + l.po_line; o[k] = r3((o[k] || 0) + num(l.qty)); } }); });
-  return o;
+  for (let i = 0; i < poNos.length; i += 150) grns.push(...await dbAll(site, 'store_grn?select=' + (sel || 'no,po_no,store_grn_lines(qty,po_line)') + '&po_no=in.(' + poNos.slice(i, i + 150).join(',') + ')', 'no'));
+  return grns;
+}
+// received so far of each PO line (GRN lines): 'po:line' → qty
+const recOf = (grns, skipGrn) => { const o = {}; grns.forEach(g => { if (skipGrn && g.no === skipGrn) return; (g.store_grn_lines || []).forEach(l => { if (l.po_line) { const k = g.po_no + ':' + l.po_line; o[k] = r3((o[k] || 0) + num(l.qty)); } }); }); return o; };
+async function receivedOf(site, poNos, skipGrn) { if (!poNos.length) return {}; return recOf(await grnsOfPos(site, poNos), skipGrn); }
+// (29-10-2026) what had come on each PO line BEFORE each GRN – in the order they came (date, then number): grn no → 'po:line' → qty
+function beforeOf(grns) {
+  const out = {}, run = {};
+  grns.slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || a.no - b.no).forEach(g => { out[g.no] = Object.assign({}, run);
+    (g.store_grn_lines || []).forEach(l => { if (l.po_line) { const k = g.po_no + ':' + l.po_line; run[k] = r3((run[k] || 0) + num(l.qty)); } }); });
+  return out;
+}
+/* (29-10-2026) the Store's step 9 at this site: the workflow of the purchase orders, the GRNs, the issues and the returns (their column wf) */
+const step9On = site => kept(site, 'step9', () => colOn(site, 'store_grn?select=wf&limit=1'));
+const STEP9 = 'The verification and approval of purchase orders, GRNs and issues (and Head Office\'s check) need the Store\'s database step 9 at this site: the Admin runs sql/store_step9_workflow.sql once in Supabase → SQL Editor (in every site). Until then they are saved as before.';
+/* a GRN / an issue / a return with its workflow for this person: the step it waits for, whether he decides it, for whom it waits */
+function wfInfo(wf, kind, w, s) {
+  if (!w || typeof w !== 'object') return { wf: null, step: '', mayDecide: false, waitFor: [] };
+  const step = W.wfStepNow(wf, kind, w);
+  return { wf: w, step: step, mayDecide: W.wfMay(wf, kind, w, s.email), waitFor: step ? W.wfWaitFor(wf, kind, w) : [] };
+}
+/* (29-10-2026) GRNs as the lists show them: their lines, their workflow and – against a PO – the bill checked with its PO (rate, GST %,
+ * what the PO still had before it) */
+async function grnsOut(s, site, grns, wf) {
+  const poNos = [...new Set(grns.filter(g => g.po_no).map(g => Number(g.po_no)))], pos = {};
+  let before = {};
+  if (poNos.length) {
+    for (let i = 0; i < poNos.length; i += 150) (await dbAll(site, 'store_po?select=no,lines&no=in.(' + poNos.slice(i, i + 150).join(',') + ')', 'no')).forEach(p => { pos[p.no] = p; });
+    before = beforeOf(await grnsOfPos(site, poNos, 'no,po_no,date,store_grn_lines(qty,po_line)'));
+  }
+  return grns.map(r => { const lines = sortLines(r.store_grn_lines || r.lines), po = r.po_no ? pos[Number(r.po_no)] : null;
+    return Object.assign({}, r, { ref: R.refOf(r), lines: lines, store_grn_lines: undefined, check: po ? W.billCheck(lines, po, before[r.no] || {}) : null }, wfInfo(wf, 'grn', r.wf, s)); });
+}
+// issues as the lists show them: their lines with what came back, their returns, the workflow of each
+async function issuesOut(s, site, iss, wf) {
+  const min = iss.reduce((m, i) => Math.min(m, i.no), Infinity), back = {}, rets = isFinite(min) ? await dbAll(site, 'store_return?select=*,store_return_lines(*)&issue_no=gte.' + min, 'no') : [];
+  rets.forEach(r => (r.store_return_lines || []).forEach(l => { back[l.issue_line] = r3((back[l.issue_line] || 0) + num(l.qty)); }));
+  const retOf = {}; rets.forEach(r => { (retOf[r.issue_no] = retOf[r.issue_no] || []).push(Object.assign({ no: r.no, date: r.date, lines: sortLines(r.store_return_lines), party: r.party, remark: r.remark, created_name: r.created_name }, wfInfo(wf, 'iss', r.wf, s))); });
+  return iss.sort(byNo).map(i => Object.assign({}, i, { store_issue_lines: undefined, returns: retOf[i.no] || [],
+    lines: sortLines(i.store_issue_lines).map(l => Object.assign({}, l, { back: back[l.id] || 0 })) }, wfInfo(wf, 'iss', i.wf, s)));
+}
+/* a GRN's / an issue's / a return's workflow set when it is saved (lib/work.js wfStart) – its own write after the save; a fault is told
+ * (the paper stays saved; nothing of its stock changes) */
+async function wfSet(site, table, no, s, kind, isNew) {
+  if (!(await step9On(site).catch(() => false))) return { state: '', note: '' };
+  // (29-10-2026, the review) every read and write of it inside the try: the paper is saved already – a fault is only told, never an error;
+  // a change by the Store Admin keeps who made it (neither of them verifies or approves it)
+  let w0 = null;
+  try {
+    const made = isNew ? '' : String((((await db(site, 'GET', table + '?select=created_by&no=eq.' + Number(no))) || [])[0] || {}).created_by || '');
+    w0 = W.wfStart(await wfAt(site), kind, s.email, undefined, made);
+    if (!w0 && isNew) return { state: '', note: '' };
+    await db(site, 'PATCH', table + '?no=eq.' + Number(no), { wf: w0 }, 'return=minimal');
+  } catch (e) { return { state: '', note: 'It is saved – but its verification / approval could not be noted (' + String((e && e.message) || e).slice(0, 80) + '). The Store Admin opens it with Change and saves it again.' }; }
+  return { state: w0 ? w0.state : '', note: '' };
 }
 // what is still to come of a PO, line by line; its state: Open / Received (all came) / Closed / Cancelled
 function poView(p, rec) {
@@ -221,10 +279,31 @@ function poView(p, rec) {
   const state = p.status !== 'Open' ? p.status : lines.every(l => l.left <= 0.0005) ? 'Received' : lines.some(l => l.received > 0) ? 'Part received' : 'Open';
   return Object.assign({}, p, { lines: lines, state: state, appr: apprOf(p) });
 }
-const reqView = (r, ordered, lv, s) => Object.assign({}, r, {
-  lines: sortLines(r.lines).map(l => { const o = r3(num(ordered[r.no + ':' + l.line])); return Object.assign({}, l, { ordered: o, left: r.status === 'Approved' ? Math.max(0, r3(num(l.qty) - o)) : 0 }); }),
-  mayApprove: r.status === 'Pending' && W.canApprove(lv, r.level, s.email, r.created_by), mine: String(r.created_by || '').toLowerCase() === String(s.email).toLowerCase(),
-  waitFor: r.status === 'Pending' ? ((lv.find(l => l.level === r.level) || { people: [] }).people.filter(p => p.email !== String(r.created_by || '').toLowerCase()).map(p => p.name)) : [] });
+/* (29-10-2026) a PO waiting: for its VERIFICATION (someone verifies the POs of its site – step 9 keeps it: wf.state 'verify'; nobody
+ * verifies any more – its approval) or for its APPROVAL. Who decides it: a person of its own site (signed in there), never his own. */
+// (29-10-2026, the review) who made a PO: its maker and who changed it last – neither verifies or approves it (poSave and here the same)
+const poMakers = p => W.makersOf(p.created_by, p.updated_by, p.wf && p.wf.by);
+function poStep(p, wf, approvers, s, here) {
+  const mk = poMakers(p), w = p.wf;
+  if (p.status !== 'Open' || apprOf(p) !== 'Waiting') return { step: '', may: false, waitFor: [] };
+  if (w && w.state === 'verify' && W.othersOf(wf.verify.po, mk).length) return { step: 'verify', may: here !== false && W.isIn(wf.verify.po, s.email) && !mk.includes(me_(s)), waitFor: W.othersOf(wf.verify.po, mk).map(q => q.name) };
+  return { step: 'approve', may: here !== false && W.mayApprovePo(approvers, s.email, mk), waitFor: W.othersOf(approvers, mk).map(q => q.name) };
+}
+/* (29-10-2026) a requirement waiting for its VERIFICATION: Pending at level 0 (someone verifies the requirements of the site – the
+ * Portal's workflow). Nobody verifies any more: it waits for its first level of approval instead. Its level NOW: */
+const reqStep = (r, lv, wf) => {
+  const maker = String(r.created_by || '').toLowerCase();
+  if (r.status !== 'Pending') return { step: '', level: Number(r.level) || 0 };
+  if (Number(r.level) === 0 && wf && W.othersOf(wf.verify.req, maker).length) return { step: 'verify', level: 0 };
+  return { step: 'approve', level: Number(r.level) === 0 ? W.nextLevel(lv, 0, maker) : Number(r.level) };
+};
+const reqView = (r, ordered, lv, s, wf) => { const st = reqStep(r, lv, wf), maker = String(r.created_by || '').toLowerCase();
+  const mayVerify = st.step === 'verify' && W.isIn(wf.verify.req, s.email) && me_(s) !== maker;
+  return Object.assign({}, r, {
+    lines: sortLines(r.lines).map(l => { const o = r3(num(ordered[r.no + ':' + l.line])); return Object.assign({}, l, { ordered: o, left: r.status === 'Approved' ? Math.max(0, r3(num(l.qty) - o)) : 0 }); }),
+    // (an older app knows only "Approve": for one who verifies it, that is his verification)
+    level: st.level, step: st.step, mayVerify: mayVerify, mayApprove: r.status === 'Pending' && (st.step === 'verify' ? mayVerify : W.canApprove(lv, st.level, s.email, r.created_by)), mine: maker === me_(s),
+    waitFor: st.step === 'verify' ? W.othersOf(wf.verify.req, maker).map(p => p.name) : st.step === 'approve' ? ((lv.find(l => l.level === st.level) || { people: [] }).people.filter(p => p.email !== maker).map(p => p.name)) : [] }); };
 // the sites with the Store's step 2 – HO Purchase works on every one of them
 async function storeSites() { return (await registry()).filter(x => x.status === 'ready').map(x => ({ code: x.code, name: x.name || x.code })); }
 async function siteFor(s, x) {
@@ -232,6 +311,16 @@ async function siteFor(s, x) {
   if (site !== s.site) { buyerOnly(s); if (!(await storeSites()).some(y => y.code === site)) throw fail(400, 'No such site (' + site + ').', 'site'); }
   return site;
 }
+/* (29-10-2026, "konte jail konte nahi jail te super admin tharau shakel") a site whose approved requirements do NOT go to Head Office (the
+ * Portal → Workflow) buys them itself: its Store Admin makes, changes, cancels and deletes the purchase orders of his own site. HO Purchase
+ * – every site, as before. */
+async function mayBuy(s, site) { if (isBuyer(s)) return true; if (!s.admin || site !== s.site) return false; return !(await wfAt(site)).ho.req; }
+async function buyerOr(s, site) { if (!(await mayBuy(s, site))) throw fail(403, 'Purchase orders are made by HO Purchase – "Store Purchase", given by the Super Admin in the Portal (a site whose requirements do not go to Head Office: its Store Admin).', 'purchase'); }
+// one who may see the requirements: the page (View), HO Purchase, one who approves or verifies them
+const reqSeer = (s, lv, wf) => can(s, 'req', 'View') || isBuyer(s) || lv.some(l => l.people.some(p => p.email === me_(s))) || W.isIn(wf.verify.req, s.email);
+// when it was approved (its last approval), else made – HO Purchase sees since when it waits for its PO
+const istDay = t => { const d = Date.parse(t); return isNaN(d) ? String(t || '').slice(0, 10) : new Date(d + 330 * 60000).toISOString().slice(0, 10); };      // (a time kept in UTC: its day in India)
+const sinceOf = r => { const a = (r.approvals || []).filter(y => y && y.ok && y.at).map(y => String(y.at)).sort(); return a.length ? istDay(a[a.length - 1]) : String(r.date || '').slice(0, 10); };
 /* (29-10-2026) the Store's step 8 at this site: the requirement's own Indent No. (each financial year and letter from 0001), its contact,
  * its maintenance log book; a requirement changed after its approval, deleted; a PO deleted */
 const step8On = site => kept(site, 'step8', () => colOn(site, 'store_req?select=indent_no&limit=1'));
@@ -282,13 +371,20 @@ const ACTIONS = {
   },
   /* ---------- what the pages need to start ---------- */
   async boot(s) {
-    const [items, st, mach, lv, nm, h, pp, s8] = await Promise.all([itemsOf(s.site), stockOn(s.site), machinery(s.site), levels(s.site), names(s.site), headingOf(s.site, s), papersOf(s.site), step8On(s.site).catch(() => false)]);
+    const [items, st, mach, lv, nm, h, pp, s8, wf, s9] = await Promise.all([itemsOf(s.site), stockOn(s.site), machinery(s.site), levels(s.site), names(s.site), headingOf(s.site, s), papersOf(s.site), step8On(s.site).catch(() => false),
+      wfAt(s.site), step9On(s.site).catch(() => false)]);
     const stock = {}, avg = {}; st.forEach(r => { stock[r.code] = r3(num(r.qty)); avg[r.code] = r2(avgOf(r)); });
+    const e = me_(s), names2 = l => l.map(p => p.name);
     return { site: s.site, today: W.today(), me: { email: s.email, name: s.name, admin: s.admin, super: s.super, pages: s.pages, buyer: isBuyer(s) },
       items: Object.values(items).map(brief).sort((a, b) => a.name.localeCompare(b.name)), stock: stock, avg: avg, machinery: mach, names: nm,
       levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })), myLevels: lv.filter(l => l.people.some(p => p.email === String(s.email).toLowerCase())).map(l => l.level),
       kinds: { for: W.FOR_KINDS, to: W.TO_KINDS, sides: W.SIDES },
-      start: startOf(h, pp), step8: s8 };      // (29-10-2026) a new requirement's contact; step 8 at this site
+      start: startOf(h, pp), step8: s8,      // (29-10-2026) a new requirement's contact; step 8 at this site
+      // (29-10-2026) the site's workflow (the Portal): what this person verifies / approves; who does each step; what goes to Head Office;
+      // whether the site buys its requirements itself (its Store Admin makes their POs); step 9 at this site
+      wf: { mine: { vreq: W.isIn(wf.verify.req, e), vpo: W.isIn(wf.verify.po, e), vgrn: W.isIn(wf.verify.grn, e), agrn: W.isIn(wf.approve.grn, e), viss: W.isIn(wf.verify.iss, e), aiss: W.isIn(wf.approve.iss, e) },
+        verify: { req: names2(wf.verify.req), po: names2(wf.verify.po), grn: names2(wf.verify.grn), iss: names2(wf.verify.iss) }, approve: { grn: names2(wf.approve.grn), iss: names2(wf.approve.iss) },
+        ho: wf.ho, buy: isBuyer(s) || (s.admin && !wf.ho.req) }, step9: s9 };
   },
   async dash(s) {
     const t = W.today(), out = { today: t };
@@ -296,11 +392,24 @@ const ACTIONS = {
     let value = 0, below = 0; const by = new Map(st.map(r => [r.code, r]));
     Object.values(items).forEach(i => { const r = by.get(i.code), q = r ? num(r.qty) : 0; value += q * avgOf(r); if (i.status === 'Active' && i.min_stock !== null && i.min_stock !== undefined && q < Number(i.min_stock)) below++; });
     out.stock = { value: r2(value), below: below, items: Object.keys(items).length };
-    if (can(s, 'req', 'View') || isBuyer(s)) {
-      const [reqs, lv] = await Promise.all([dbAll(s.site, 'store_req?select=no,status,level,created_by&status=in.(Pending,Approved)', 'no'), levels(s.site)]);
-      out.req = { pending: reqs.filter(r => r.status === 'Pending').length, mine: reqs.filter(r => r.status === 'Pending' && W.canApprove(lv, r.level, s.email, r.created_by)).length, approved: reqs.filter(r => r.status === 'Approved').length };
+    const [lv, wf, s9] = await Promise.all([levels(s.site), wfAt(s.site), step9On(s.site).catch(() => false)]);
+    if (reqSeer(s, lv, wf)) {
+      const reqs = await dbAll(s.site, 'store_req?select=no,status,level,created_by&status=in.(Pending,Approved)', 'no');
+      // (29-10-2026) "waiting for me" – to verify or to approve
+      out.req = { pending: reqs.filter(r => r.status === 'Pending').length, mine: reqs.filter(r => r.status === 'Pending' && reqView(Object.assign({ lines: [] }, r), {}, lv, s, wf).mayApprove).length, approved: reqs.filter(r => r.status === 'Approved').length };
     }
     if (can(s, 'po', 'View') || can(s, 'grn', 'View') || isBuyer(s)) out.po = { open: (await dbAll(s.site, 'store_po?select=no&status=eq.Open', 'no')).length };
+    /* (29-10-2026) what waits for THIS person at this site – a PO to verify or approve, a GRN, an issue or a return to verify or approve */
+    if (s9) {
+      const w = { po: 0, grn: 0, issue: 0, ret: 0 }, ppl = await poPeople(s.site);
+      try {
+        const [pos, gs, is, rs] = await Promise.all([dbAll(s.site, 'store_po?select=no,appr,created_by,wf&status=eq.Open&appr=eq.Waiting', 'no'), dbAll(s.site, 'store_grn?select=no,wf&wf->>state=in.(verify,approve)', 'no'),
+          dbAll(s.site, 'store_issue?select=no,wf&wf->>state=in.(verify,approve)', 'no'), dbAll(s.site, 'store_return?select=no,wf&wf->>state=in.(verify,approve)', 'no')]);
+        w.po = pos.filter(p => poStep(p, wf, ppl, s).may).length; w.grn = gs.filter(g => W.wfMay(wf, 'grn', g.wf, s.email)).length;
+        w.issue = is.filter(g => W.wfMay(wf, 'iss', g.wf, s.email)).length; w.ret = rs.filter(g => W.wfMay(wf, 'iss', g.wf, s.email)).length;
+      } catch (e) { /* (the counts – the lists say it) */ }
+      out.wf = w;
+    }
     if (can(s, 'grn', 'View')) { const g = (await dbAll(s.site, 'store_grn?select=*&date=gte.' + t.slice(0, 8) + '01', 'no')).map(x => ({ no: x.no, ref: R.refOf(x), date: x.date, supplier: x.supplier, gross: x.gross })); out.grn = { today: g.filter(x => x.date === t).length, todayValue: r2(g.filter(x => x.date === t).reduce((a, x) => a + num(x.gross), 0)), month: g.length, monthValue: r2(g.reduce((a, x) => a + num(x.gross), 0)), recent: g.sort(byNo).slice(0, 8) }; }
     if (can(s, 'issue', 'View')) { const g = await dbAll(s.site, 'store_issue?select=no,date,to_kind,party,machinery,use_for,amount&date=gte.' + t.slice(0, 8) + '01', 'no'); out.issue = { today: g.filter(x => x.date === t).length, todayValue: r2(g.filter(x => x.date === t).reduce((a, x) => a + num(x.amount), 0)), month: g.length, monthValue: r2(g.reduce((a, x) => a + num(x.amount), 0)), recent: g.sort(byNo).slice(0, 8) }; }
     return out;
@@ -308,19 +417,19 @@ const ACTIONS = {
 
   /* ---------- MATERIAL REQUIREMENT ---------- */
   async reqList(s) {
-    const lv = await levels(s.site);
-    if (!can(s, 'req', 'View') && !isBuyer(s) && !lv.some(l => l.people.some(p => p.email === String(s.email).toLowerCase()))) need(s, 'req', 'View');
+    const [lv, wf] = await Promise.all([levels(s.site), wfAt(s.site)]);
+    if (!reqSeer(s, lv, wf)) need(s, 'req', 'View');
     const [reqs, pos] = await Promise.all([dbAll(s.site, 'store_req?select=*', 'no'), dbAll(s.site, 'store_po?select=no,status,lines', 'no')]);
     const ordered = orderedOf(pos);
     const [h, pp, s7, s8] = await Promise.all([headingOf(s.site, s), papersOf(s.site), step7On(s.site), step8On(s.site)]), inPo = posOfReq(pos);
     const mayEd = can(s, 'req', 'Edit');
     return { reqs: reqs.sort(byNo).map(r => { const mine = String(r.created_by || '').toLowerCase() === String(s.email).toLowerCase(), po = inPo[r.no] || [], own = mayEd && (mine || s.admin);
-      return Object.assign(reqView(r, ordered, lv, s), { ref: W.indentOf(r, h, s.site), photos: phList(r.photos), pos: po, logbook: r.logbook || null, contact_name: r.contact_name || '', contact_phone: r.contact_phone || '',
+      return Object.assign(reqView(r, ordered, lv, s, wf), { ref: W.indentOf(r, h, s.site), photos: phList(r.photos), pos: po, logbook: r.logbook || null, contact_name: r.contact_name || '', contact_phone: r.contact_phone || '',
         // (29-10-2026, "ekda banwaleli requirement edit delet krta yeil … approval nantr … jr requirement chi PO banli aahe … adhi PO delet") who made
         // it (or the Store Admin): Change – also when approved or rejected (it is approved again), Delete; not while a PO has it
         edit: own && !po.length && (s8 ? ['Pending', 'Approved', 'Rejected'].indexOf(r.status) > -1 : r.status === 'Pending' && !(r.approvals || []).length),
         del: own && !po.length && s8, attach: own && ['Closed', 'Cancelled'].indexOf(r.status) === -1 }); }),
-      levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })),
+      levels: lv.map(l => ({ level: l.level, people: l.people.map(p => p.name) })), verifiers: wf.verify.req.map(p => p.name),      // (29-10-2026) who verifies them
       heading: headOut(h, pp),      // (28-10-2026) for its paper (the Purchase Requisition Form); (29-10-2026) the Portal's heading and the site's address
       step7: s7, step8: s8, start: startOf(h, pp) };      // (29-10-2026) photos can be added (step 7); the Indent No., contact, log book (step 8)
   },
@@ -364,13 +473,15 @@ const ACTIONS = {
         ph = ph.concat(more);
       }
     }
+    // (29-10-2026) its verification first, when someone other than its maker verifies the requirements of this site (level 0)
+    const wf = await wfAt(s.site);
     if (no && s8) {      // (step 8) in the database, at one time with the purchase orders: never while a PO has it
       const row = Object.assign({}, r, ph !== null ? { photos: ph } : {}, lb !== undefined ? { logbook: lb } : {});
-      if (again) { const level = W.nextLevel(await levels(s.site), 0, cur.created_by); Object.assign(row, { status: level ? 'Pending' : 'Approved', level: level, approvals: [] }); }
+      if (again) { const vf = W.othersOf(wf.verify.req, cur.created_by).length > 0, level = vf ? 0 : W.nextLevel(await levels(s.site), 0, cur.created_by); Object.assign(row, { status: vf || level ? 'Pending' : 'Approved', level: level, approvals: [] }); }
       const out = await rpc(s.site, 'store_req_change', { p_no: no, p_at: cur.updated_at, p_row: row, p_by: s.email }).catch(e => said(e, items));
       await activity(s.site, s.email, 'Requirement changed', 'REQ ' + no, Object.assign({ lines: r.lines.length }, ph !== null ? { photos: ph.length } : {}, lb !== undefined ? { logbook: lb ? lb.upto : null } : {},
         again ? { approvedAgain: true, was: cur.status, approvals: (cur.approvals || []).map(a => a.name + (a.ok ? ' approved' : ' rejected') + ' (level ' + a.level + ')') } : {}));
-      return { ok: true, no: no, status: out && out.status, level: out && out.level, again: again };
+      return { ok: true, no: no, status: out && out.status, level: out && out.level, again: again, step: out && out.status === 'Pending' ? (Number(out.level) === 0 ? 'verify' : 'approve') : '' };
     }
     if (no) {
       const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&status=eq.Pending&updated_at=eq.' + enc(cur.updated_at), Object.assign({}, r, ph !== null ? { photos: ph } : {}, { updated_by: s.email }), 'return=representation')) || [])[0];
@@ -378,8 +489,8 @@ const ACTIONS = {
       await activity(s.site, s.email, 'Requirement changed', 'REQ ' + no, Object.assign({ lines: r.lines.length }, ph !== null ? { photos: ph.length } : {}));
       return { ok: true, no: no, status: out.status, level: out.level };
     }
-    const lv = await levels(s.site), level = W.nextLevel(lv, 0, s.email);
-    const row = Object.assign({}, r, { status: level ? 'Pending' : 'Approved', level: level, approvals: [] }, s8 && lb ? { logbook: lb } : {});
+    const lv = await levels(s.site), vf = W.othersOf(wf.verify.req, s.email).length > 0, level = vf ? 0 : W.nextLevel(lv, 0, s.email);
+    const row = Object.assign({}, r, { status: vf || level ? 'Pending' : 'Approved', level: level, approvals: [] }, s8 && lb ? { logbook: lb } : {});
     const n = await rpc(s.site, 'store_req_put', { p_row: row, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
     // (the photos: on the row just made – a second write; if it fails the requirement stays saved and the person is told)
     let phNote = '';
@@ -388,7 +499,7 @@ const ACTIONS = {
     let ref = '';
     try { const [x1, h] = await Promise.all([db(s.site, 'GET', 'store_req?select=*&no=eq.' + Number(n)), headingOf(s.site, s)]); if (x1 && x1[0]) ref = W.indentOf(x1[0], h, s.site); } catch (e) { ref = ''; }
     await activity(s.site, s.email, 'Requirement made', 'REQ ' + n, Object.assign({ lines: r.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), status: row.status }, ref ? { indent: ref } : {}, ph && ph.length && !phNote ? { photos: ph.length } : {}, row.logbook ? { logbook: row.logbook.upto } : {}));
-    return Object.assign({ ok: true, no: Number(n), ref: ref, status: row.status, level: level }, phNote ? { photoNote: phNote } : {});
+    return Object.assign({ ok: true, no: Number(n), ref: ref, status: row.status, level: level, step: vf ? 'verify' : level ? 'approve' : '', waitFor: vf ? W.othersOf(wf.verify.req, s.email).map(p => p.name) : [] }, phNote ? { photoNote: phNote } : {});
   },
   /* ---------- (29-10-2026) A REQUIREMENT'S PHOTOS ---------- */
   // one photo, as it is added (made smaller where it was taken): kept once under its fingerprint; its proof for the save
@@ -415,7 +526,7 @@ const ACTIONS = {
   // the photos of a requirement with their links (15 minutes) – seen big and printed; HO Purchase: of any site
   async reqPhotos(s, x) {
     const site = await siteFor(s, x), no = noOf(x.no);
-    if (site === s.site && !can(s, 'req', 'View') && !isBuyer(s)) { const lv = await levels(s.site); if (!lv.some(l => l.people.some(p => p.email === String(s.email).toLowerCase()))) need(s, 'req', 'View'); }
+    if (site === s.site && !can(s, 'req', 'View') && !isBuyer(s)) { const [lv, wf] = await Promise.all([levels(s.site), wfAt(s.site)]); if (!reqSeer(s, lv, wf)) need(s, 'req', 'View'); }      // (29-10-2026) one who verifies them too
     if (!(await step7On(site))) return { no: no, photos: [] };
     const r = ((await db(site, 'GET', 'store_req?select=no,photos&no=eq.' + no)) || [])[0]; if (!r) throw gone('Requirement ' + no);
     const list = phList(r.photos), u = await phLinks(site, list);
@@ -503,7 +614,7 @@ const ACTIONS = {
   // the attached log book for the print – one piece of HTML (the web page and the app put it on the pages after the form); HO Purchase: any site
   async reqLogbookHtml(s, x) {
     const site = await siteFor(s, x), no = noOf(x.no);
-    if (site === s.site && !can(s, 'req', 'View') && !isBuyer(s)) { const lv = await levels(s.site); if (!lv.some(l => l.people.some(p => p.email === String(s.email).toLowerCase()))) need(s, 'req', 'View'); }
+    if (site === s.site && !can(s, 'req', 'View') && !isBuyer(s)) { const [lv, wf] = await Promise.all([levels(s.site), wfAt(s.site)]); if (!reqSeer(s, lv, wf)) need(s, 'req', 'View'); }      // (29-10-2026) one who verifies them too
     if (!(await step8On(site))) return { no: no, html: '' };
     const r = ((await db(site, 'GET', 'store_req?select=no,for_kind,for_text,logbook&no=eq.' + no)) || [])[0]; if (!r) throw gone('Requirement ' + no);
     const lb = r.logbook && r.logbook.no ? r.logbook : null; if (!lb) return { no: no, html: '' };
@@ -514,18 +625,23 @@ const ACTIONS = {
   async reqDecide(s, x) {
     const nos = (Array.isArray(x.nos) ? x.nos : [x.no]).slice(0, 100).map(noOf), ok = x.ok === true, note = I.clean(x.note, 300);
     if (!ok && !note) throw fail(400, 'Say why it is rejected.', 'field');
-    const lv = await levels(s.site), done = [], left = [];
+    const [lv, wf] = await Promise.all([levels(s.site), wfAt(s.site)]), done = [], left = [];
     for (const no of nos) {
       const cur = ((await db(s.site, 'GET', 'store_req?select=*&no=eq.' + no)) || [])[0];
       if (!cur || cur.status !== 'Pending') { left.push({ no: no, why: cur ? 'already ' + cur.status.toLowerCase() : 'not there any more' }); continue; }
-      if (!W.canApprove(lv, cur.level, s.email, cur.created_by)) { left.push({ no: no, why: String(cur.created_by).toLowerCase() === String(s.email).toLowerCase() ? 'your own requirement' : 'it waits for level ' + cur.level + ' – not yours' }); continue; }
-      const next = ok ? W.nextLevel(lv, cur.level, cur.created_by) : 0;
-      const ap = (cur.approvals || []).concat([{ level: cur.level, email: s.email, name: s.name, at: new Date().toISOString(), ok: ok, note: note || null }]);
+      const own = String(cur.created_by).toLowerCase() === me_(s), st = reqStep(cur, lv, wf);
+      /* (29-10-2026) its VERIFICATION (level 0): one who verifies the requirements of this site (never his own); verified – to its first
+       * level of approval (none: approved); not – rejected, saying why */
+      if (st.step === 'verify') {
+        if (own || !W.isIn(wf.verify.req, s.email)) { left.push({ no: no, why: own ? 'your own requirement' : 'it waits for its verification – not yours' }); continue; }
+      } else if (!st.level || !W.canApprove(lv, st.level, s.email, cur.created_by)) { left.push({ no: no, why: own ? 'your own requirement' : !st.level ? 'nobody verifies or approves the requirements of this site now – the Super Admin gives it in the Portal' : 'it waits for level ' + st.level + ' – not yours' }); continue; }
+      const next = ok ? W.nextLevel(lv, st.step === 'verify' ? 0 : st.level, cur.created_by) : 0;
+      const ap = (cur.approvals || []).concat([Object.assign({ level: st.level, email: s.email, name: s.name, at: new Date().toISOString(), ok: ok, note: note || null }, st.step === 'verify' ? { step: 'verify' } : {})]);
       const patch = { approvals: ap, level: next, status: ok ? (next ? 'Pending' : 'Approved') : 'Rejected', updated_by: s.email };
       const out = ((await db(s.site, 'PATCH', 'store_req?no=eq.' + no + '&status=eq.Pending&level=eq.' + cur.level + '&updated_at=eq.' + enc(cur.updated_at), patch, 'return=representation')) || [])[0];
       if (!out) { left.push({ no: no, why: 'decided by someone else just now' }); continue; }
-      done.push({ no: no, status: out.status, level: out.level });
-      await activity(s.site, s.email, ok ? 'Requirement approved' : 'Requirement rejected', 'REQ ' + no, { level: cur.level, note: note || undefined, now: out.status });
+      done.push({ no: no, status: out.status, level: out.level, step: st.step });
+      await activity(s.site, s.email, st.step === 'verify' ? (ok ? 'Requirement verified' : 'Requirement rejected (verification)') : ok ? 'Requirement approved' : 'Requirement rejected', 'REQ ' + no, { level: st.level, note: note || undefined, now: out.status });
     }
     if (!done.length && left.length) throw fail(409, left.map(l => 'Requirement ' + l.no + ': ' + l.why).join('; ') + '.', 'decided', { left: left });
     return { ok: true, done: done, left: left };
@@ -544,48 +660,68 @@ const ACTIONS = {
 
   /* ---------- PURCHASE ORDER (HO Purchase – every site) ---------- */
   // every site's approved requirements still to order
-  async purPending(s) {
-    buyerOnly(s);
+  /* (29-10-2026) x.mine – a site that buys its requirements itself (the Portal → Workflow: they do not go to Head Office): its own, for its
+   * Store Admin. Else HO Purchase: every site whose requirements go to Head Office – with who made each and since when it waits. */
+  async purPending(s, x) {
+    const mine = !!(x && x.mine);
+    if (mine) await buyerOr(s, s.site); else buyerOnly(s);
     const out = [];
-    for (const st of await storeSites()) {
+    for (const st of mine ? [{ code: s.site, name: (s.info && s.info.siteName) || s.site }] : await storeSites()) {
       try {
-        const [reqs, pos, h] = await Promise.all([dbAll(st.code, 'store_req?select=*&status=eq.Approved', 'no'), dbAll(st.code, 'store_po?select=no,status,lines', 'no'), headingOf(st.code, s)]);
-        const o = orderedOf(pos), list = reqs.sort((a, b) => a.no - b.no).map(r => Object.assign(reqView(r, o, [], s), { ref: W.indentOf(r, h, st.code) })).filter(r => r.lines.some(l => l.left > 0.0005));      // (29-10-2026) with its Indent No.
+        const [reqs, pos, h, wf] = await Promise.all([dbAll(st.code, 'store_req?select=*&status=eq.Approved', 'no'), dbAll(st.code, 'store_po?select=no,status,lines', 'no'), headingOf(st.code, s), wfAt(st.code)]);
+        if (!mine && !wf.ho.req) { out.push({ site: st.code, name: st.name, reqs: [], own: true, open: pos.filter(p => p.status === 'Open').length }); continue; }      // (the site buys itself)
+        const o = orderedOf(pos), list = reqs.sort((a, b) => a.no - b.no).map(r => Object.assign(reqView(r, o, [], s), { ref: W.indentOf(r, h, st.code), since: sinceOf(r), made_by: r.created_name || r.created_by || '' })).filter(r => r.lines.some(l => l.left > 0.0005));      // (29-10-2026) with its Indent No.
         out.push({ site: st.code, name: st.name, reqs: list, open: pos.filter(p => p.status === 'Open').length });
       } catch (e) { out.push({ site: st.code, name: st.name, reqs: [], error: e && e.code === 'notinstalled' ? 'The Store\'s step 2 is not run in this site\'s database yet.' : 'Could not be read now.' }); }
     }
-    return { sites: out };
+    return { sites: out, today: W.today() };
   },
   // a site's items and vendors (to make its PO)
   async purItems(s, x) {
-    const site = await siteFor(s, x); if (site === s.site && !isBuyer(s)) buyerOnly(s);
+    const site = await siteFor(s, x); if (site === s.site) await buyerOr(s, site);      // (29-10-2026) a site that buys itself: its Store Admin
     const [items, nm, pp, s5, h, s8] = await Promise.all([itemsOf(site), names(site), papersOf(site), step5On(site), headingOf(site, s), step8On(site).catch(() => false)]);
     const st0 = startOf(h, pp);
     return { site: site, items: Object.values(items).filter(i => i.status === 'Active').map(brief).sort((a, b) => a.name.localeCompare(b.name)), vendors: nm.vendors, gst: nm.gst,
       papers: { ship_to: st0.ship_to, site_contact: st0.site_contact, terms: st0.terms, contact_name: st0.contact_name, contact_phone: st0.contact_phone }, step5: s5, step8: s8 };      // (28-10-2026) what a new PO of this site starts with; (29-10-2026) the site's address and contact from the Portal
   },
   async poList(s, x) {
-    const site = await siteFor(s, x), mine = await poPeople(s.site);      // (28-10-2026) one who approves POs sees them (as one who approves requirements)
-    if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View') && !mine.some(p => p.email === String(s.email).toLowerCase())) need(s, 'po', 'View');
+    const site = await siteFor(s, x), [mine, wf0] = await Promise.all([poPeople(s.site), wfAt(s.site)]);      // (28-10-2026) one who approves POs sees them (as one who approves requirements); (29-10-2026) one who verifies them
+    if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View') && !mine.some(p => p.email === me_(s)) && !W.isIn(wf0.verify.po, s.email)) need(s, 'po', 'View');
     const sites = x.all && isBuyer(s) ? await storeSites() : [{ code: site, name: site }], out = [];
     for (const st of sites) {
       try {
-        const pos = await dbAll(st.code, 'store_po?select=*', 'no'), rec = await receivedOf(st.code, pos.map(p => p.no));
-        const who = st.code === s.site ? mine : [];      // a PO is approved by a person of its own site, signed in there
+        const pos = await dbAll(st.code, 'store_po?select=*', 'no'), grns = pos.length ? await grnsOfPos(st.code, pos.map(p => p.no)) : [], rec = recOf(grns);
+        const nGrn = {}; grns.forEach(g => { nGrn[g.po_no] = (nGrn[g.po_no] || 0) + 1; });      // (29-10-2026) how many GRNs came on each
+        const who = st.code === s.site ? mine : [], wf = st.code === s.site ? wf0 : await wfAt(st.code).catch(() => W.wfOf(null));      // a PO is approved by a person of its own site, signed in there
         // (29-10-2026) each line of a requirement with its Indent No.
         const rn = [...new Set([].concat(...pos.map(p => (p.lines || []).map(l => Number(l.req_no)))).filter(n => n > 0))], rq = {};
         if (rn.length) { try { const h = await headingOf(st.code, s); for (let i = 0; i < rn.length; i += 150) (await dbAll(st.code, 'store_req?select=*&no=in.(' + rn.slice(i, i + 150).join(',') + ')', 'no')).forEach(r => { rq[r.no] = W.indentOf(r, h, st.code); }); } catch (e) { /* (the number alone) */ } }
         pos.forEach(p => { p.lines = (p.lines || []).map(l => l.req_no && rq[l.req_no] ? Object.assign({}, l, { req_ref: rq[l.req_no] }) : l); });
-        pos.sort(byNo).forEach(p => { const v = poView(p, rec);
-          out.push(Object.assign(v, { site: st.code, siteName: st.name, mayApprove: p.status === 'Open' && v.appr === 'Waiting' && W.mayApprovePo(who, s.email, p.created_by),
-            waitFor: v.appr === 'Waiting' ? who.filter(q => q.email !== String(p.created_by || '').toLowerCase()).map(q => q.name) : [] })); });
+        const apprAll = st.code === s.site ? mine : await poPeople(st.code).catch(() => []);
+        pos.sort(byNo).forEach(p => { const v = poView(p, rec), ps = poStep(p, wf, apprAll, s, st.code === s.site);
+          // (29-10-2026) its verification first (step 9): an older app knows only "Approve" – for one who verifies it, that is his verification
+          out.push(Object.assign(v, { site: st.code, siteName: st.name, step: ps.step, mayVerify: ps.step === 'verify' && ps.may, mayApprove: ps.may, waitFor: ps.waitFor, grns: nGrn[p.no] || 0 })); });
       } catch (e) { if (sites.length === 1) throw e; }
     }
-    return { pos: out };
+    return { pos: out, today: W.today(), buy: await mayBuy(s, site) };      // (29-10-2026) buy: this person makes and changes the POs of this site (HO Purchase; a site that buys itself – its Store Admin)
+  },
+  /* (29-10-2026, "standard ERP … PO … GRN … balance") ONE PO with every GRN made against it: each line ordered, came and still to come
+   * (quantity and value), each GRN (its bill) with its lines and its check with the PO – HO Purchase sees the PO in full, the site its
+   * GRNs and its balance */
+  async poGrns(s, x) {
+    const site = await siteFor(s, x), no = noOf(x.no), [mine, wf0] = await Promise.all([poPeople(s.site), wfAt(s.site)]);
+    if (!isBuyer(s) && !can(s, 'po', 'View') && !seeWork(s, 'grn', wf0, 'grn') && !mine.some(p => p.email === me_(s)) && !W.isIn(wf0.verify.po, s.email)) need(s, 'po', 'View');
+    const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
+    const grns = await dbAll(site, 'store_grn?select=*,store_grn_lines(*)&po_no=eq.' + no, 'no'), before = beforeOf(grns), rec = recOf(grns), wf = site === s.site ? wf0 : await wfAt(site);
+    const [h, pp] = await Promise.all([headingOf(site, s), papersOf(site)]);
+    return { po: Object.assign(poView(p, rec), { site: site, ref: W.refOf(prefixOf(pp, h, site), 'PO', p.date, p.no) }), lines: W.poBalance(p, rec), today: W.today(),
+      grns: grns.sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.no - b.no).map(g => { const lines = sortLines(g.store_grn_lines);
+        return Object.assign({ no: g.no, ref: R.refOf(g), date: g.date, supplier: g.supplier, invoice_no: g.invoice_no, invoice_date: g.invoice_date, challan_no: g.challan_no, vehicle_no: g.vehicle_no, taxable: g.taxable, gst: g.gst, gross: g.gross,
+          lines: lines.map(l => ({ line: l.line, code: l.code, name: l.name, unit: l.unit, qty: l.qty, rate: l.rate, taxable: l.taxable, gst_pct: l.gst_pct, po_line: l.po_line })), check: W.billCheck(lines, p, before[g.no] || {}) }, wfInfo(wf, 'grn', g.wf, s)); }) };
   },
   async poGet(s, x) {
-    const site = await siteFor(s, x), no = noOf(x.no), mine = await poPeople(s.site);
-    if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View') && !mine.some(p => p.email === String(s.email).toLowerCase())) need(s, 'po', 'View');
+    const site = await siteFor(s, x), no = noOf(x.no), [mine, wf0] = await Promise.all([poPeople(s.site), wfAt(s.site)]);
+    if (!isBuyer(s) && !can(s, 'po', 'View') && !can(s, 'grn', 'View') && !mine.some(p => p.email === me_(s)) && !W.isIn(wf0.verify.po, s.email)) need(s, 'po', 'View');      // (29-10-2026) one who verifies them too
     const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
     const [h, pp, items] = await Promise.all([headingOf(site, s), papersOf(site), itemsOf(site)]);
     // (28-10-2026, his format) the supplier's details from the Vendor Master of the site (Mechanical's – the same database): address,
@@ -595,13 +731,14 @@ const ACTIONS = {
     // (29-10-2026) each line of a requirement with its Indent No.
     const rn = [...new Set((p.lines || []).map(l => Number(l.req_no)).filter(n => n > 0))], rq = {};
     if (rn.length) { try { (await dbAll(site, 'store_req?select=*&no=in.(' + rn.join(',') + ')', 'no')).forEach(r => { rq[r.no] = W.indentOf(r, h, site); }); } catch (e) { /* (the number alone) */ } }
-    const po = Object.assign(poView(p, await receivedOf(site, [no])), { site: site, ref: W.refOf(prefixOf(pp, h, site), 'PO', p.date, p.no), words: W.inWords(p.total),
+    const vby = ((p.wf && Array.isArray(p.wf.steps) ? p.wf.steps : []).filter(y => y && y.step === 'verify' && y.ok).pop() || {}).name || '';      // (29-10-2026) who verified it (its paper: "Verified By")
+    const po = Object.assign(poView(p, await receivedOf(site, [no])), { site: site, ref: W.refOf(prefixOf(pp, h, site), 'PO', p.date, p.no), words: W.inWords(p.total), verified_by: vby,
       lines: sortLines(p.lines).map(l => Object.assign({}, l, { hsn: l.hsn || (items[l.code] || {}).hsn || '' }, l.req_no && rq[l.req_no] ? { req_ref: rq[l.req_no] } : {})) });
     return { po: po, supplier: supplier, heading: headOut(h, pp) };
   },
   async poSave(s, x) {
-    buyerOnly(s);
-    const site = await siteFor(s, x), no = x.no ? noOf(x.no) : null, items = await itemsOf(site);
+    const site = await siteFor(s, x); await buyerOr(s, site);      // (29-10-2026) a site that buys itself: its Store Admin too
+    const no = x.no ? noOf(x.no) : null, items = await itemsOf(site);
     let cur = null;
     if (no) { cur = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!cur) throw gone('PO ' + no); if (cur.status !== 'Open') throw fail(409, 'PO ' + no + ' is ' + cur.status.toLowerCase() + ' – it is not changed.', 'decided'); }
     const rn = [...new Set(((x.po && x.po.lines) || []).map(l => Number(l && l.req_no)).filter(n => Number.isInteger(n) && n > 0))];
@@ -614,36 +751,61 @@ const ACTIONS = {
     // (28-10-2026) step 5: the PO's own fields and its approval – without the step, a PO with them is refused (they would be lost)
     const s5 = await step5On(site);
     if (!s5 && (p.credit_days !== null || p.site_contact || p.ship_to || p.freight > 0 || p.load_unload > 0)) throw fail(400, STEP5, 'sql');
-    if (s5) { const others = (await poPeople(site)).filter(q => q.email !== String(s.email).toLowerCase());
-      p.appr = others.length ? 'Waiting' : 'Approved'; p.appr_note = others.length ? '' : 'Nobody approves purchase orders at this site – approved when made.'; }
+    // (29-10-2026) its VERIFICATION first (step 9 at its site), when someone other than its maker verifies the POs of its site; then its approval
+    const mk = W.makersOf(cur ? cur.created_by : '', s.email);      // (29-10-2026, the review) its maker and who saves it now – as poStep
+    const s9 = s5 && await step9On(site).catch(() => false), wf = s9 ? await wfAt(site) : null, vf = !!(wf && W.othersOf(wf.verify.po, mk).length);
+    let others = [];
+    if (s5) { others = W.othersOf(await poPeople(site), mk);
+      p.appr = others.length || vf ? 'Waiting' : 'Approved'; p.appr_note = others.length || vf ? '' : 'Nobody approves purchase orders at this site – approved when made.'; }
     if (cur) {      // a changed PO: never less than already came
       const rec = await receivedOf(site, [no]);
       (cur.lines || []).forEach(l => { const got = rec[no + ':' + l.line] || 0, nl = p.lines.find(y => y.line === l.line && y.code === l.code); if (got > 0 && (!nl || nl.qty + 0.0005 < got)) throw fail(409, l.name + ': ' + r3(got) + ' ' + l.unit + ' already came on PO ' + no + ' – the PO keeps at least that (line ' + l.line + ').', 'received'); });
     }
     const n = await rpc(site, 'store_po_put', { p_no: no, p_row: p, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
+    // (29-10-2026) its workflow: to verification (a changed PO again); none – nothing kept (its approval is its appr, as before)
+    let wfNote = '';
+    if (s9 && (vf || no)) { try { await db(site, 'PATCH', 'store_po?no=eq.' + Number(n), { wf: vf ? { state: 'verify', by: me_(s), at: new Date().toISOString(), steps: [] } : null }, 'return=minimal'); }
+      catch (e) { wfNote = 'PO ' + Number(n) + ' is saved – but its verification could not be noted (' + String((e && e.message) || e).slice(0, 80) + '): it waits for its approval. Save it again to send it for verification.'; } }
     changed(site);
-    await activity(site, s.email, no ? 'PO changed' : 'PO made', 'PO ' + n, { vendor: p.vendor, total: p.total, lines: p.lines.length, by: s.site !== site ? 'HO Purchase (' + s.site + ')' : undefined });
-    return { ok: true, site: site, no: Number(n), total: p.total, appr: p.appr || 'Approved' };
+    await activity(site, s.email, no ? 'PO changed' : 'PO made', 'PO ' + n, { vendor: p.vendor, total: p.total, lines: p.lines.length, by: s.site !== site ? 'HO Purchase (' + s.site + ')' : undefined, verify: vf || undefined });
+    return Object.assign({ ok: true, site: site, no: Number(n), total: p.total, appr: p.appr || 'Approved', step: p.appr === 'Waiting' ? (vf && !wfNote ? 'verify' : 'approve') : '' }, wfNote ? { note: wfNote } : {});
   },
   /* (28-10-2026, his answer: "PO approve karaychi payri kara") a PO waiting for its approval: approved (his name goes on the PO's
    * "Approved By") or rejected, saying why (the one who made it changes it – it waits again). Only one the Super Admin ticked for this
    * site ("Approves purchase orders"), never his own; only a PO still open and waiting. */
   async poDecide(s, x) {
     if (!(await step5On(s.site))) throw fail(400, STEP5, 'sql');
-    const no = noOf(x.no), ok = x.ok === true, note = I.clean(x.note, 300), people = await poPeople(s.site);
-    const p = ((await db(s.site, 'GET', 'store_po?select=no,status,appr,created_by,total,vendor&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
-    if (!W.mayApprovePo(people, s.email, p.created_by)) throw fail(403, String(p.created_by || '').toLowerCase() === String(s.email).toLowerCase() ? 'Nobody approves his own purchase order.' : 'You do not approve the purchase orders of this site – the Super Admin gives it in the Portal ("Approves purchase orders").', 'approve');
+    const no = noOf(x.no), ok = x.ok === true, note = I.clean(x.note, 300), [people, wf] = await Promise.all([poPeople(s.site), wfAt(s.site)]);
+    const p = ((await db(s.site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
     if (p.status !== 'Open' || apprOf(p) !== 'Waiting') throw fail(409, 'PO ' + no + ' is not waiting for its approval any more (it is ' + (p.status !== 'Open' ? p.status.toLowerCase() : apprOf(p).toLowerCase()) + ') – refresh.', 'decided');
+    const own = poMakers(p).includes(me_(s)), ps = poStep(p, wf, people, s, true), at = new Date().toISOString();
+    /* (29-10-2026) its VERIFICATION: one who verifies the POs of this site (never his own) – verified: it waits for its approval (nobody
+     * approves POs here: approved); not: rejected, saying why (the one who made it changes it – it waits again) */
+    if (ps.step === 'verify') {
+      if (!ps.may) throw fail(403, own ? 'Nobody verifies his own purchase order.' : 'You do not verify the purchase orders of this site – the Super Admin gives it in the Portal ("Verifies purchase orders").', 'approve');
+      if (!ok && !note) throw fail(400, 'Say why the PO is sent back (the one who made it sees it).', 'field');
+      const more = W.othersOf(people, poMakers(p)).length > 0;
+      const w = Object.assign({}, p.wf, { state: !ok ? 'returned' : more ? 'approve' : 'done', steps: ((p.wf || {}).steps || []).concat([{ step: 'verify', ok: ok, email: me_(s), name: s.name, at: at, note: note || null }]) });
+      const patch = !ok ? { appr: 'Rejected', appr_by: s.email, appr_name: s.name, appr_at: at, appr_note: note, wf: w } : more ? { wf: w }
+        : { appr: 'Approved', appr_by: s.email, appr_name: s.name, appr_at: at, appr_note: 'Verified by ' + s.name + ' – nobody approves purchase orders at this site.', wf: w };
+      const r = await db(s.site, 'PATCH', 'store_po?no=eq.' + no + '&status=eq.Open&appr=eq.Waiting&wf->>state=eq.verify', patch, 'return=representation');
+      if (!r || !r.length) throw fail(409, 'PO ' + no + ' was decided by someone else just now – refresh.', 'decided');
+      changed(s.site);
+      await activity(s.site, s.email, ok ? 'PO verified' : 'PO rejected (verification)', 'PO ' + no, { vendor: p.vendor, total: num(p.total), note: note || undefined, now: patch.appr || 'Waiting approval' });
+      return { ok: true, no: no, appr: patch.appr || 'Waiting', step: w.state };
+    }
+    if (!W.mayApprovePo(people, s.email, poMakers(p))) throw fail(403, own ? 'Nobody approves his own purchase order.' : 'You do not approve the purchase orders of this site – the Super Admin gives it in the Portal ("Approves purchase orders").', 'approve');
     if (!ok && !note) throw fail(400, 'Say why the PO is rejected (the one who made it sees it).', 'field');
-    const r = await db(s.site, 'PATCH', 'store_po?no=eq.' + no + '&status=eq.Open&appr=eq.Waiting', { appr: ok ? 'Approved' : 'Rejected', appr_by: s.email, appr_name: s.name, appr_at: new Date().toISOString(), appr_note: note || null }, 'return=representation');
+    const patch = { appr: ok ? 'Approved' : 'Rejected', appr_by: s.email, appr_name: s.name, appr_at: at, appr_note: note || null };
+    if (p.wf && typeof p.wf === 'object') patch.wf = Object.assign({}, p.wf, { state: ok ? 'done' : 'returned', steps: (p.wf.steps || []).concat([{ step: 'approve', ok: ok, email: me_(s), name: s.name, at: at, note: note || null }]) });
+    const r = await db(s.site, 'PATCH', 'store_po?no=eq.' + no + '&status=eq.Open&appr=eq.Waiting', patch, 'return=representation');
     if (!r || !r.length) throw fail(409, 'PO ' + no + ' was decided by someone else just now – refresh.', 'decided');
     changed(s.site);
     await activity(s.site, s.email, ok ? 'PO approved' : 'PO rejected', 'PO ' + no, { vendor: p.vendor, total: num(p.total), note: note || undefined });
     return { ok: true, no: no, appr: ok ? 'Approved' : 'Rejected' };
   },
   async poCancel(s, x) {
-    buyerOnly(s);
-    const site = await siteFor(s, x), no = noOf(x.no);
+    const site = await siteFor(s, x), no = noOf(x.no); await buyerOr(s, site);      // (29-10-2026) a site that buys itself: its Store Admin too
     const p = ((await db(site, 'GET', 'store_po?select=no,status&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
     if (p.status !== 'Open') throw fail(409, 'PO ' + no + ' is ' + p.status.toLowerCase() + ' already.', 'decided');
     if ((await dbAll(site, 'store_grn?select=no&po_no=eq.' + no, 'no')).length) throw fail(409, 'Material of PO ' + no + ' has come (a GRN has it) – it cannot be cancelled. Close it (the rest will not come).', 'received');
@@ -654,8 +816,7 @@ const ACTIONS = {
   /* (29-10-2026) DELETE a purchase order – HO Purchase; never one whose material came (a GRN has it). Its requirements are then free to
    * be changed or deleted (his words: "jr requirement chi po banli aahe … sagalyat adhi po delet krayla lagel mgch same requirement edit") */
   async poDelete(s, x) {
-    buyerOnly(s);
-    const site = await siteFor(s, x), no = noOf(x.no);
+    const site = await siteFor(s, x), no = noOf(x.no); await buyerOr(s, site);      // (29-10-2026) a site that buys itself: its Store Admin too
     if (!(await step8On(site))) throw fail(400, STEP8, 'sql');
     const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
     await rpc(site, 'store_po_del', { p_no: no }).catch(e => said(e));
@@ -675,10 +836,89 @@ const ACTIONS = {
 
   /* ---------- INWARD (GRN) ---------- */
   async grnList(s, x) {
-    need(s, 'grn', 'View');
+    const wf = await wfAt(s.site);
+    if (!seeWork(s, 'grn', wf, 'grn')) need(s, 'grn', 'View');      // (29-10-2026) one who verifies or approves the GRNs sees them
     const p = period(x), g = await dbAll(s.site, 'store_grn?select=*,store_grn_lines(*)&date=gte.' + p.from + '&date=lte.' + p.to, 'no');
     // (28-10-2026) the newest first by date, then by GRN No (an imported GRN's number is its GRN No – "342-A" too – not its row's)
-    return { from: p.from, to: p.to, grns: g.sort((a, b) => b.date.localeCompare(a.date) || R.refCmp(b, a)).map(r => Object.assign({}, r, { ref: R.refOf(r), lines: sortLines(r.store_grn_lines), store_grn_lines: undefined })) };
+    // (29-10-2026) each with its workflow and – against a PO – its bill checked with the PO
+    return { from: p.from, to: p.to, grns: await grnsOut(s, s.site, g.sort((a, b) => b.date.localeCompare(a.date) || R.refCmp(b, a)), wf) };
+  },
+  /* (29-10-2026) WAITING FOR ME at this site: the GRNs, issues and returns this person verifies or approves now (of any date – the lists
+   * show a period), with everything the lists show of them */
+  async wfMine(s) {
+    if (!(await step9On(s.site))) return { grns: [], issues: [], step9: false };
+    const wf = await wfAt(s.site), q = '&wf->>state=in.(verify,approve)';
+    const [gs, is, rs] = await Promise.all([dbAll(s.site, 'store_grn?select=*,store_grn_lines(*)' + q, 'no'), dbAll(s.site, 'store_issue?select=*,store_issue_lines(*)' + q, 'no'), dbAll(s.site, 'store_return?select=issue_no,wf' + q, 'no')]);
+    const g2 = gs.filter(g => W.wfMay(wf, 'grn', g.wf, s.email));
+    // an issue waiting, or one whose return waits (the issue is shown with its returns)
+    const want = new Set(is.filter(i => W.wfMay(wf, 'iss', i.wf, s.email)).map(i => i.no).concat(rs.filter(r => W.wfMay(wf, 'iss', r.wf, s.email)).map(r => r.issue_no)));
+    let i2 = is.filter(i => want.has(i.no)); const more = [...want].filter(n => !i2.some(i => i.no === n));
+    if (more.length) i2 = i2.concat(await dbAll(s.site, 'store_issue?select=*,store_issue_lines(*)&no=in.(' + more.slice(0, 300).join(',') + ')', 'no'));
+    return { grns: await grnsOut(s, s.site, g2.sort((a, b) => b.date.localeCompare(a.date) || R.refCmp(b, a)), wf), issues: await issuesOut(s, s.site, i2, wf), step9: true };
+  },
+  /* (29-10-2026) a GRN, an issue or a return VERIFIED or APPROVED (or sent back, saying why) – one who verifies / approves that work at
+   * this site (the Portal), never his own; verified – to its approval (when someone approves), approved – done and, by the site's rule,
+   * to Head Office. Its stock is not touched (it counted when it was saved). */
+  async wfDecide(s, x) {
+    const T = { grn: ['store_grn', 'grn', 'GRN'], issue: ['store_issue', 'iss', 'Issue'], ret: ['store_return', 'iss', 'Return'] }[String(x.kind || '')];
+    if (!T) throw fail(400, 'Which paper?', 'field');
+    if (!(await step9On(s.site))) throw fail(400, STEP9, 'sql');
+    const no = noOf(x.no), ok = x.ok === true, note = I.clean(x.note, 300), wf = await wfAt(s.site);
+    const cur = ((await db(s.site, 'GET', T[0] + '?select=*&no=eq.' + no)) || [])[0]; if (!cur) throw gone(T[2] + ' ' + no);
+    const w = cur.wf, label = T[2] + ' ' + (T[1] === 'grn' ? R.refOf(cur) : no);
+    if (!w || (w.state !== 'verify' && w.state !== 'approve')) throw fail(409, label + ' is not waiting for a verification or an approval (any more) – refresh.', 'decided');
+    if (!W.wfMay(wf, T[1], w, s.email)) {
+      const st = W.wfStepNow(wf, T[1], w);
+      throw fail(403, W.makersOf(w.by, w.made).includes(me_(s)) ? 'Nobody verifies or approves his own entry.' : !st ? 'Nobody ' + (w.state === 'verify' ? 'verifies or approves' : 'approves') + ' the ' + (T[1] === 'grn' ? 'GRNs' : 'issues & returns') + ' of this site now – the Super Admin gives it in the Portal.' : 'You do not ' + (st === 'verify' ? 'verify' : 'approve') + ' the ' + (T[1] === 'grn' ? 'GRNs' : 'issues & returns') + ' of this site – the Super Admin gives it in the Portal.', 'approve');
+    }
+    if (!ok && !note) throw fail(400, 'Say why it is sent back (the Store Admin corrects it).', 'field');
+    const step = W.wfStepNow(wf, T[1], w), nw = W.wfNext(wf, T[1], w, { email: s.email, name: s.name }, ok, note);
+    const r = await db(s.site, 'PATCH', T[0] + '?no=eq.' + no + '&wf->>state=eq.' + w.state, { wf: nw }, 'return=representation');
+    if (!r || !r.length) throw fail(409, label + ' was decided by someone else just now – refresh.', 'decided');
+    changed(s.site);
+    await activity(s.site, s.email, label.split(' ')[0] + (ok ? (step === 'verify' ? ' verified' : ' approved') : ' sent back (' + step + ')'), label, { note: note || undefined, now: nw.state, ho: nw.ho || undefined });
+    return { ok: true, no: no, state: nw.state, ho: !!nw.ho };
+  },
+  /* (29-10-2026, "konte jail konte nahi jail te super admin tharau shakel") HEAD OFFICE: what the sites sent – their GRNs (the suppliers'
+   * bills, each checked with its PO) or their issues and returns – approved there and sent to Head Office by the site's rule (the Portal
+   * → Workflow). HO Purchase checks each (✓ Checked, a note if he wants). x.kind 'grn' | 'iss'; x.done: the ones checked (the newest 60). */
+  async hoInbox(s, x) {
+    buyerOnly(s);
+    const kind = x.kind === 'iss' ? 'iss' : 'grn', q = '&wf->>ho=eq.true&wf->hoOk=' + (x.done ? 'not.is.null' : 'is.null'), out = [];
+    for (const st of await storeSites()) {
+      try {
+        if (!(await step9On(st.code))) { out.push({ site: st.code, name: st.name, rows: [], step9: false }); continue; }
+        const wf = await wfAt(st.code), lim = x.done ? '&order=no.desc&limit=60' : '';
+        if (kind === 'grn') { const g = x.done ? (await db(st.code, 'GET', 'store_grn?select=*,store_grn_lines(*)' + q + lim)) || [] : await dbAll(st.code, 'store_grn?select=*,store_grn_lines(*)' + q, 'no');
+          out.push({ site: st.code, name: st.name, ho: wf.ho.grn, rows: await grnsOut(s, st.code, g.sort((a, b) => b.date.localeCompare(a.date) || R.refCmp(b, a)), wf), step9: true }); }
+        else {
+          const [is, rs] = await Promise.all([x.done ? db(st.code, 'GET', 'store_issue?select=*,store_issue_lines(*)' + q + lim).then(v => v || []) : dbAll(st.code, 'store_issue?select=*,store_issue_lines(*)' + q, 'no'),
+            x.done ? db(st.code, 'GET', 'store_return?select=no,issue_no,wf' + q + lim).then(v => v || []) : dbAll(st.code, 'store_return?select=no,issue_no,wf' + q, 'no')]);
+          const more = [...new Set(rs.map(r => r.issue_no))].filter(n => !is.some(i => i.no === n));
+          const all = more.length ? is.concat(await dbAll(st.code, 'store_issue?select=*,store_issue_lines(*)&no=in.(' + more.slice(0, 300).join(',') + ')', 'no')) : is;
+          out.push({ site: st.code, name: st.name, ho: wf.ho.iss, rows: await issuesOut(s, st.code, all, wf), step9: true });
+        }
+      } catch (e) { out.push({ site: st.code, name: st.name, rows: [], error: 'Could not be read now.' }); }
+    }
+    return { kind: kind, done: !!x.done, sites: out };
+  },
+  // (29-10-2026) Head Office checked what a site sent (HO Purchase): ✓ with who, when and a note
+  async hoCheck(s, x) {
+    buyerOnly(s);
+    const T = { grn: ['store_grn', 'GRN'], issue: ['store_issue', 'Issue'], ret: ['store_return', 'Return'] }[String(x.kind || '')];
+    if (!T) throw fail(400, 'Which paper?', 'field');
+    const site = await siteFor(s, x), no = noOf(x.no), note = I.clean(x.note, 300);
+    if (!(await step9On(site))) throw fail(400, STEP9, 'sql');
+    const cur = ((await db(site, 'GET', T[0] + '?select=*&no=eq.' + no)) || [])[0]; if (!cur) throw gone(T[1] + ' ' + no);
+    const w = cur.wf, label = T[1] + ' ' + (T[0] === 'store_grn' ? R.refOf(cur) : no) + ' of ' + site;
+    if (!w || w.ho !== true) throw fail(409, label + ' was not sent to Head Office – refresh.', 'decided');
+    if (w.hoOk) throw fail(409, label + ' is checked already (by ' + (w.hoOk.name || '') + ') – refresh.', 'decided');
+    const nw = Object.assign({}, w, { hoOk: { email: me_(s), name: s.name, at: new Date().toISOString(), note: note || null } });
+    const r = await db(site, 'PATCH', T[0] + '?no=eq.' + no + '&wf->>ho=eq.true&wf->hoOk=is.null', { wf: nw }, 'return=representation');
+    if (!r || !r.length) throw fail(409, label + ' was checked by someone else just now – refresh.', 'decided');
+    changed(site);
+    await activity(site, s.email, 'Checked by Head Office', label, { note: note || undefined, by: 'HO Purchase (' + s.site + ')' });
+    return { ok: true };
   },
   // this site's open POs with what is still to come (a GRN against a PO)
   async poOpen(s, x) {
@@ -729,9 +969,11 @@ const ACTIONS = {
         return said(e, items);
       });
     } else n = await rpc(s.site, 'store_grn_put', { p_no: no, p_head: g.head, p_lines: g.lines, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
+    // (29-10-2026) its workflow (step 9): to verification / approval; a changed GRN starts again (also to Head Office again, by the rule)
+    const wfr = await wfSet(s.site, 'store_grn', n, s, 'grn', !no);
     changed(s.site);
-    await activity(s.site, s.email, no ? 'GRN changed' : 'GRN made', 'GRN ' + (!no && g.head.ref ? g.head.ref : n), { supplier: g.head.supplier, gross: g.head.gross, lines: g.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), po: poNo || undefined });
-    return { ok: true, no: Number(n), ref: !no && g.head.ref ? g.head.ref : String(n), gross: g.head.gross };
+    await activity(s.site, s.email, no ? 'GRN changed' : 'GRN made', 'GRN ' + (!no && g.head.ref ? g.head.ref : n), { supplier: g.head.supplier, gross: g.head.gross, lines: g.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), po: poNo || undefined, wf: wfr.state || undefined });
+    return Object.assign({ ok: true, no: Number(n), ref: !no && g.head.ref ? g.head.ref : String(n), gross: g.head.gross, wf: wfr.state }, wfr.note ? { note: wfr.note } : {});
   },
   async grnDelete(s, x) {
     adminOnly(s, 'delete a GRN');
@@ -758,16 +1000,14 @@ const ACTIONS = {
 
   /* ---------- ISSUE (OUTWARD) and RETURN ---------- */
   async issueList(s, x) {
-    need(s, 'issue', 'View');
+    const wf = await wfAt(s.site);
+    if (!seeWork(s, 'issue', wf, 'iss')) need(s, 'issue', 'View');      // (29-10-2026) one who verifies or approves the issues sees them
     const p = period(x), iss = await dbAll(s.site, 'store_issue?select=*,store_issue_lines(*)&date=gte.' + p.from + '&date=lte.' + p.to, 'no');
-    const min = iss.reduce((m, i) => Math.min(m, i.no), Infinity), back = {}, rets = isFinite(min) ? await dbAll(s.site, 'store_return?select=*,store_return_lines(*)&issue_no=gte.' + min, 'no') : [];
-    rets.forEach(r => (r.store_return_lines || []).forEach(l => { back[l.issue_line] = r3((back[l.issue_line] || 0) + num(l.qty)); }));
-    const retOf = {}; rets.forEach(r => { (retOf[r.issue_no] = retOf[r.issue_no] || []).push({ no: r.no, date: r.date, lines: sortLines(r.store_return_lines) }); });
-    return { from: p.from, to: p.to, issues: iss.sort(byNo).map(i => Object.assign({}, i, { store_issue_lines: undefined, returns: retOf[i.no] || [],
-      lines: sortLines(i.store_issue_lines).map(l => Object.assign({}, l, { back: back[l.id] || 0 })) })) };
+    // (29-10-2026) each issue and each of its returns with its workflow
+    return { from: p.from, to: p.to, issues: await issuesOut(s, s.site, iss, wf) };
   },
   async issueGet(s, x) {
-    need(s, 'issue', 'View');
+    if (!seeWork(s, 'issue', await wfAt(s.site), 'iss')) need(s, 'issue', 'View');      // (29-10-2026) one who verifies or approves the issues too
     const no = noOf(x.no), i = ((await db(s.site, 'GET', 'store_issue?select=*,store_issue_lines(*)&no=eq.' + no)) || [])[0]; if (!i) throw gone('Outward ' + no);
     const rets = await dbAll(s.site, 'store_return?select=*,store_return_lines(*)&issue_no=eq.' + no, 'no'), back = {};
     rets.forEach(r => (r.store_return_lines || []).forEach(l => { back[l.issue_line] = r3((back[l.issue_line] || 0) + num(l.qty)); }));
@@ -786,9 +1026,10 @@ const ACTIONS = {
     if (g.head.to_kind === 'Machinery') onSite(mach.find(m => m.no === g.head.machinery), g.head.date);
     if (g.head.to_kind === 'Sub-contractor') g.head.party = party(g.head.party, (await names(s.site)).subs, x.confirmParty, 'sub-contractor');
     const n = await rpc(s.site, 'store_issue_put', { p_no: no, p_head: g.head, p_lines: g.lines, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
+    const wfr = await wfSet(s.site, 'store_issue', n, s, 'iss', !no);      // (29-10-2026) its workflow (step 9)
     changed(s.site);
-    await activity(s.site, s.email, no ? 'Issue changed' : 'Issue made', 'OUT ' + n, { to: g.head.to_kind + (g.head.party ? ' ' + g.head.party : '') + (g.head.machinery ? ' ' + g.head.machinery : ''), lines: g.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit) });
-    return { ok: true, no: Number(n), amount: g.head.amount };
+    await activity(s.site, s.email, no ? 'Issue changed' : 'Issue made', 'OUT ' + n, { to: g.head.to_kind + (g.head.party ? ' ' + g.head.party : '') + (g.head.machinery ? ' ' + g.head.machinery : ''), lines: g.lines.map(l => l.name + ' ' + l.qty + ' ' + l.unit), wf: wfr.state || undefined });
+    return Object.assign({ ok: true, no: Number(n), amount: g.head.amount, wf: wfr.state }, wfr.note ? { note: wfr.note } : {});
   },
   async issueDelete(s, x) {
     adminOnly(s, 'delete an issue');
@@ -806,8 +1047,10 @@ const ACTIONS = {
     todayOnly(s, g.head.date, 'Return');
     const items = await itemsOf(s.site);
     const n = await rpc(s.site, 'store_return_put', { p_no: no, p_head: g.head, p_lines: g.lines, p_by: s.email, p_name: s.name }).catch(e => said(e, items));
-    await activity(s.site, s.email, no ? 'Return changed' : 'Return made', 'RET ' + n, { issue: iss.no, lines: g.lines.length });
-    return { ok: true, no: Number(n) };
+    const wfr = await wfSet(s.site, 'store_return', n, s, 'iss', !no);      // (29-10-2026) its workflow (step 9) – as the issues'
+    changed(s.site);
+    await activity(s.site, s.email, no ? 'Return changed' : 'Return made', 'RET ' + n, { issue: iss.no, lines: g.lines.length, wf: wfr.state || undefined });
+    return Object.assign({ ok: true, no: Number(n), wf: wfr.state }, wfr.note ? { note: wfr.note } : {});
   },
   async retDelete(s, x) {
     adminOnly(s, 'delete a return');

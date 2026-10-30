@@ -43,6 +43,34 @@
   const bsOf = l => (l.brand || l.spec ? ' <small>' + esc([l.brand, l.spec].filter(Boolean).join(' · ')) + '</small>' : '');
   const tag = (t, cls) => '<span class="tag' + (cls ? ' ' + cls : '') + '">' + esc(t) + '</span>';
   const stateTag = s => tag(s, /^(Approved|Received|Open)$/.test(s) ? '' : /Pending|Part/.test(s) ? 'warn' : /Rejected|Cancelled/.test(s) ? 'bad' : 'off');
+  /* (29-10-2026, "pratek kamamadhe … verification … approval … head office"; the Super Admin sets it in the Portal → Workflow) A PAPER'S
+   * WORKFLOW – a GRN, an issue, a return: waiting for its verification / approval (for whom), sent back (why), approved, at Head Office,
+   * checked by Head Office; its buttons for the one who decides it now (never his own). */
+  const lastStep = w => (w && Array.isArray(w.steps) ? w.steps : []).slice(-1)[0] || null;
+  function wfCell(x) {
+    const w = x.wf; if (!w) return '';
+    const by = x.waitFor && x.waitFor.length ? '<small> ' + esc(x.waitFor.join(', ')) + '</small>' : '', l = lastStep(w);
+    let t = w.state === 'verify' || w.state === 'approve' ? (x.step ? tag(x.step === 'verify' ? 'Waiting verification' : 'Waiting approval', 'warn') + by : tag('Waiting', 'warn') + '<small> nobody verifies or approves it now – the Super Admin gives it in the Portal</small>')
+      : w.state === 'returned' ? tag('Sent back', 'bad') + (l ? '<small> by ' + esc(l.name) + (l.note ? ': "' + esc(l.note) + '"' : '') + ' – the Store Admin corrects it (Change)</small>' : '')
+      : w.state === 'done' && l ? tag(l.step === 'verify' ? 'Verified' : 'Approved') + '<small> ' + esc(l.name) + ' · ' + esc(dmyAt(l.at)) + '</small>' : '';
+    if (w.ho) t += ' ' + (w.hoOk ? tag('✓ Checked by HO', 'blue') + '<small> ' + esc(w.hoOk.name || '') + (w.hoOk.note ? ': "' + esc(w.hoOk.note) + '"' : '') + '</small>' : tag('At Head Office', 'blue'));
+    return t;
+  }
+  const wfBtns = (x, kind) => x.mayDecide ? '<button type="button" class="btn small primary wf-ok" data-wk="' + kind + '" data-wn="' + x.no + '">' + (x.step === 'verify' ? 'Verify' : 'Approve') + '</button><button type="button" class="btn small bad wf-no" data-wk="' + kind + '" data-wn="' + x.no + '">Send back</button>' : '';
+  const WFK = { grn: 'GRN', issue: 'Outward', ret: 'Return' };
+  // a Verify / Approve / Send back pressed (on a list, the "waiting for me" box): decided, then the page read again
+  async function wfClick(e, reload) {
+    const b = e.target.closest('.wf-ok, .wf-no'); if (!b) return false;
+    const kind = b.dataset.wk, no = Number(b.dataset.wn), ok = b.classList.contains('wf-ok'), nm = WFK[kind] + ' ' + (b.dataset.wr || no);
+    let note = '';
+    if (!ok) { const v = await ask('Send back ' + nm + '?', '<p>Say why (the Store Admin sees it and corrects it):</p><input id="wf_why" maxlength="300" style="width:100%"><p class="mr">का परत पाठवले ते लिहा.</p>', [{ label: 'Cancel', value: false }, { label: 'Send back', value: true, bad: true }]);
+      if (!v) return true; note = (document.getElementById('wf_why') || {}).value || ''; }
+    busy(b, async () => { const r = await W('wfDecide', { kind: kind, no: no, ok: ok, note: note }); toast(nm + (ok ? (r.state === 'approve' ? ' verified – it waits for its approval.' : ' ' + (b.textContent === 'Verify' ? 'verified' : 'approved') + (r.ho ? ' – it goes to Head Office.' : '.')) : ' sent back.')); await reload(); });
+    return true;
+  }
+  // (29-10-2026) the bill (a GRN against a PO) checked with its PO: as per PO, or each difference (a rate above the PO's, another GST %, more than the PO had, an item not on it)
+  const checkTxt = c => !c ? '' : c.ok ? '<span class="ckok">✓ As per PO</span>' : '<span class="ckbad">⚠ ' + c.diffs.map(d => esc(d.kind === 'rate' ? d.name + ': rate ' + a2(d.bill) + ' – PO ' + a2(d.po) : d.kind === 'gst' ? d.name + ': GST ' + d.bill + '% – PO ' + d.po + '%' : d.kind === 'qty' ? d.name + ': ' + n2(d.bill) + ' ' + (d.unit || '') + ' – PO still had ' + n2(d.po) : d.name + ': not on the PO')).join(' · ') + '</span>';
+  const daysSince = d => { const a = Date.parse(String(d || '').slice(0, 10) + 'T00:00:00Z'), b = Date.parse(today() + 'T00:00:00Z'); return isNaN(a) ? 0 : Math.max(0, Math.round((b - a) / 86400000)); };
   const field = (id, lbl, html, cls) => '<div class="field' + (cls ? ' ' + cls : '') + '"><label for="' + id + '">' + esc(lbl) + '</label>' + html + '</div>';
   const inp = (id, v, more) => '<input id="' + id + '" value="' + esc(v === undefined || v === null ? '' : v) + '"' + (more || '') + '>';
   const sel = (id, opts, v, more) => '<select id="' + id + '"' + (more || '') + '>' + opts.map(o => { const val = Array.isArray(o) ? o[0] : o, t = Array.isArray(o) ? o[1] : o; return '<option value="' + esc(val) + '"' + (String(val) === String(v === undefined || v === null ? '' : v) ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select>';
@@ -245,17 +273,17 @@
     const el = $('pg_req');
     el.innerHTML = '<section class="panel"><h2>Material Requirements</h2><p class="muted" style="margin:0">What the site needs. Approved level by level (who approves: given by the Super Admin in the Portal) – then HO Purchase makes its purchase order.</p>' +
       '<div class="bar">' + (canEdit('req') ? '<button type="button" class="btn primary" id="rq_new">+ New requirement</button>' : '') + '<button type="button" class="btn" id="rq_xl">Export to Excel</button><span class="count" id="rq_lv"></span></div>' +
-      '<div class="chips" id="rq_chips"></div></section><section class="panel formbox" id="rq_form" hidden></section><section class="panel" id="rq_listbox"><div class="bar" style="margin-top:0" id="rq_bulk" hidden><button type="button" class="btn small" id="rq_okall">Approve the ticked</button></div><div id="rq_list"></div></section>';
+      '<div class="chips" id="rq_chips"></div></section><section class="panel formbox" id="rq_form" hidden></section><section class="panel" id="rq_listbox"><div class="bar" style="margin-top:0" id="rq_bulk" hidden><button type="button" class="btn small" id="rq_okall">Approve / verify the ticked</button></div><div id="rq_list"></div></section>';
     $('rq_xl').onclick = () => busy($('rq_xl'), async () => toExcel(await W('report', { kind: 'req' }), 'Requirements'));
     if ($('rq_new')) $('rq_new').onclick = () => reqForm(null);
-    $('rq_okall').onclick = () => busy($('rq_okall'), async () => { const nos = [...document.querySelectorAll('#rq_list .rq-tick:checked')].map(x => Number(x.value)); if (!nos.length) return toast('Tick the requirements to approve.', true); const r = await W('reqDecide', { nos: nos, ok: true }); toast(r.done.length + ' approved' + (r.left.length ? '; ' + r.left.map(l => l.no + ': ' + l.why).join('; ') : '') + '.'); reqLoad(); });
+    $('rq_okall').onclick = () => busy($('rq_okall'), async () => { const nos = [...document.querySelectorAll('#rq_list .rq-tick:checked')].map(x => Number(x.value)); if (!nos.length) return toast('Tick the requirements to approve.', true); const r = await W('reqDecide', { nos: nos, ok: true }); toast(r.done.length + ' approved / verified' + (r.left.length ? '; ' + r.left.map(l => l.no + ': ' + l.why).join('; ') : '') + '.'); reqLoad(); });
     $('rq_chips').onclick = e => { const c = e.target.closest('[data-f]'); if (!c) return; RQ.filter = c.dataset.f; reqDraw(); };
     $('rq_list').onclick = e => reqClick(e);
     await reqLoad();
   }
   async function reqLoad() {
     try { await boot(); const r = await W('reqList'); RQ.list = r.reqs; RQ.levels = r.levels; RQ.heading = r.heading; RQ.step7 = !!r.step7; RQ.step8 = !!r.step8; RQ.start = r.start || {};
-      $('rq_lv').textContent = r.levels.length ? 'Approved by: ' + r.levels.map(l => 'Level ' + l.level + ' – ' + l.people.join(', ')).join(' · ') : 'No approver set for this site – a requirement is approved when it is made.';
+      $('rq_lv').textContent = ((r.verifiers || []).length ? 'Verified by: ' + r.verifiers.join(', ') + ' · ' : '') + (r.levels.length ? 'Approved by: ' + r.levels.map(l => 'Level ' + l.level + ' – ' + l.people.join(', ')).join(' · ') : 'No approver set for this site – a requirement is approved when it is made.');      // (29-10-2026) who verifies first
       B.waiting = RQ.list.filter(x => x.mayApprove).length; lists(); reqDraw(); }
     catch (e) { failed(e); $('rq_list').innerHTML = '<p class="empty">' + esc(e.message) + '</p>'; }
   }
@@ -268,8 +296,8 @@
     $('rq_list').innerHTML = '<div class="tw"><table><thead><tr><th></th><th>No</th><th>Date</th><th>Needed by</th><th>For</th><th>Items</th><th>State</th><th>Asked by</th><th></th></tr></thead><tbody>' +
       (rows.map(x => '<tr data-no="' + x.no + '"><td>' + (x.mayApprove ? '<input type="checkbox" class="rq-tick" value="' + x.no + '" style="width:auto;min-height:0">' : '') + '</td><td><b>' + esc(x.ref || x.no) + '</b></td><td>' + dmy(x.date) + '</td><td>' + dmy(x.need_by) + '</td><td style="white-space:normal">' + esc(x.for_kind + (x.for_text ? ' – ' + x.for_text : '')) + '</td>' +
         '<td style="white-space:normal">' + x.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (x.status === 'Approved' && l.left < l.qty ? ' <small>(ordered ' + n2(l.ordered) + ')</small>' : '')).join('<br>') + ((x.photos || []).length ? '<br><span class="phn">📷 ' + x.photos.length + ' photo' + (x.photos.length === 1 ? '' : 's') + '</span>' : '') + (x.logbook ? '<br><span class="phn">📕 Log book up to ' + dmy(x.logbook.upto) + '</span>' : '') + '</td>' +
-        '<td>' + stateTag(x.status) + (x.status === 'Pending' ? '<small>Level ' + x.level + (x.waitFor.length ? ' – ' + esc(x.waitFor.join(', ')) : '') + '</small>' : '') + ((x.pos || []).length ? '<small>In PO ' + x.pos.join(', ') + '</small>' : '') + '</td><td><small>' + esc(x.created_name || x.created_by || '') + '</small></td>' +
-        '<td><div class="acts">' + (x.mayApprove ? '<button type="button" class="btn small primary rq-ok">Approve</button><button type="button" class="btn small bad rq-no">Reject</button>' : '') +
+        '<td>' + (x.step === 'verify' ? tag('Waiting verification', 'warn') + '<small>' + esc(x.waitFor.join(', ')) + '</small>' : stateTag(x.status) + (x.status === 'Pending' ? '<small>Level ' + x.level + (x.waitFor.length ? ' – ' + esc(x.waitFor.join(', ')) : '') + '</small>' : '')) + ((x.pos || []).length ? '<small>In PO ' + x.pos.join(', ') + '</small>' : '') + '</td><td><small>' + esc(x.created_name || x.created_by || '') + '</small></td>' +      // (29-10-2026) its verification first
+        '<td><div class="acts">' + (x.mayApprove ? '<button type="button" class="btn small primary rq-ok">' + (x.step === 'verify' ? 'Verify' : 'Approve') + '</button><button type="button" class="btn small bad rq-no">Reject</button>' : '') +
         '<button type="button" class="link rq-det">Details</button>' + ((x.photos || []).length || phAddOk(x) ? '<button type="button" class="link rq-ph">Photos' + ((x.photos || []).length ? ' (' + x.photos.length + ')' : '') + '</button>' : '') + (x.for_kind === 'Machinery' && RQ.step8 && (x.logbook || x.attach) ? '<button type="button" class="link rq-lb">Log book</button>' : '') + '<button type="button" class="link rq-print">Print</button>' + (x.edit ? '<button type="button" class="link rq-edit">Change</button>' : '') + (x.del ? '<button type="button" class="link del rq-del">Delete</button>' : '') +
         ((x.mine || admin()) && (x.status === 'Pending' || x.status === 'Approved') && !x.lines.some(l => l.ordered > 0) ? '<button type="button" class="link del rq-cancel">Cancel</button>' : '') +
         ((buyer() || admin()) && x.status === 'Approved' && x.lines.some(l => l.left > 0) ? '<button type="button" class="link rq-close">Close</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="9" class="empty">No requirement here.</td></tr>') + '</tbody></table></div>';
@@ -285,7 +313,7 @@
       const d = document.createElement('tr'); d.className = 'det';
       d.innerHTML = '<td colspan="9"><b>Requirement ' + x.no + '</b>' + (x.remark ? ' – ' + esc(x.remark) : '') + '<table style="margin-top:6px"><thead><tr><th>Item</th><th>Brand</th><th>Material specification</th><th class="n">Asked</th><th class="n">Ordered</th><th class="n">To order</th><th class="n">Stock now</th><th>Note</th></tr></thead><tbody>' +
         x.lines.map(l => '<tr><td>' + esc(l.name) + '</td><td>' + esc(l.brand || '') + '</td><td style="white-space:normal">' + esc(l.spec || '') + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered || 0) + '</td><td class="n">' + n2(l.left || 0) + '</td><td class="n">' + n2(stockOf(l.code)) + '</td><td>' + esc(l.note || '') + '</td></tr>').join('') + '</tbody></table>' +
-        ((x.approvals || []).length ? '<p class="sub2" style="margin:6px 0 0">' + x.approvals.map(a => 'Level ' + a.level + ': ' + (a.ok ? 'approved' : 'rejected') + ' by ' + esc(a.name) + ' on ' + dmy(a.at) + (a.note ? ' – "' + esc(a.note) + '"' : '')).join('<br>') + '</p>' : '') + (x.close_note ? '<p class="sub2">' + esc(x.close_note) + '</p>' : '') + '</td>';
+        ((x.approvals || []).length ? '<p class="sub2" style="margin:6px 0 0">' + x.approvals.map(a => (a.step === 'verify' ? 'Verification: ' + (a.ok ? 'verified' : 'rejected') : 'Level ' + a.level + ': ' + (a.ok ? 'approved' : 'rejected')) + ' by ' + esc(a.name) + ' on ' + dmy(a.at) + (a.note ? ' – "' + esc(a.note) + '"' : '')).join('<br>') + '</p>' : '') + (x.close_note ? '<p class="sub2">' + esc(x.close_note) + '</p>' : '') + '</td>';
       tr.after(d); return;
     }
     if (b.classList.contains('rq-print')) return busy(b, async () => { let ph = [], lb = null;
@@ -295,7 +323,7 @@
     if (b.classList.contains('rq-del')) { const v = await ask('Delete requirement ' + (x.ref || x.no) + '?', '<p>It goes from the list – its photos and log book with it. (Written in the activity record.)</p><p class="mr">ही मागणी delete होईल.</p>', [{ label: 'No', value: false }, { label: 'Delete', value: true, bad: true }]); if (!v) return; return busy(b, async () => { await W('reqDelete', { no: x.no }); toast('Requirement ' + (x.ref || x.no) + ' deleted.'); reqLoad(); }); }
     if (b.classList.contains('rq-lb')) return reqLbRow(tr, x, b);
     if (b.classList.contains('rq-ph')) return reqPhotoRow(tr, x, b);
-    if (b.classList.contains('rq-ok')) return busy(b, async () => { await W('reqDecide', { no: x.no, ok: true }); toast('Requirement ' + (x.ref || x.no) + ' approved.'); reqLoad(); });
+    if (b.classList.contains('rq-ok')) return busy(b, async () => { await W('reqDecide', { no: x.no, ok: true }); toast('Requirement ' + (x.ref || x.no) + (x.step === 'verify' ? ' verified.' : ' approved.')); reqLoad(); });
     if (b.classList.contains('rq-no')) {
       const v = await ask('Reject requirement ' + x.no + '?', '<p>Say why (the person who made it sees it):</p><input id="rq_why" maxlength="300" style="width:100%"><p class="mr">का नाकारले ते लिहा.</p>', [{ label: 'Cancel', value: false }, { label: 'Reject', value: true, bad: true }]);
       if (!v) return; const why = (document.getElementById('rq_why') || {}).value || '';
@@ -392,42 +420,89 @@
         logbook: lbx ? lbx.checked : undefined,      // (29-10-2026) its log book: ticked / not (not shown: as it is)
         photosWas: PB && x ? (x.photos || []).map(p => p.sha) : undefined });      // (the photos it opened with: one added since – by the phone – stays)
       const nm = r.ref || (x && x.ref) || r.no;
-      toast(r.photoNote || ('Requirement ' + nm + ' saved – ' + (r.status === 'Approved' ? 'approved (no approver set for this site).' : (r.again ? 'it waits for its approval again (level ' + r.level + ').' : 'it waits for Level ' + r.level + '.'))), !!r.photoNote);
+      toast(r.photoNote || ('Requirement ' + nm + ' saved – ' + (r.status === 'Approved' ? 'approved (no approver set for this site).' : r.step === 'verify' ? 'it waits for its verification' + ((r.waitFor || []).length ? ' (' + r.waitFor.join(', ') + ')' : '') + '.' : (r.again ? 'it waits for its approval again (level ' + r.level + ').' : 'it waits for Level ' + r.level + '.'))), !!r.photoNote);
       f.hidden = true; reqLoad();
     });
     f.scrollIntoView({ block: 'nearest' });
   }
 
   /* ====================== PURCHASE (ALL SITES) – HO Purchase ====================== */
-  const PU = { sites: [], pos: [] };
+  const PU = { sites: [], pos: [], pend: false };
   async function purPage() {
     const el = $('pg_purchase');
-    el.innerHTML = '<section class="panel"><h2>Purchase – every site</h2><p class="muted" style="margin:0">The approved requirements of every site still to order. Tick the lines of one site and make its purchase order – it is kept in that site\'s own records.</p>' +
+    el.innerHTML = '<section class="panel"><h2>Purchase – every site</h2><p class="muted" style="margin:0">The approved requirements of every site still to order – who made each and since when it waits. Tick the lines of one site and make its purchase order – it is kept in that site\'s own records.</p>' +
       '<div class="bar"><button type="button" class="btn" id="pu_ref">Refresh</button><button type="button" class="btn" id="pu_xl">Export the POs (Excel)</button></div></section><section class="panel formbox" id="pu_form" hidden></section><div id="pu_sites"></div>' +
-      '<section class="panel"><h2>Purchase orders of every site</h2><div id="pu_pos" style="margin-top:8px"></div></section>';
+      '<section class="panel"><h2>Purchase orders of every site</h2><p class="muted" style="margin:0">Each PO in full – ordered, what came (the GRNs of the site) and the balance still to come. <b>Details</b>: its every GRN (the supplier\'s bill) checked with the PO.</p><div class="bar"><label class="sub2"><input type="checkbox" id="pu_pend" style="width:auto;min-height:0"> Only what is still to come</label></div><div id="pu_pos" style="margin-top:8px"></div></section>' +
+      // (29-10-2026) what the sites sent to Head Office (the Portal → Workflow): their bills (GRN) and their issues & returns – to check
+      '<section class="panel" id="pu_hog"></section><section class="panel" id="pu_hoi"></section>';
     $('pu_ref').onclick = () => purLoad();
     $('pu_xl').onclick = () => busy($('pu_xl'), async () => toExcel(await W('report', { kind: 'po', all: true }), 'Purchase_orders'));
-    $('pu_sites').onclick = e => { const b = e.target.closest('[data-mk]'); if (b) return purForm(b.dataset.mk, null);
+    $('pu_sites').onclick = e => { const b = e.target.closest('[data-mk]'); if (b) return purForm(b.dataset.mk, null, HOCTX);
       const ph = e.target.closest('.pu-ph'); if (ph) busy(ph, async () => phView((await W('reqPhotos', { site: ph.dataset.site, no: Number(ph.dataset.req) })).photos, 0)); };      // (29-10-2026) a requirement's photos
-    $('pu_pos').onclick = e => poClick(e, PU.pos, () => purLoad());
+    $('pu_pend').onchange = () => { PU.pend = $('pu_pend').checked; drawPuPos(); };
+    $('pu_pos').onclick = e => poClick(e, PU.pos, () => purLoad(), HOCTX);
+    ['pu_hog', 'pu_hoi'].forEach(id => { $(id).onclick = e => hoClick(e, id === 'pu_hog' ? 'grn' : 'iss'); });
     await purLoad();
   }
+  const HOCTX = { box: 'pu_form', root: 'pu_sites', sites: () => PU.sites, reload: () => purLoad(), all: true };
+  const drawPuPos = () => { $('pu_pos').innerHTML = poTable(PU.pend ? PU.pos.filter(p => p.status === 'Open' && p.state !== 'Received') : PU.pos, true, true); };
+  // the approved requirements of a site still to order: ticked for its PO; who made each, since when it waits (approved)
+  const toOrder = s => s.reqs.length ? '<div class="tw" style="margin-top:8px"><table><thead><tr><th></th><th>Req</th><th>Date</th><th>Needed by</th><th>For</th><th>Item</th><th class="n">Asked</th><th class="n">Ordered</th><th class="n">To order</th><th>Made by</th><th>Waiting</th></tr></thead><tbody>' +
+    s.reqs.map(r => r.lines.filter(l => l.left > 0).map(l => '<tr><td><input type="checkbox" class="pu-tick" data-site="' + esc(s.site) + '" data-req="' + r.no + '" data-line="' + l.line + '" style="width:auto;min-height:0"></td><td>' + esc(r.ref || r.no) + ((r.photos || []).length ? '<br><button type="button" class="link pu-ph" data-site="' + esc(s.site) + '" data-req="' + r.no + '" title="The photos of requirement ' + esc(r.ref || r.no) + '">📷 ' + r.photos.length + '</button>' : '') + '</td><td>' + dmy(r.date) + '</td><td>' + dmy(r.need_by) + (r.need_by && r.need_by < today() ? ' <b class="late">late</b>' : '') + '</td><td style="white-space:normal">' + esc(r.for_kind + (r.for_text ? ' – ' + r.for_text : '')) + '</td><td style="white-space:normal">' + esc(l.name) + bsOf(l) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered) + '</td><td class="n"><b>' + n2(l.left) + '</b></td>' +
+      '<td><small>' + esc(r.made_by || r.created_name || '') + '</small></td><td><small>' + (r.since ? daysSince(r.since) + ' day(s) – since ' + dmy(r.since) : '') + '</small></td></tr>').join('')).join('') + '</tbody></table></div>' : '<p class="muted">Nothing to order.</p>';
   async function purLoad() {
     try {
       const [p, l] = await Promise.all([W('purPending'), W('poList', { all: true })]); PU.sites = p.sites; PU.pos = l.pos;
       $('pu_sites').innerHTML = PU.sites.map(s => '<section class="panel" data-site="' + esc(s.site) + '"><h2>' + esc(s.name) + ' <small class="muted">(' + esc(s.site) + ')</small></h2>' + (s.error ? '<p class="muted">' + esc(s.error) + '</p>' :
-        (s.reqs.length ? '<div class="tw" style="margin-top:8px"><table><thead><tr><th></th><th>Req</th><th>Date</th><th>Needed by</th><th>For</th><th>Item</th><th class="n">Asked</th><th class="n">Ordered</th><th class="n">To order</th></tr></thead><tbody>' +
-          s.reqs.map(r => r.lines.filter(l => l.left > 0).map(l => '<tr><td><input type="checkbox" class="pu-tick" data-site="' + esc(s.site) + '" data-req="' + r.no + '" data-line="' + l.line + '" style="width:auto;min-height:0"></td><td>' + esc(r.ref || r.no) + ((r.photos || []).length ? '<br><button type="button" class="link pu-ph" data-site="' + esc(s.site) + '" data-req="' + r.no + '" title="The photos of requirement ' + esc(r.ref || r.no) + '">📷 ' + r.photos.length + '</button>' : '') + '</td><td>' + dmy(r.date) + '</td><td>' + dmy(r.need_by) + '</td><td style="white-space:normal">' + esc(r.for_kind + (r.for_text ? ' – ' + r.for_text : '')) + '</td><td style="white-space:normal">' + esc(l.name) + bsOf(l) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.ordered) + '</td><td class="n"><b>' + n2(l.left) + '</b></td></tr>').join('')).join('') + '</tbody></table></div>'
-          : '<p class="muted">Nothing to order.</p>') + '<div class="bar"><button type="button" class="btn primary small" data-mk="' + esc(s.site) + '">Make a PO for ' + esc(s.site) + (s.reqs.length ? ' (the ticked lines)' : '') + '</button>' + (s.open ? '<span class="count">' + s.open + ' PO(s) open</span>' : '') + '</div>') + '</section>').join('');
-      $('pu_pos').innerHTML = poTable(PU.pos, true);
+        s.own ? '<p class="muted">This site buys its requirements itself (Portal → Workflow) – its Store Admin makes their purchase orders.' + (s.open ? ' ' + s.open + ' PO(s) open.' : '') + '</p>' :
+        toOrder(s) + '<div class="bar"><button type="button" class="btn primary small" data-mk="' + esc(s.site) + '">Make a PO for ' + esc(s.site) + (s.reqs.length ? ' (the ticked lines)' : '') + '</button>' + (s.open ? '<span class="count">' + s.open + ' PO(s) open</span>' : '') + '</div>') + '</section>').join('');
+      drawPuPos();
+      await hoLoad();
     } catch (e) { failed(e); }
   }
-  async function purForm(site, po) {
-    const f = $('pu_form'); f.hidden = false; f.innerHTML = '<p class="muted">Loading the items of ' + esc(site) + '…</p>'; f.scrollIntoView({ block: 'nearest' });
+  /* (29-10-2026) HEAD OFFICE – what the sites sent once approved (the Portal → Workflow): each bill (GRN, checked with its PO) and each issue /
+   * return, to be checked here (✓ Checked, a note if wanted). "Show checked" – the newest ones checked. */
+  const HO = { grn: { done: false, d: null }, iss: { done: false, d: null } };
+  async function hoLoad() {
+    const [g, i] = await Promise.all([W('hoInbox', { kind: 'grn', done: HO.grn.done }), W('hoInbox', { kind: 'iss', done: HO.iss.done })]);
+    HO.grn.d = g; HO.iss.d = i; hoDraw('grn'); hoDraw('iss');
+  }
+  function hoDraw(kind) {
+    const d = HO[kind].d, box = $(kind === 'grn' ? 'pu_hog' : 'pu_hoi'); if (!d || !box) return;
+    const n = d.sites.reduce((a, s) => a + (kind === 'grn' ? s.rows.length : s.rows.reduce((b, i) => b + (i.wf && i.wf.ho && !!i.wf.hoOk === HO[kind].done ? 1 : 0) + (i.returns || []).filter(r => r.wf && r.wf.ho && !!r.wf.hoOk === HO[kind].done).length, 0)), 0);
+    const sent = d.sites.filter(s => s.ho || s.rows.length), off = d.sites.filter(s => s.step9 === false).map(s => s.site);
+    box.innerHTML = '<h2>' + (kind === 'grn' ? 'Bills (GRN) from the sites' : 'Issues & returns from the sites') + ' <span class="count">' + n + (HO[kind].done ? ' checked' : ' to check') + '</span></h2>' +
+      '<div class="bar" style="margin-top:4px"><label class="sub2"><input type="checkbox" class="ho-done" style="width:auto;min-height:0"' + (HO[kind].done ? ' checked' : '') + '> Show the checked ones</label></div>' +
+      (!sent.length ? '<p class="muted">No site sends ' + (kind === 'grn' ? 'its GRNs' : 'its issues & returns') + ' to Head Office (Portal → Workflow).</p>' : '') +
+      sent.map(s => '<h3 class="hosite">' + esc(s.name) + ' <small class="muted">(' + esc(s.site) + ')</small></h3>' + (s.error ? '<p class="muted">' + esc(s.error) + '</p>' :
+        kind === 'grn' ? (s.rows.length ? s.rows.map(g => grnCard(g, { site: s.site, ho: true })).join('') : '<p class="muted">Nothing here.</p>') : hoIssues(s))).join('') +
+      (off.length ? '<p class="note2">The Store\'s database step 9 is not run at ' + esc(off.join(', ')) + ' yet (sql/store_step9_workflow.sql).</p>' : '');
+  }
+  const hoIssues = s => { const rows = [];
+    s.rows.forEach(i => { if (i.wf && i.wf.ho && !!i.wf.hoOk === HO.iss.done) rows.push({ k: 'issue', x: i, what: 'Outward ' + i.no + ' · ' + dmy(i.date) + ' · ' + toWho(i) + (i.use_for ? ' · ' + i.use_for : ''), lines: i.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit)).join('<br>'), amt: money(i.amount) });
+      (i.returns || []).forEach(r => { if (r.wf && r.wf.ho && !!r.wf.hoOk === HO.iss.done) rows.push({ k: 'ret', x: r, what: 'Return ' + r.no + ' · ' + dmy(r.date) + ' (outward ' + i.no + ', ' + toWho(i) + ')', lines: r.lines.map(l => { const il = i.lines.find(z => z.id === l.issue_line) || {}; return esc((il.name || '') + ' ' + n2(l.qty) + ' ' + (il.unit || '')); }).join('<br>'), amt: '' }); }); });
+    return rows.length ? '<div class="tw"><table><thead><tr><th>Paper</th><th>Items</th><th class="n">Amount</th><th>State</th><th></th></tr></thead><tbody>' + rows.map(r => '<tr><td style="white-space:normal">' + esc(r.what) + '</td><td style="white-space:normal">' + r.lines + '</td><td class="n">' + r.amt + '</td><td>' + wfCell(r.x) + '</td><td>' +
+      (!r.x.wf.hoOk ? '<button type="button" class="btn small primary ho-ok" data-site="' + esc(s.site) + '" data-wk="' + r.k + '" data-wn="' + r.x.no + '">✓ Checked</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="muted">Nothing here.</p>'; };
+  async function hoClick(e, kind) {
+    const c = e.target.closest('.ho-done'); if (c) { HO[kind].done = c.checked; return busy(c, async () => { HO[kind].d = await W('hoInbox', { kind: kind, done: HO[kind].done }); hoDraw(kind); }); }
+    const b = e.target.closest('.ho-ok'); if (b) {
+      const nm = WFK[b.dataset.wk] + ' ' + (b.dataset.wr || b.dataset.wn) + ' of ' + b.dataset.site;
+      const v = await ask('Checked: ' + nm + '?', '<p>A note (if you want – e.g. what was told to the site):</p><input id="ho_note" maxlength="300" style="width:100%"><p class="mr">Head Office ने तपासले.</p>', [{ label: 'Cancel', value: false }, { label: '✓ Checked', value: true, primary: true }]);
+      if (!v) return; const note = (document.getElementById('ho_note') || {}).value || '';
+      return busy(b, async () => { await W('hoCheck', { site: b.dataset.site, kind: b.dataset.wk, no: Number(b.dataset.wn), note: note }); toast(nm + ' – checked.'); HO[kind].d = await W('hoInbox', { kind: kind, done: HO[kind].done }); hoDraw(kind); });
+    }
+    const p = e.target.closest('.gr-print'); if (p) { const art = p.closest('[data-no]'), g = ((HO.grn.d || { sites: [] }).sites.find(s => s.site === art.dataset.site) || { rows: [] }).rows.find(x => x.no === Number(art.dataset.no)); if (g) grnPrint(g); }
+  }
+  /* a PURCHASE ORDER made or changed – by HO Purchase for any site; (29-10-2026) a site that buys itself: by its Store Admin, on its own
+   * Purchase Orders page. ctx: where the form is (box), the requirement lines ticked (root), the sites' requirements, what is read again. */
+  async function purForm(site, po, ctx) {
+    ctx = ctx || HOCTX;
+    const f = $(ctx.box); f.hidden = false; f.innerHTML = '<p class="muted">Loading the items of ' + esc(site) + '…</p>'; f.scrollIntoView({ block: 'nearest' });
     let it; try { it = await W('purItems', { site: site }); } catch (e) { failed(e); f.hidden = true; return; }
     const keepB = B; B = Object.assign({}, B, { items: it.items, names: Object.assign({}, (B || {}).names, { vendors: it.vendors }) }); lists();
-    const ticked = po ? [] : [...document.querySelectorAll('.pu-tick:checked')].filter(x => x.dataset.site === site);
-    const st = PU.sites.find(s => s.site === site) || { reqs: [] };
+    const ticked = po ? [] : [...$(ctx.root).querySelectorAll('.pu-tick:checked')].filter(x => x.dataset.site === site);
+    const st = ctx.sites().find(s => s.site === site) || { reqs: [] };
+    ['pu_form', 'po_form'].forEach(id => { if (id !== ctx.box && $(id)) { $(id).hidden = true; $(id).innerHTML = ''; } });      // (one PO form on the screen: its boxes' names are the same)
     const rows = po ? po.lines.map(l => Object.assign({ fixedItem: !!l.req_no }, l, { disc_pct: l.disc_pct || '', hsn: l.hsn || '' })) : ticked.map(t => { const r = st.reqs.find(q => q.no === Number(t.dataset.req)), l = r.lines.find(z => z.line === Number(t.dataset.line)); const i = it.items.find(z => z.code === l.code) || {};
       return { code: l.code, name: l.name, unit: l.unit, qty: l.left, rate: '', disc_pct: '', hsn: i.hsn || '', gst_pct: i.gst_pct === null || i.gst_pct === undefined ? '' : i.gst_pct, req_no: r.no, req_line: l.line, req_ref: r.ref || '', brand: l.brand || '', spec: l.spec || '', fixedItem: true }; });
     const reqRef = r => r.req_ref || ((st.reqs.find(q => q.no === Number(r.req_no)) || {}).ref) || 'REQ ' + r.req_no;      // (29-10-2026) its Indent No.
@@ -455,31 +530,51 @@
         credit_days: val('pu_cr'), site_contact: val('pu_sc'), ship_to: val('pu_ship'), freight: val('pu_fr'), load_unload: val('pu_lu'),
         lines: lines.map(l => ({ code: l.code, qty: l.qty, rate: l.rate, disc_pct: l.disc_pct, hsn: l.hsn || '', gst_pct: l.gst_pct, req_no: l.req_no || undefined, req_line: l.req_line || undefined, brand: l.brand || '', spec: l.spec || '' })) } };
       const r = await saveAsk('poSave', x); if (!r) return;
-      toast('PO ' + r.no + ' of ' + r.site + ' saved – ' + money(r.total) + (r.appr === 'Waiting' ? ' – it waits for its approval.' : '.')); done(); purLoad();
+      toast(r.note || ('PO ' + r.no + ' of ' + r.site + ' saved – ' + money(r.total) + (r.appr === 'Waiting' ? (r.step === 'verify' ? ' – it waits for its verification.' : ' – it waits for its approval.') : '.')), !!r.note); done(); ctx.reload();      // (29-10-2026) its verification first
     });
   }
-  const poTable = (pos, sites) => '<div class="tw"><table><thead><tr>' + (sites ? '<th>Site</th>' : '') + '<th>PO</th><th>Date</th><th>Vendor</th><th>Items</th><th class="n">Total</th><th>State</th><th></th></tr></thead><tbody>' +
-    (pos.map(p => '<tr data-po="' + p.no + '" data-site="' + esc(p.site || '') + '">' + (sites ? '<td>' + esc(p.site) + '</td>' : '') + '<td><b>' + p.no + '</b></td><td>' + dmy(p.date) + '</td><td>' + esc(p.vendor) + '</td><td style="white-space:normal">' +
-      p.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + bsOf(l) + (l.received ? ' <small>(came ' + n2(l.received) + ')</small>' : '')).join('<br>') + '</td><td class="n">' + money(p.total) + '</td><td>' + stateTag(p.state) + apprTag(p) + '</td><td><div class="acts">' +
-      (p.mayApprove ? '<button type="button" class="btn small primary po-ok">Approve</button><button type="button" class="btn small bad po-no">Reject</button>' : '') + '<button type="button" class="link po-print">Print</button>' +
-      (buyer() && p.status === 'Open' && sites ? '<button type="button" class="link po-edit">Change</button>' : '') + (buyer() && p.status === 'Open' && !p.lines.some(l => l.received > 0) ? '<button type="button" class="link del po-cancel">Cancel</button>' : '') +
-      (buyer() && p.status !== 'Closed' && !p.lines.some(l => l.received > 0) ? '<button type="button" class="link del po-del">Delete</button>' : '') +      // (29-10-2026) nothing came: deleted – its requirements can then be changed
-      ((buyer() || admin()) && p.status === 'Open' && p.state !== 'Received' ? '<button type="button" class="link po-close">Close</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="8" class="empty">No purchase order.</td></tr>') + '</tbody></table></div>';
-  // (28-10-2026) a PO's approval: waiting (for whom), rejected (why), approved (by whom)
-  const apprTag = p => p.status !== 'Open' || !p.appr ? '' : p.appr === 'Waiting' ? '<br>' + tag('Waiting approval', 'warn') + (p.waitFor && p.waitFor.length ? '<small> ' + esc(p.waitFor.join(', ')) + '</small>' : '')
+  /* (29-10-2026, "PO jewa GRN keli jate … PO quantity kami hoil … HO ni submit keleli PO tyana full pn distil ani site walini GRN ghetle tya
+   * PO war tr GRN nantr ajun PO balance pn disel") A PO's lines: ordered · came (its GRNs) · BALANCE still to come; since when it is open
+   * (late: past its delivery date); how many GRNs came on it. Details: each line's quantity and value, and every GRN (the bill) checked with
+   * the PO. buy: this person makes and changes the POs (HO Purchase – every site; a site that buys itself – its Store Admin). */
+  const poLines = p => p.lines.map(l => esc(l.name) + bsOf(l) + ' – ' + n2(l.qty) + ' ' + esc(l.unit) + (l.received ? ' <small>· came ' + n2(l.received) + ' ·</small> <b class="' + (l.left > 0 ? 'bal' : 'bal0') + '">balance ' + n2(l.left) + '</b>' : '')).join('<br>');
+  const poAge = p => p.status === 'Open' && p.state !== 'Received' ? '<small>' + (p.deliver_by && p.deliver_by < today() ? '<b class="late">late – delivery by ' + dmy(p.deliver_by) + '</b> · ' : '') + daysSince(p.date) + ' day(s) open' + (p.grns ? ' · ' + p.grns + ' GRN' : '') + '</small>' : p.grns ? '<small>' + p.grns + ' GRN</small>' : '';
+  const poTable = (pos, sites, buy) => '<div class="tw"><table><thead><tr>' + (sites ? '<th>Site</th>' : '') + '<th>PO</th><th>Date</th><th>Vendor</th><th>Items – ordered · came · balance</th><th class="n">Total</th><th>State</th><th></th></tr></thead><tbody>' +
+    (pos.map(p => '<tr data-po="' + p.no + '" data-site="' + esc(p.site || '') + '">' + (sites ? '<td>' + esc(p.site) + '</td>' : '') + '<td><b>' + p.no + '</b></td><td>' + dmy(p.date) + '</td><td>' + esc(p.vendor) + '</td><td style="white-space:normal">' + poLines(p) + '</td><td class="n">' + money(p.total) + '</td><td>' + stateTag(p.state) + apprTag(p) + poAge(p) + '</td><td><div class="acts">' +
+      (p.mayApprove ? '<button type="button" class="btn small primary po-ok">' + (p.step === 'verify' ? 'Verify' : 'Approve') + '</button><button type="button" class="btn small bad po-no">Reject</button>' : '') + '<button type="button" class="link po-det">Details</button><button type="button" class="link po-print">Print</button>' +
+      (buy && p.status === 'Open' ? '<button type="button" class="link po-edit">Change</button>' : '') + (buy && p.status === 'Open' && !p.lines.some(l => l.received > 0) ? '<button type="button" class="link del po-cancel">Cancel</button>' : '') +
+      (buy && p.status !== 'Closed' && !p.lines.some(l => l.received > 0) ? '<button type="button" class="link del po-del">Delete</button>' : '') +      // (29-10-2026) nothing came: deleted – its requirements can then be changed
+      ((buy || admin()) && p.status === 'Open' && p.state !== 'Received' ? '<button type="button" class="link po-close">Close</button>' : '') + '</div></td></tr>').join('') || '<tr><td colspan="8" class="empty">No purchase order.</td></tr>') + '</tbody></table></div>';
+  // (28-10-2026) a PO's approval: waiting (for whom), rejected (why), approved (by whom); (29-10-2026) its verification first
+  const apprTag = p => p.status !== 'Open' || !p.appr ? '' : p.appr === 'Waiting' ? '<br>' + tag(p.step === 'verify' ? 'Waiting verification' : 'Waiting approval', 'warn') + (p.waitFor && p.waitFor.length ? '<small> ' + esc(p.waitFor.join(', ')) + '</small>' : '')
     : p.appr === 'Rejected' ? '<br>' + tag('Rejected', 'bad') + (p.appr_note ? '<small> "' + esc(p.appr_note) + '" – ' + esc(p.appr_name || '') + '</small>' : '') : p.appr_name ? '<br><small>Approved by ' + esc(p.appr_name) + '</small>' : '';
-  async function poClick(e, list, reload) {
+  // a PO's details under its row: each line ordered / came / balance (quantity and value) and every GRN on it (the bill) checked with the PO
+  async function poDet(tr, p, b, cols) {
+    const nx = tr.nextElementSibling; if (nx && nx.classList.contains('det')) { nx.remove(); return; }
+    let d; try { b.disabled = true; d = await W('poGrns', { site: p.site || undefined, no: p.no }); } catch (e) { return failed(e); } finally { b.disabled = false; }
+    const tot = k => d.lines.reduce((a, l) => a + Number(l[k] || 0), 0), row = document.createElement('tr'); row.className = 'det';
+    row.innerHTML = '<td colspan="' + cols + '"><b>PO ' + esc(d.po.ref || p.no) + '</b> – ' + esc(d.po.vendor) + ' · ' + dmy(d.po.date) + (d.po.deliver_by ? ' · delivery by ' + dmy(d.po.deliver_by) : '') +
+      '<div class="tw" style="margin-top:6px"><table><thead><tr><th>Item</th><th class="n">Ordered</th><th class="n">Came</th><th class="n">Balance</th><th class="n">Rate (after Disc.)</th><th class="n">Ordered ₹</th><th class="n">Came ₹</th><th class="n">Balance ₹</th></tr></thead><tbody>' +
+      d.lines.map(l => '<tr><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + ' ' + esc(l.unit) + '</td><td class="n">' + n2(l.came) + '</td><td class="n"><b class="' + (l.left > 0 ? 'bal' : 'bal0') + '">' + n2(l.left) + '</b></td><td class="n">' + a2(l.rate) + '</td><td class="n">' + a2(l.value) + '</td><td class="n">' + a2(l.cameValue) + '</td><td class="n">' + a2(l.leftValue) + '</td></tr>').join('') +
+      '<tr class="tot"><td colspan="5"><b>Total (before GST)</b></td><td class="n"><b>' + a2(tot('value')) + '</b></td><td class="n"><b>' + a2(tot('cameValue')) + '</b></td><td class="n"><b>' + a2(tot('leftValue')) + '</b></td></tr></tbody></table></div>' +
+      '<h3 style="margin:10px 0 4px">GRNs on it (the bills) – ' + d.grns.length + '</h3>' + (d.grns.length ? '<div class="tw"><table><thead><tr><th>GRN</th><th>Date</th><th>Invoice</th><th>Items</th><th class="n">Gross</th><th>Bill checked with the PO</th><th>State</th></tr></thead><tbody>' +
+        d.grns.map(g => '<tr><td><b>' + esc(g.ref) + '</b></td><td>' + dmy(g.date) + '</td><td>' + esc(g.invoice_no || '') + (g.invoice_date ? '<small>' + dmy(g.invoice_date) + '</small>' : '') + (g.challan_no ? '<small>Challan ' + esc(g.challan_no) + '</small>' : '') + '</td><td style="white-space:normal">' +
+          g.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + ' <small>@ ' + a2(l.rate) + '</small>').join('<br>') + '</td><td class="n">' + money(g.gross) + '</td><td style="white-space:normal">' + checkTxt(g.check) + '</td><td>' + wfCell(g) + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="muted">No GRN on it yet.</p>') + '</td>';
+    tr.after(row);
+  }
+  async function poClick(e, list, reload, ctx) {
     const b = e.target.closest('button'), tr = e.target.closest('tr[data-po]'); if (!b || !tr) return;
     const p = list.find(z => z.no === Number(tr.dataset.po) && (z.site || '') === tr.dataset.site); if (!p) return;
     const site = p.site || undefined;
+    if (b.classList.contains('po-det')) return poDet(tr, p, b, tr.children.length);
     if (b.classList.contains('po-print')) return busy(b, async () => { const r = await W('poGet', { site: site, no: p.no }); poPrint(r.po, r.heading, r.supplier); });
-    if (b.classList.contains('po-ok')) return busy(b, async () => { await W('poDecide', { no: p.no, ok: true }); toast('PO ' + p.no + ' approved.'); reload(); });
+    if (b.classList.contains('po-ok')) return busy(b, async () => { await W('poDecide', { no: p.no, ok: true }); toast('PO ' + p.no + (p.step === 'verify' ? ' verified.' : ' approved.')); reload(); });
     if (b.classList.contains('po-no')) {
       const v = await ask('Reject PO ' + p.no + '?', '<p>Say why (the one who made it sees it and changes it):</p><input id="po_why" maxlength="300" style="width:100%"><p class="mr">का नाकारले ते लिहा.</p>', [{ label: 'Cancel', value: false }, { label: 'Reject', value: true, bad: true }]);
       if (!v) return; const why = (document.getElementById('po_why') || {}).value || '';
       return busy(b, async () => { await W('poDecide', { no: p.no, ok: false, note: why }); toast('PO ' + p.no + ' rejected.'); reload(); });
     }
-    if (b.classList.contains('po-edit')) return purForm(p.site, p);
+    if (b.classList.contains('po-edit')) return purForm(p.site, p, ctx);
     if (b.classList.contains('po-cancel')) { if (!await ask('Cancel PO ' + p.no + '?', '<p>Nothing of it has come – it is cancelled.</p>', [{ label: 'No', value: false }, { label: 'Cancel the PO', value: true, bad: true }])) return; return busy(b, async () => { await W('poCancel', { site: site, no: p.no }); toast('PO ' + p.no + ' cancelled.'); reload(); }); }
     if (b.classList.contains('po-del')) { if (!await ask('Delete PO ' + (p.ref || p.no) + '?', '<p>Nothing of it has come. It goes from the list; its requirements can then be changed or deleted. (Written in the activity record.)</p><p class="mr">ही PO delete होईल.</p>', [{ label: 'No', value: false }, { label: 'Delete the PO', value: true, bad: true }])) return; return busy(b, async () => { await W('poDelete', { site: site, no: p.no }); toast('PO ' + (p.ref || p.no) + ' deleted.'); reload(); }); }
     if (b.classList.contains('po-close')) { if (!await ask('Close PO ' + p.no + '?', '<p>The rest of it will not come.</p>', [{ label: 'No', value: false }, { label: 'Close', value: true, primary: true }])) return; return busy(b, async () => { await W('poClose', { site: site, no: p.no }); toast('PO ' + p.no + ' closed.'); reload(); }); }
@@ -522,9 +617,10 @@
       '<tr><td colspan="2"><b>Amount in word :</b></td><td colspan="8"><b>' + esc(p.words || '') + '</b></td></tr></tbody></table>';
     const terms = String(p.terms || '').split('\n').map(t => t.trim()).filter(Boolean);
     const tc = terms.length ? '<p style="margin-top:14px"><b>Terms And Conditions:</b></p>' + (terms.every(t => /^\d+[.)]/.test(t)) ? terms.map(t => '<p style="margin:6px 0">' + esc(t) + '</p>').join('') : '<ol>' + terms.map(t => '<li>' + esc(t) + '</li>').join('') + '</ol>') : '';
-    const ap = p.appr === 'Waiting' ? '(waiting for approval)' : p.appr === 'Rejected' ? '(rejected)' : esc(p.appr_name || '');
+    const ap = p.appr === 'Waiting' ? (p.step === 'verify' || (p.wf && p.wf.state === 'verify') ? '(waiting for verification)' : '(waiting for approval)') : p.appr === 'Rejected' ? '(rejected)' : esc(p.appr_name || '');
     printHtml('PO ' + (p.ref || p.no), PCSS + '<div class="fm">' + head + items + '<p style="margin-top:8px"><b>Remark:</b> ' + esc(p.remark || '') + '</p>' + tc +
-      '<div class="sig"><div>' + esc(p.created_name || '') + '<br><br>Prepared By</div><div>' + ap + '<br><br>Approved By</div></div><div class="cg">This Purchase Order is computer generated it does not require signature.</div></div>');
+      // (29-10-2026) who verified it, when it was verified (the workflow)
+      '<div class="sig"><div>' + esc(p.created_name || '') + '<br><br>Prepared By</div>' + (p.verified_by ? '<div>' + esc(p.verified_by) + '<br><br>Verified By</div>' : '') + '<div>' + ap + '<br><br>Approved By</div></div><div class="cg">This Purchase Order is computer generated it does not require signature.</div></div>');
   }
   // the Purchase Requisition Form of a requirement: Prepared By – who made it; Checked By – the levels before the last; Approved By – the last
   /* (29-10-2026, his "REQUIREMENT OF FOUNDATION BOLT" – "requirement format ha fix kar … logo … to pn fix kr"; his answer: as the PDF, and
@@ -563,23 +659,36 @@
     '.prf .prm{margin:10px 6px}.prf .ps{margin-top:210px;padding:0 6px}.prf .ps div{min-width:170px}</style>';
 
   /* ====================== PURCHASE ORDERS OF THIS SITE ====================== */
+  // (29-10-2026) a site that buys its requirements itself (the Portal → Workflow: they do not go to Head Office): its Store Admin sees what
+  // is to order here and makes, changes, cancels and deletes its POs on this page
+  const POS = { list: [], buy: false, sites: [] };
+  const POCTX = { box: 'po_form', root: 'po_toorder', sites: () => POS.sites, reload: () => (PO_LOAD ? PO_LOAD() : null) };
   async function poPage() {
     const el = $('pg_po');
-    el.innerHTML = '<section class="panel"><h2>Purchase Orders of this site</h2><p class="muted" style="margin:0">Made by HO Purchase; what has come is from the GRNs against each.</p><div class="bar"><button type="button" class="btn" id="po_xl">Export to Excel</button><label class="sub2"><input type="checkbox" id="po_pend" style="width:auto;min-height:0"> Only what is still to come</label></div></section><section class="panel" id="po_list"></section>';
-    let list = [];
-    const load = async () => { try { list = (await W('poList')).pos; draw(); } catch (e) { failed(e); } };
+    el.innerHTML = '<section class="panel"><h2>Purchase Orders of this site</h2><p class="muted" style="margin:0">Each PO – ordered, what came (the GRNs against it) and the <b>balance</b> still to come. <b>Details</b>: its every GRN checked with the PO.</p><div class="bar"><button type="button" class="btn" id="po_xl">Export to Excel</button><label class="sub2"><input type="checkbox" id="po_pend" style="width:auto;min-height:0"> Only what is still to come</label></div></section>' +
+      '<section class="panel" id="po_toorder" hidden></section><section class="panel formbox" id="po_form" hidden></section><section class="panel" id="po_list"></section>';
+    const load = async () => { try { await boot(); const r = await W('poList'); POS.list = r.pos; POS.buy = !!r.buy;
+      // (a site that buys itself) its requirements to order – the Store Admin ticks them and makes the PO here
+      if (POS.buy && B && B.wf && B.wf.ho && B.wf.ho.req === false) { const q = await W('purPending', { mine: true }); POS.sites = q.sites;
+        const s = q.sites[0] || { site: (K().S.me || {}).site, reqs: [] }; $('po_toorder').hidden = false;
+        $('po_toorder').innerHTML = '<h2>To order – this site buys it itself</h2>' + toOrder(s) + '<div class="bar"><button type="button" class="btn primary small" id="po_mk">Make a PO' + (s.reqs.length ? ' (the ticked lines)' : '') + '</button></div>';
+        $('po_mk').onclick = () => purForm(s.site, null, POCTX);
+        $('po_toorder').onclick = e => { const ph = e.target.closest('.pu-ph'); if (ph) busy(ph, async () => phView((await W('reqPhotos', { no: Number(ph.dataset.req) })).photos, 0)); };
+      } else $('po_toorder').hidden = true;
+      draw(); } catch (e) { failed(e); } };
     PO_LOAD = load;      // (29-10-2026) the live updates read it again
-    const draw = () => { $('po_list').innerHTML = poTable($('po_pend').checked ? list.filter(p => p.status === 'Open' && p.state !== 'Received') : list, false); };
-    $('po_pend').onchange = draw; $('po_list').onclick = e => poClick(e, list, load);
+    const draw = () => { $('po_list').innerHTML = poTable($('po_pend').checked ? POS.list.filter(p => p.status === 'Open' && p.state !== 'Received') : POS.list, false, POS.buy); };
+    $('po_pend').onchange = draw; $('po_list').onclick = e => poClick(e, POS.list, load, POCTX);
     $('po_xl').onclick = () => busy($('po_xl'), async () => toExcel(await W('report', { kind: 'po', pending: $('po_pend').checked }), 'Purchase_orders'));
     await load();
   }
 
   /* ====================== INWARD (GRN) ====================== */
-  const GR = { list: [] };
+  const GR = { list: [], mine: [] };
   async function grnPage() {
     const el = $('pg_grn');
-    el.innerHTML = '<div class="pghead"><span class="pgico">' + ico('box') + '</span><div><h2>Inward (GRN)</h2><p>Material received against a purchase order or direct (a bill). Its basic rate makes the item\'s average rate.</p></div></div>' +
+    el.innerHTML = '<div class="pghead"><span class="pgico">' + ico('box') + '</span><div><h2>Inward (GRN)</h2><p>Material received against a purchase order or direct (a bill). Its basic rate makes the item\'s average rate. Against a PO, each GRN (the bill) is checked with the PO.</p></div></div>' +
+      '<section class="panel" id="gr_mine" hidden></section>' +      // (29-10-2026) the GRNs this person verifies or approves now
       '<section class="panel"><div class="bar" style="margin:0">' + field('gr_from', 'From', inp('gr_from', monthStart(), ' type="date"')) + field('gr_to', 'To', inp('gr_to', today(), ' type="date"')) + '<button type="button" class="btn" id="gr_show">Show</button><button type="button" class="btn" id="gr_hide" hidden>Hide list</button>' +
       (canEdit('grn') ? '<button type="button" class="btn primary" id="gr_new">+ New GRN</button>' : '') + '<button type="button" class="btn" id="gr_xl">GRN register (Excel)</button>' +
       (admin() ? '<button type="button" class="btn" id="gr_imp">Import from Excel</button><button type="button" class="btn small" id="gr_tpl">Import format</button><input type="file" id="gr_file" accept=".xlsx,.xls,.csv" hidden>' : '') + '</div></section>' +
@@ -592,9 +701,10 @@
     $('gr_xl').onclick = () => busy($('gr_xl'), async () => toExcel(await W('report', { kind: 'grn', from: val('gr_from'), to: val('gr_to') }), 'GRN_register'));
     // (28-10-2026) the Import of the GRNs: the register's (his inward register – any size, its own GRN No; the check first)
     if ($('gr_imp')) { $('gr_imp').onclick = () => { $('gr_file').value = ''; $('gr_file').click(); }; $('gr_file').onchange = () => regFile($('gr_file').files[0], $('gr_impbox')); $('gr_tpl').onclick = () => importTemplate('grn'); }
-    $('gr_list').onclick = e => grnClick(e);
+    $('gr_list').onclick = e => grnClick(e, GR.list);
+    $('gr_mine').onclick = e => grnClick(e, GR.mine);
     GR.shown = false; $('gr_list').innerHTML = hint;
-    await boot();
+    await boot(); await grnMine();
   }
   // (28-10-2026, "ji excel diley tech column mala GRN / inward madhe de") his inward register's columns; (the same day, "show kel nantr
   // disaw ani perfect nit disaw") shown when Show is pressed, each GRN a card: its own (GRN No, date, supplier, invoice, challan, vehicle,
@@ -607,35 +717,55 @@
   const lineDiscTxt = l => { const d = r2(num(l.disc) + num(l.bill_disc)); if (!(d > 0)) return ''; return a2(d) + (Number(l.disc) > 0 ? ' <small>' + (l.disc_pct !== null && l.disc_pct !== undefined ? Number(l.disc_pct) + '% ' : '') + discOnTxt(l.disc_on) + '</small>' : ''); };
   const billDiscTxt = g => Number(g.bill_disc) > 0 ? (g.bill_disc_pct !== null && g.bill_disc_pct !== undefined ? Number(g.bill_disc_pct) + '% ' : '') + discOnTxt(g.bill_disc_on) + ' – ' + money(g.bill_disc) : '';
   const refOf = g => String(g.ref === null || g.ref === undefined || g.ref === '' ? g.no : g.ref);
+  const gkv = (k, v, cls) => '<div class="gk' + (cls ? ' ' + cls : '') + '"><small>' + esc(k) + '</small><span>' + v + '</span></div>';
+  /* one GRN as a card; (29-10-2026) with its workflow (waiting – for whom, sent back, approved, at Head Office), its bill checked with its PO,
+   * the Verify / Approve / Send back of the one who decides it; opt.ho – Head Office's list (its site, "✓ Checked"); opt.sr – the Sr No so far */
+  function grnCard(g, opt) {
+    opt = opt || {}; const sr = opt.sr || { n: 0 };
+    return '<article class="grnc" data-no="' + g.no + '"' + (opt.site ? ' data-site="' + esc(opt.site) + '"' : '') + '><header>' + gkv('GRN No', '<b>' + esc(refOf(g)) + '</b>', 'gno') + gkv('GRN Date', dmy(g.date)) + gkv('Supplier Name', '<b>' + esc(g.supplier) + '</b>', 'gsup') +
+        (g.invoice_no ? gkv('Invoice No.', esc(g.invoice_no)) : '') + (g.invoice_date ? gkv('Invoice Date', dmy(g.invoice_date)) : '') + (g.challan_no ? gkv('Challan No', esc(g.challan_no)) : '') + (g.vehicle_no ? gkv('Vehicle No', esc(g.vehicle_no)) : '') +
+        (g.po_no ? gkv('PO No', esc(g.po_no)) : '') + (Number(g.bill_disc) > 0 ? gkv('Bill discount', esc(billDiscTxt(g))) : '') + (Number(g.tcs) ? gkv('TCS', money(g.tcs)) : '') + gkv('Gross Amount', '<b>' + money(g.gross) + '</b>', 'gamt') +
+        '<div class="gacts">' + (opt.ho ? (g.wf && !g.wf.hoOk ? '<button type="button" class="btn small primary ho-ok" data-site="' + esc(opt.site) + '" data-wk="grn" data-wn="' + g.no + '" data-wr="' + esc(refOf(g)) + '">✓ Checked</button>' : '') : wfBtns(g, 'grn').replace(/data-wn=/g, 'data-wr="' + esc(refOf(g)) + '" data-wn=')) +
+        '<button type="button" class="btn small gr-print">Print</button>' + (admin() && !opt.ho ? '<button type="button" class="btn small gr-edit">Change</button><button type="button" class="btn small bad gr-del">Delete</button>' : '') + '</div></header>' +
+      (g.wf || g.check ? '<div class="gwf">' + (g.check ? '<span><b>Bill with PO ' + esc(g.po_no) + ':</b> ' + checkTxt(g.check) + '</span>' : '') + (g.wf ? '<span>' + wfCell(g) + '</span>' : '') + '</div>' : '') +
+      (() => { const hd = grnHasDisc(g), hs = hd ? LCOLS.slice(0, 6).concat(['Discount ₹', 'Net Rate'], LCOLS.slice(6)) : LCOLS;
+        return '<div class="gtw"><table class="glines"><thead><tr>' + hs.map(h => '<th' + (/Qty|Rate|Amount|Sr No|Discount/.test(h) ? ' class="n"' : '') + '>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
+        (g.lines.length ? g.lines.map(l => '<tr><td class="n">' + (++sr.n) + '</td><td class="ic">' + esc(l.code || '') + '</td><td class="gm">' + esc(l.name || '') + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit || '') + '</td><td class="n">' + a2(l.rate) + '</td>' +
+            (hd ? '<td class="n">' + lineDiscTxt(l) + '</td><td class="n">' + (l.net_rate !== null && l.net_rate !== undefined ? a2(l.net_rate) : a2(l.rate)) + '</td>' : '') + '<td class="n">' + a2(l.taxable) + '</td><td class="n">' + a2(l.gst) + '</td><td class="n"><b>' + a2(l.gross) + '</b></td><td class="gr">' + esc(l.remark || '') + '</td></tr>').join('')
+          : '<tr><td colspan="' + hs.length + '" class="empty">No material.</td></tr>') + '</tbody></table></div>'; })() + (g.remark ? '<p class="grem"><b>Remark:</b> ' + esc(g.remark) + '</p>' : '') + '</article>';
+  }
   async function grnLoad() {
     if (!GR.shown) return;      // (the list comes when Show is pressed)
     try { const r = await W('grnList', { from: val('gr_from'), to: val('gr_to') }); GR.list = r.grns;
-      let sr = 0;
-      const kv = (k, v, cls) => '<div class="gk' + (cls ? ' ' + cls : '') + '"><small>' + esc(k) + '</small><span>' + v + '</span></div>';
-      const card = g => '<article class="grnc" data-no="' + g.no + '"><header>' + kv('GRN No', '<b>' + esc(refOf(g)) + '</b>', 'gno') + kv('GRN Date', dmy(g.date)) + kv('Supplier Name', '<b>' + esc(g.supplier) + '</b>', 'gsup') +
-          (g.invoice_no ? kv('Invoice No.', esc(g.invoice_no)) : '') + (g.invoice_date ? kv('Invoice Date', dmy(g.invoice_date)) : '') + (g.challan_no ? kv('Challan No', esc(g.challan_no)) : '') + (g.vehicle_no ? kv('Vehicle No', esc(g.vehicle_no)) : '') +
-          (g.po_no ? kv('PO No', esc(g.po_no)) : '') + (Number(g.bill_disc) > 0 ? kv('Bill discount', esc(billDiscTxt(g))) : '') + (Number(g.tcs) ? kv('TCS', money(g.tcs)) : '') + kv('Gross Amount', '<b>' + money(g.gross) + '</b>', 'gamt') +
-          '<div class="gacts"><button type="button" class="btn small gr-print">Print</button>' + (admin() ? '<button type="button" class="btn small gr-edit">Change</button><button type="button" class="btn small bad gr-del">Delete</button>' : '') + '</div></header>' +
-        (() => { const hd = grnHasDisc(g), hs = hd ? LCOLS.slice(0, 6).concat(['Discount ₹', 'Net Rate'], LCOLS.slice(6)) : LCOLS;
-          return '<div class="gtw"><table class="glines"><thead><tr>' + hs.map(h => '<th' + (/Qty|Rate|Amount|Sr No|Discount/.test(h) ? ' class="n"' : '') + '>' + esc(h) + '</th>').join('') + '</tr></thead><tbody>' +
-          (g.lines.length ? g.lines.map(l => '<tr><td class="n">' + (++sr) + '</td><td class="ic">' + esc(l.code || '') + '</td><td class="gm">' + esc(l.name || '') + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit || '') + '</td><td class="n">' + a2(l.rate) + '</td>' +
-              (hd ? '<td class="n">' + lineDiscTxt(l) + '</td><td class="n">' + (l.net_rate !== null && l.net_rate !== undefined ? a2(l.net_rate) : a2(l.rate)) + '</td>' : '') + '<td class="n">' + a2(l.taxable) + '</td><td class="n">' + a2(l.gst) + '</td><td class="n"><b>' + a2(l.gross) + '</b></td><td class="gr">' + esc(l.remark || '') + '</td></tr>').join('')
-            : '<tr><td colspan="' + hs.length + '" class="empty">No material.</td></tr>') + '</tbody></table></div>'; })() + (g.remark ? '<p class="grem"><b>Remark:</b> ' + esc(g.remark) + '</p>' : '') + '</article>';
-      const tot = GR.list.reduce((a, g) => a + Number(g.gross || 0), 0), rows = GR.list.reduce((a, g) => a + g.lines.length, 0);
+      const sr = { n: 0 }, tot = GR.list.reduce((a, g) => a + Number(g.gross || 0), 0), rows = GR.list.reduce((a, g) => a + g.lines.length, 0);
       $('gr_list').innerHTML = '<div class="glhead"><h3>GRNs ' + dmy(val('gr_from')) + ' to ' + dmy(val('gr_to')) + '</h3><p class="count">' + GR.list.length + ' GRN(s) · ' + rows + ' row(s) · ' + money(tot) + '</p></div>' +
-        (GR.list.map(card).join('') || '<p class="empty">No GRN in these dates.</p>'); }
+        (GR.list.map(g => grnCard(g, { sr: sr })).join('') || '<p class="empty">No GRN in these dates.</p>'); }
     catch (e) { failed(e); }
   }
-  async function grnClick(e) {
-    const b = e.target.closest('button'), tr = e.target.closest('[data-no]'); if (!b || !tr) return; const g = GR.list.find(x => x.no === Number(tr.dataset.no)); if (!g) return;
-    if (b.classList.contains('gr-print')) { const hd = grnHasDisc(g), sp = hd ? 10 : 8;      // (29-10-2026) the item's code; a GRN with a discount: the discount and the net rate, the bill's discount
-      return printHtml('GRN ' + refOf(g), head('Goods Received Note – GRN ' + refOf(g), dmy(g.date)) + '<p><b>Supplier:</b> ' + esc(g.supplier) + (g.invoice_no ? ' · Invoice ' + esc(g.invoice_no) + ' ' + dmy(g.invoice_date) : '') + (g.challan_no ? ' · Challan ' + esc(g.challan_no) : '') + (g.vehicle_no ? ' · Vehicle ' + esc(g.vehicle_no) : '') + (g.po_no ? ' · PO ' + g.po_no : '') + '</p>' +
+  // (29-10-2026) WAITING FOR YOU – the GRNs this person verifies or approves now (of any date), at the top of the page
+  async function grnMine() {
+    const box = $('gr_mine'); if (!box) return;
+    let r; try { r = await W('wfMine'); } catch (e) { box.hidden = true; return; }
+    GR.mine = r.grns || []; box.hidden = !GR.mine.length;
+    box.innerHTML = GR.mine.length ? '<div class="glhead"><h3>Waiting for you – to verify or approve</h3><p class="count">' + GR.mine.length + ' GRN(s)</p></div>' + GR.mine.map(g => grnCard(g, {})).join('') : '';
+  }
+  // a GRN's paper; (29-10-2026) its bill checked with its PO and who verified / approved it
+  function grnPrint(g) {
+    const hd = grnHasDisc(g), sp = hd ? 10 : 8, steps = (g.wf && g.wf.steps || []).filter(s => s.ok);      // (29-10-2026) the item's code; a GRN with a discount: the discount and the net rate, the bill's discount
+    printHtml('GRN ' + refOf(g), head('Goods Received Note – GRN ' + refOf(g), dmy(g.date)) + '<p><b>Supplier:</b> ' + esc(g.supplier) + (g.invoice_no ? ' · Invoice ' + esc(g.invoice_no) + ' ' + dmy(g.invoice_date) : '') + (g.challan_no ? ' · Challan ' + esc(g.challan_no) : '') + (g.vehicle_no ? ' · Vehicle ' + esc(g.vehicle_no) : '') + (g.po_no ? ' · PO ' + g.po_no : '') + '</p>' +
+      (g.check ? '<p><b>Bill checked with PO ' + esc(g.po_no) + ':</b> ' + checkTxt(g.check).replace(/<[^>]+>/g, '') + '</p>' : '') +
       '<table><thead><tr><th>#</th><th>Item Code</th><th>Material</th><th class="n">Received Qty</th><th>UOM</th><th class="n">Basic Rate</th>' + (hd ? '<th class="n">Discount</th><th class="n">Net Rate</th>' : '') + '<th class="n">Taxable</th><th class="n">GST %</th><th class="n">GST</th><th class="n">Gross</th><th>Remark</th></tr></thead><tbody>' + g.lines.map((l, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(l.code || '') + '</td><td>' + esc(l.name) + '</td><td class="n">' + n2(l.qty) + '</td><td>' + esc(l.unit) + '</td><td class="n">' + n2(l.rate) + '</td>' +
-        (hd ? '<td class="n">' + lineDiscTxt(l) + '</td><td class="n">' + n2(l.net_rate !== null && l.net_rate !== undefined ? l.net_rate : l.rate) + '</td>' : '') + '<td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.gross) + '</td><td>' + esc(l.remark || '') + '</td></tr>').join('') +
+      (hd ? '<td class="n">' + lineDiscTxt(l) + '</td><td class="n">' + n2(l.net_rate !== null && l.net_rate !== undefined ? l.net_rate : l.rate) + '</td>' : '') + '<td class="n">' + n2(l.taxable) + '</td><td class="n">' + n2(l.gst_pct) + '</td><td class="n">' + n2(l.gst) + '</td><td class="n">' + n2(l.gross) + '</td><td>' + esc(l.remark || '') + '</td></tr>').join('') +
       (hd && Number(g.basic) ? '<tr><td colspan="' + (sp + 3) + '">Basic ' + n2(g.basic) + ' · Discount ' + n2(g.disc) + (Number(g.bill_disc) > 0 ? ' (the bill: ' + esc(billDiscTxt(g)) + ')' : '') + '</td></tr>' : '') +
-      (Number(g.tcs) ? '<tr><td colspan="' + (sp + 1) + '">TCS</td><td class="n">' + n2(g.tcs) + '</td><td></td></tr>' : '') + '<tr><td colspan="' + (sp + 1) + '"><b>Gross</b></td><td class="n"><b>' + n2(g.gross) + '</b></td><td></td></tr></tbody></table>' + (g.remark ? '<p>' + esc(g.remark) + '</p>' : '') + '<div class="sign"><div>Received by: ' + esc(g.created_name || '') + '</div><div>Store in-charge</div></div>'); }
+      (Number(g.tcs) ? '<tr><td colspan="' + (sp + 1) + '">TCS</td><td class="n">' + n2(g.tcs) + '</td><td></td></tr>' : '') + '<tr><td colspan="' + (sp + 1) + '"><b>Gross</b></td><td class="n"><b>' + n2(g.gross) + '</b></td><td></td></tr></tbody></table>' + (g.remark ? '<p>' + esc(g.remark) + '</p>' : '') +
+      '<div class="sign"><div>Received by: ' + esc(g.created_name || '') + '</div>' + steps.map(s => '<div>' + (s.step === 'verify' ? 'Verified' : 'Approved') + ' by: ' + esc(s.name) + '</div>').join('') + '<div>Store in-charge</div></div>');
+  }
+  async function grnClick(e, list) {
+    if (await wfClick(e, async () => { await grnMine(); await grnLoad(); })) return;      // (29-10-2026) Verify / Approve / Send back
+    const b = e.target.closest('button'), tr = e.target.closest('[data-no]'); if (!b || !tr) return; const g = (list || GR.list).find(x => x.no === Number(tr.dataset.no)); if (!g) return;
+    if (b.classList.contains('gr-print')) return grnPrint(g);
     if (b.classList.contains('gr-edit')) return grnForm(g);
-    if (b.classList.contains('gr-del')) { if (!await ask('Delete GRN ' + refOf(g) + '?', '<p>Its material goes out of the stock (refused if it was issued already).</p><p class="mr">हा GRN डिलीट होईल.</p>', [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, bad: true }])) return; return busy(b, async () => { await W('grnDelete', { no: g.no }); toast('GRN ' + refOf(g) + ' deleted.'); B = null; await boot(); grnLoad(); }); }
+    if (b.classList.contains('gr-del')) { if (!await ask('Delete GRN ' + refOf(g) + '?', '<p>Its material goes out of the stock (refused if it was issued already).</p><p class="mr">हा GRN डिलीट होईल.</p>', [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, bad: true }])) return; return busy(b, async () => { await W('grnDelete', { no: g.no }); toast('GRN ' + refOf(g) + ' deleted.'); B = null; await boot(); await grnMine(); grnLoad(); }); }
   }
   async function grnForm(g) {
     const f = $('gr_form'); f.hidden = false; f.innerHTML = '<p class="muted">Loading…</p>';
@@ -672,6 +802,9 @@
     const lm = (r, rs) => { const c = coded(rs), i = c.indexOf(r); return i > -1 ? M(rs).lines[i] : null; };
     const poOf = () => pos.find(z => z.no === Number(val('gr_po')));
     const poL = r => { const p = poOf(); return p && r.po_line ? (p.lines || []).find(l => Number(l.line) === Number(r.po_line)) || null : null; };
+    // (29-10-2026) a line's rate as billed (after its discounts on the Basic, before GST) against the PO's (after its Disc. %) – as the server checks it (billCheck)
+    // (29-10-2026, the review) as the server's billCheck: more than the PO's rate AND its amount beyond 2 paise of rounding
+    const rateChk = (r, rs, l) => { const m = lm(r, rs), q = num(r.qty), ex = num(l.rate) * (100 - num(l.disc_pct)) / 100, po = r2(ex), bill = q > 0 && m ? r2(m.taxable / q) : 0; return { po: po, bill: bill, over: q > 0 && !!m && bill > po + 0.009 && m.taxable > r2(q * ex) + 0.02, gst: String(num(r.gst_pct)) !== String(num(l.gst_pct)) }; };
     const shortOf = r => { const l = poL(r); if (!l) return ''; const left = Math.round((num(l.qty) - num(l.received) - num(r.qty)) * 1000) / 1000;
       return left > 0.0005 ? '<b class="short" title="Still to come on the PO">' + n2(left) + '</b>' : left < -0.0005 ? '<span class="over" title="More than the PO">+' + n2(-left) + '</span>' : '0'; };
     // the columns (against a PO: its Qty, what came before, the shortage after this GRN; with step 6: a line's discount and what it is on)
@@ -681,6 +814,8 @@
         .concat([{ k: 'qty', h: 'Received Qty *', type: 'num' }])
         .concat(po ? [{ k: 'ps', h: 'Shortage', type: 'ro', n: true, calc: shortOf }] : [])
         .concat([{ k: 'unit', h: 'Unit', type: 'ro', calc: r => esc(r.unit || (itemOf(r.code) || {}).unit || '') }, { k: 'rate', h: 'Basic Rate ₹', type: 'num' }])
+        // (29-10-2026, the bill checked with its PO) the PO's rate (after its Disc. %) beside the bill's – red when the bill's is more
+        .concat(po ? [{ k: 'pr', h: 'PO Rate', type: 'ro', n: true, calc: (r, rs) => { const l = poL(r); if (!l) return ''; const c = rateChk(r, rs, l); return c.over ? '<b class="over" title="The bill\'s rate (after its discount, before GST) is more than the PO\'s: ' + a2(c.bill) + '">' + a2(c.po) + ' ⚠</b>' : a2(c.po); } }] : [])
         .concat(s6 ? [{ k: 'disc', h: 'Disc. (% or ₹)', type: 'text', ph: '10% / 500' }, { k: 'disc_on', h: 'Disc. on', type: 'sel', opts: [['basic', 'Basic'], ['gst', 'After GST']] }] : [])
         .concat([{ k: 'gst_pct', h: 'GST %', type: 'num', ph: '0' },
           { k: 'tx', h: 'Taxable', type: 'ro', n: true, calc: (r, rs) => { const m = lm(r, rs); return money(m ? m.taxable : 0); } }, { k: 'gx', h: 'GST', type: 'ro', n: true, calc: (r, rs) => { const m = lm(r, rs); return money(m ? m.gst : 0); } },
@@ -711,47 +846,62 @@
     $('gr_x').onclick = () => { f.hidden = true; };
     $('gr_save').onclick = e => busy(e.target, async () => {
       const lines = L.get(); if (lines.some(l => !l.code)) throw new Error('Pick each item from the list (as it is in the Item Master).');
+      // (29-10-2026) the bill checked with its PO before it is saved: a rate above the PO's, another GST % – asked first
+      const diff = lines.map(r => { const l = poL(r); if (!l) return ''; const c = rateChk(r, L.rows, l); return (c.over ? (itemOf(r.code) || {}).name + ': rate ' + a2(c.bill) + ' – PO ' + a2(c.po) : '') + (c.gst ? ((c.over ? '; ' : '') + (itemOf(r.code) || {}).name + ': GST ' + num(r.gst_pct) + '% – PO ' + num(l.gst_pct) + '%') : ''); }).filter(Boolean);
+      if (diff.length && !await ask('The bill is not as per the PO', '<p>' + diff.map(esc).join('<br>') + '</p><p>Save it anyway? (It shows as "not as per PO" on the GRN and to Head Office.)</p><p class="mr">बिल PO प्रमाणे नाही – तरी save करायचे का?</p>', [{ label: 'Cancel', value: false }, { label: 'Save anyway', value: true, primary: true }])) return;
       const x = { no: g ? g.no : undefined, grn: { ref: g ? undefined : val('gr_ref').trim(), po_no: val('gr_po') || undefined, date: val('gr_date'), supplier: val('gr_sup'), challan_no: val('gr_ch'), invoice_no: val('gr_inv'), invoice_date: val('gr_invd'), vehicle_no: val('gr_veh'), tcs: val('gr_tcs'), remark: val('gr_rem'),
         bill_disc: s6 && String(bill.disc).trim() ? String(bill.disc).trim() : undefined, bill_disc_on: s6 && String(bill.disc).trim() ? bill.on : undefined,
         lines: lines.map(l => Object.assign({ code: l.code, qty: l.qty, rate: l.rate, gst_pct: l.gst_pct, po_line: l.po_line || undefined, remark: l.remark || undefined },
           s6 && String(l.disc || '').trim() ? { disc: String(l.disc).trim(), disc_on: l.disc_on === 'gst' ? 'gst' : 'basic' } : {})) } };
       let r; try { r = await saveAsk('grnSave', x); } catch (e2) { if (e2 && e2.code === 'refused' && e2.data && e2.data.next && $('gr_ref')) { $('gr_ref').value = e2.data.next; delete $('gr_ref').dataset.typed; } throw e2; }
       if (!r) return;
-      toast('GRN ' + (r.ref || r.no) + ' saved – ' + money(r.gross) + '.'); f.hidden = true; B = null; await boot(); grnLoad();
+      toast(r.note || ('GRN ' + (r.ref || r.no) + ' saved – ' + money(r.gross) + (r.wf === 'verify' ? ' – it waits for its verification.' : r.wf === 'approve' ? ' – it waits for its approval.' : r.wf === 'done' ? ' – it goes to Head Office.' : '.')), !!r.note); f.hidden = true; B = null; await boot(); await grnMine(); grnLoad();      // (29-10-2026) its workflow
     });
     f.scrollIntoView({ block: 'nearest' });
   }
 
   /* ====================== ISSUE (OUTWARD) & RETURN ====================== */
-  const IS = { list: [] };
+  const IS = { list: [], mine: [] };
   async function issuePage() {
     const el = $('pg_issue');
     el.innerHTML = '<section class="panel"><h2>Issue (Outward) &amp; Return</h2><p class="muted" style="margin:0">Material given out: to site work, a sub-contractor, a machinery (it goes into its maintenance log book in Mechanical) or the office; what comes back – Return.</p>' +
       '<div class="bar">' + field('is_from', 'From', inp('is_from', monthStart(), ' type="date"')) + field('is_to', 'To', inp('is_to', today(), ' type="date"')) + '<button type="button" class="btn" id="is_show">Show</button>' +
       (canEdit('issue') ? '<button type="button" class="btn primary" id="is_new">+ New issue</button>' : '') + '<button type="button" class="btn" id="is_xl">Issue register (Excel)</button>' +
       (admin() ? '<button type="button" class="btn" id="is_imp">Import from Excel</button><button type="button" class="btn small" id="is_tpl">Import format</button><input type="file" id="is_file" accept=".xlsx,.xls,.csv" hidden>' : '') + '</div></section>' +
-      '<section class="panel formbox" id="is_form" hidden></section><section class="panel formbox" id="is_impbox" hidden></section><section class="panel" id="is_list"></section>';
+      '<section class="panel" id="is_mine" hidden></section><section class="panel formbox" id="is_form" hidden></section><section class="panel formbox" id="is_impbox" hidden></section><section class="panel" id="is_list"></section>';      // (29-10-2026) is_mine: what waits for this person
     $('is_show').onclick = () => issueLoad();
     if ($('is_new')) $('is_new').onclick = () => issueForm(null);
     $('is_xl').onclick = () => busy($('is_xl'), async () => toExcel(await W('report', { kind: 'issue', from: val('is_from'), to: val('is_to') }), 'Issue_register'));
     if ($('is_imp')) { $('is_imp').onclick = () => { $('is_file').value = ''; $('is_file').click(); }; $('is_file').onchange = () => importFile('issue', $('is_file').files[0], $('is_impbox'), issueLoad); $('is_tpl').onclick = () => importTemplate('issue'); }
-    $('is_list').onclick = e => issueClick(e);
+    $('is_list').onclick = e => issueClick(e, IS.list);
+    $('is_mine').onclick = e => issueClick(e, IS.mine);
     await boot(); await issueLoad();
   }
   const toWho = i => i.to_kind === 'Machinery' ? i.machinery + (i.party ? ' (' + i.party + ')' : '') : i.to_kind === 'Sub-contractor' ? i.party : i.to_kind === 'Site work' ? 'RCL – site work' : 'Office';
+  // an issue's row; (29-10-2026) with its workflow and that of each of its returns (Verify / Approve / Send back for the one who decides)
+  const issueRow = i => { const out = i.lines.filter(l => l.returnable && l.qty - (l.back || 0) > 0.0005);
+    return '<tr data-no="' + i.no + '"><td><b>' + i.no + '</b>' + (i.debit ? ' ' + tag('Debit', 'warn') : '') + (i.wf ? '<br>' + wfCell(i) : '') + '</td><td>' + dmy(i.date) + '</td><td>' + esc(toWho(i)) + (i.receiver ? '<small>' + esc(i.receiver) + '</small>' : '') + (i.reading !== null && i.reading !== undefined ? '<small>Reading ' + n2(i.reading) + '</small>' : '') + '</td><td>' + esc([i.location, i.side].filter(Boolean).join(' · ')) + '</td><td style="white-space:normal">' + esc(i.use_for || '') + '</td>' +
+      '<td style="white-space:normal">' + i.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + (l.returnable ? ' <small>returnable' + (l.back ? ', ' + n2(l.back) + ' back' : '') + '</small>' : l.back ? ' <small>' + n2(l.back) + ' back</small>' : '')).join('<br>') + '</td><td class="n">' + money(i.amount) + '</td>' +
+      '<td>' + (i.returns || []).map(r => 'Return ' + r.no + ' · ' + dmy(r.date) + (r.wf ? ' ' + wfCell(r) : '') + ' ' + wfBtns(r, 'ret') + (admin() ? ' <button type="button" class="link del is-rdel" data-r="' + r.no + '">Delete</button>' : '')).join('<br>') + (out.length ? '<small>' + out.length + ' returnable item(s) out</small>' : '') + '</td>' +
+      '<td><div class="acts">' + wfBtns(i, 'issue') + (canEdit('issue') ? '<button type="button" class="link is-ret">Return</button>' : '') + '<button type="button" class="link is-print">Print</button>' + (admin() ? '<button type="button" class="link is-edit">Change</button><button type="button" class="link del is-del">Delete</button>' : '') + '</div></td></tr>'; };
+  const issueHead = '<div class="tw"><table><thead><tr><th>Outward</th><th>Date</th><th>Issued to</th><th>Location · side</th><th>Use for</th><th>Items</th><th class="n">Amount</th><th>Returns</th><th></th></tr></thead><tbody>';
   async function issueLoad() {
     try { const r = await W('issueList', { from: val('is_from'), to: val('is_to') }); IS.list = r.issues;
-      $('is_list').innerHTML = '<div class="tw"><table><thead><tr><th>Outward</th><th>Date</th><th>Issued to</th><th>Location · side</th><th>Use for</th><th>Items</th><th class="n">Amount</th><th>Returns</th><th></th></tr></thead><tbody>' +
-        (IS.list.map(i => { const out = i.lines.filter(l => l.returnable && l.qty - (l.back || 0) > 0.0005);
-          return '<tr data-no="' + i.no + '"><td><b>' + i.no + '</b>' + (i.debit ? ' ' + tag('Debit', 'warn') : '') + '</td><td>' + dmy(i.date) + '</td><td>' + esc(toWho(i)) + (i.receiver ? '<small>' + esc(i.receiver) + '</small>' : '') + (i.reading !== null && i.reading !== undefined ? '<small>Reading ' + n2(i.reading) + '</small>' : '') + '</td><td>' + esc([i.location, i.side].filter(Boolean).join(' · ')) + '</td><td style="white-space:normal">' + esc(i.use_for || '') + '</td>' +
-            '<td style="white-space:normal">' + i.lines.map(l => esc(l.name + ' ' + n2(l.qty) + ' ' + l.unit) + (l.returnable ? ' <small>returnable' + (l.back ? ', ' + n2(l.back) + ' back' : '') + '</small>' : l.back ? ' <small>' + n2(l.back) + ' back</small>' : '')).join('<br>') + '</td><td class="n">' + money(i.amount) + '</td>' +
-            '<td>' + (i.returns || []).map(r => 'Return ' + r.no + ' · ' + dmy(r.date) + (admin() ? ' <button type="button" class="link del is-rdel" data-r="' + r.no + '">Delete</button>' : '')).join('<br>') + (out.length ? '<small>' + out.length + ' returnable item(s) out</small>' : '') + '</td>' +
-            '<td><div class="acts">' + (canEdit('issue') ? '<button type="button" class="link is-ret">Return</button>' : '') + '<button type="button" class="link is-print">Print</button>' + (admin() ? '<button type="button" class="link is-edit">Change</button><button type="button" class="link del is-del">Delete</button>' : '') + '</div></td></tr>'; }).join('') || '<tr><td colspan="9" class="empty">No issue in these dates.</td></tr>') + '</tbody></table></div>' +
-        '<p class="count">' + IS.list.length + ' issue(s) · ' + money(IS.list.reduce((a, i) => a + Number(i.amount || 0), 0)) + '</p>'; }
+      $('is_list').innerHTML = issueHead + (IS.list.map(issueRow).join('') || '<tr><td colspan="9" class="empty">No issue in these dates.</td></tr>') + '</tbody></table></div>' +
+        '<p class="count">' + IS.list.length + ' issue(s) · ' + money(IS.list.reduce((a, i) => a + Number(i.amount || 0), 0)) + '</p>';
+      await issueMine(); }
     catch (e) { failed(e); }
   }
-  async function issueClick(e) {
-    const b = e.target.closest('button'), tr = e.target.closest('tr[data-no]'); if (!b || !tr) return; const i = IS.list.find(x => x.no === Number(tr.dataset.no)); if (!i) return;
+  // (29-10-2026) WAITING FOR YOU – the issues and returns this person verifies or approves now (of any date)
+  async function issueMine() {
+    const box = $('is_mine'); if (!box) return;
+    let r; try { r = await W('wfMine'); } catch (e) { box.hidden = true; return; }
+    IS.mine = r.issues || []; box.hidden = !IS.mine.length;
+    box.innerHTML = IS.mine.length ? '<h2>Waiting for you – to verify or approve</h2>' + issueHead + IS.mine.map(issueRow).join('') + '</tbody></table></div>' : '';
+  }
+  async function issueClick(e, list) {
+    if (await wfClick(e, () => issueLoad())) return;      // (29-10-2026) Verify / Approve / Send back
+    const b = e.target.closest('button'), tr = e.target.closest('tr[data-no]'); if (!b || !tr) return; const i = (list || IS.list).find(x => x.no === Number(tr.dataset.no)); if (!i) return;
     if (b.classList.contains('is-ret')) return retForm(i);
     if (b.classList.contains('is-edit')) return issueForm(i);
     if (b.classList.contains('is-print')) return printHtml('Outward ' + i.no, head('Issue (Outward) – ' + i.no, dmy(i.date)) + '<p><b>Issued to:</b> ' + esc(toWho(i)) + (i.location ? ' · Location ' + esc(i.location) : '') + (i.side ? ' · ' + esc(i.side) : '') + (i.use_for ? ' · Use for: ' + esc(i.use_for) : '') + (i.receiver ? ' · Receiver: ' + esc(i.receiver) : '') + '</p>' +
@@ -785,7 +935,7 @@
       const x = { no: i ? i.no : undefined, issue: { date: val('is_date'), to_kind: val('is_kind'), party: val('is_party'), machinery: val('is_mach'), reading: val('is_read'), location: val('is_loc'), side: val('is_side'), use_for: val('is_use'), receiver: val('is_rcv'), debit: $('is_deb').checked, remark: val('is_rem'),
         lines: lines.map(l => ({ code: l.code, qty: l.qty, returnable: !!l.returnable, serial: l.serial, rate: l.rate, gst_pct: l.gst_pct, remark: l.remark })) } };
       const r = await saveAsk('issueSave', x); if (!r) return;
-      toast('Outward ' + r.no + ' saved – ' + money(r.amount) + '.'); f.hidden = true; B = null; await boot(); issueLoad();
+      toast(r.note || ('Outward ' + r.no + ' saved – ' + money(r.amount) + (r.wf === 'verify' ? ' – it waits for its verification.' : r.wf === 'approve' ? ' – it waits for its approval.' : r.wf === 'done' ? ' – it goes to Head Office.' : '.')), !!r.note); f.hidden = true; B = null; await boot(); issueLoad();
     });
     f.scrollIntoView({ block: 'nearest' });
   }
@@ -802,7 +952,7 @@
       const lines = [...f.querySelectorAll('tr[data-l]')].map(tr => ({ issue_line: Number(tr.dataset.l), qty: tr.querySelector('.rt-q').value, remark: tr.querySelector('.rt-r').value })).filter(l => String(l.qty).trim());
       if (!lines.length) throw new Error('Type what came back of at least one item.');
       const r = await W('retSave', { ret: { issue_no: i.no, date: val('rt_date'), remark: val('rt_rem'), lines: lines } });
-      toast('Return ' + r.no + ' saved.'); f.hidden = true; B = null; await boot(); issueLoad();
+      toast(r.note || ('Return ' + r.no + ' saved' + (r.wf === 'verify' ? ' – it waits for its verification.' : r.wf === 'approve' ? ' – it waits for its approval.' : r.wf === 'done' ? ' – it goes to Head Office.' : '.')), !!r.note); f.hidden = true; B = null; await boot(); issueLoad();
     });
     f.scrollIntoView({ block: 'nearest' });
   }
@@ -1145,6 +1295,8 @@
       $('db_work').hidden = false;
       $('db_work').innerHTML = tile('g', 'Stock value', money(d.stock.value).replace(/\.\d\d$/, ''), 'at the average basic rate') + tile(d.stock.below ? 'a' : 'm', 'Below min stock', d.stock.below, 'items to order') +
         (d.req ? tile('a', 'Waiting for my approval', d.req.mine, d.req.pending + ' requirement(s) pending') + tile('b', 'Approved – to order', d.req.approved, 'requirements') : '') + (d.po ? tile('m', 'POs open', d.po.open, 'material to come') : '') +
+        // (29-10-2026) what waits for this person: a PO, a GRN, an issue or a return to verify or approve
+        (d.wf && d.wf.po ? tile('a', 'PO – waiting for me', d.wf.po, 'to verify or approve') : '') + (d.wf && d.wf.grn ? tile('a', 'GRN – waiting for me', d.wf.grn, 'to verify or approve') : '') + (d.wf && (d.wf.issue || d.wf.ret) ? tile('a', 'Issues & returns – waiting for me', d.wf.issue + d.wf.ret, 'to verify or approve') : '') +
         (d.grn ? tile('g', 'GRN today', d.grn.today, money(d.grn.todayValue) + ' · month ' + d.grn.month) : '') + (d.issue ? tile('b', 'Issues today', d.issue.today, money(d.issue.todayValue) + ' · month ' + d.issue.month) : '');
       if (d.req) { B.waiting = d.req.mine; lists(); }
       const parts = [];

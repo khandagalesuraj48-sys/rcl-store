@@ -717,17 +717,17 @@ test('(29-10-2026, "ekda banwaleli requirement edit delet krta yeil … approval
   const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
   const act = n => { const i = src.indexOf('  async ' + n + '(s, x) {'); assert.ok(i > -1, n); return src.slice(i, src.indexOf('\n  },', i)); };
   assert.ok(act('reqDelete').includes("if (!(await step8On(s.site))) throw fail(400, STEP8, 'sql');") && act('reqDelete').includes("only who made a requirement (or the Store Admin) deletes it".replace('only', 'Only')) && act('reqDelete').includes("rpc(s.site, 'store_req_del'"));
-  assert.ok(act('poDelete').startsWith('  async poDelete(s, x) {\n    buyerOnly(s);') && act('poDelete').includes("rpc(site, 'store_po_del'"));
+  assert.ok(act('poDelete').startsWith('  async poDelete(s, x) {\n    const site = await siteFor(s, x), no = noOf(x.no); await buyerOr(s, site);') && act('poDelete').includes("rpc(site, 'store_po_del'"));      // (29-10-2026) HO Purchase – or a site that buys itself: its Store Admin
   assert.ok(act('reqPhotoDel').includes("{ photos: list, updated_by: s.email }") && act('reqPhotoDel').includes('&updated_at=eq.'), 'its file stays (only taken off the list), as it was read');
   assert.ok(act('reqLogbook').includes("if (cur.for_kind !== 'Machinery')") && act('reqLogbook').includes('{ logbook: lb, updated_by: s.email }'));
   const save = act('reqSave');
-  assert.ok(save.includes("again = cur.status !== 'Pending' || (cur.approvals || []).length > 0;") && save.includes("Object.assign(row, { status: level ? 'Pending' : 'Approved', level: level, approvals: [] });"), 'changed after its approval: it waits for its approval again');
+  assert.ok(save.includes("again = cur.status !== 'Pending' || (cur.approvals || []).length > 0;") && save.includes("Object.assign(row, { status: vf || level ? 'Pending' : 'Approved', level: level, approvals: [] });"), 'changed after its approval: it waits for its approval again');
   assert.ok(save.includes("rpc(s.site, 'store_req_change'") && save.includes("else if (cur.status !== 'Pending' || (cur.approvals || []).length) throw fail(409,"), 'before step 8: as before');
   assert.ok(save.includes("else if (x.logbook === true || !cur) lb = same || await logbookOf(s.site, s, r.for_text);"), 'a new machinery requirement: its log book by itself');
   ["/^STORE_REQ_ORDERED (\\d+)\\|(\\d+)/", '/^STORE_CHANGED/', '/^STORE_PO_RECEIVED (\\d+)/'].forEach(k => assert.ok(src.includes(k), k));
   // the page: its buttons as the server says (edit / del / attach), the PO's Delete only when nothing came
   ["(x.edit ? '<button type=\"button\" class=\"link rq-edit\">Change</button>' : '')", "(x.del ? '<button type=\"button\" class=\"link del rq-del\">Delete</button>' : '')", "W('reqDelete', { no: x.no })", "W('reqPhotoDel', { no: x.no, sha: o.dataset.sha })",
-    "W('reqLogbook', { no: x.no, attach: !!on })", "W('poDelete', { site: site, no: p.no })", "(buyer() && p.status !== 'Closed' && !p.lines.some(l => l.received > 0) ? '<button type=\"button\" class=\"link del po-del\">Delete</button>' : '')",
+    "W('reqLogbook', { no: x.no, attach: !!on })", "W('poDelete', { site: site, no: p.no })", "(buy && p.status !== 'Closed' && !p.lines.some(l => l.received > 0) ? '<button type=\"button\" class=\"link del po-del\">Delete</button>' : '')",      // (29-10-2026) buy: HO Purchase, or a site that buys itself – its Store Admin
     "logbook: lbx ? lbx.checked : undefined", "W('reqLogbookHtml', { no: x.no })"].forEach(k => assert.ok(page.includes(k), k));
 });
 
@@ -740,4 +740,118 @@ test('(29-10-2026, "logo ala nahi") a Rachana paper: the logo he gave, always (t
   assert.strictEqual(logoOf({ company: 'Rachana Construction Limited' }), '<img class="plogo" src="https://store.test/img/rcl-logo.png" alt="Rachana Construction Limited">');
   assert.strictEqual(logoOf({ company: 'Sketchline Industries', logo: 'https://x.example/s.png' }), '<img src="https://x.example/s.png" alt="" style="max-height:70px;max-width:100%">');
   assert.strictEqual(logoOf({ company: 'Sketchline Industries' }), '<b style="font-size:22px">Sketchline Industries</b>');
+});
+
+test('(29-10-2026, "pratek kamamadhe … verification … approval … head office … super admin … portel"; "konte jail konte nahi jail te super admin tharau shakel") the workflow: verification, then approval, then (by the site\'s rule) Head Office – never one\'s own; nothing set = as before', () => {
+  const W = require('../lib/work');
+  const P = (e, n) => ({ email: e, name: n });
+  // nothing set: nobody verifies, requirements to HO Purchase, nothing else to Head Office
+  assert.deepStrictEqual(W.wfOf(null), { verify: { req: [], po: [], grn: [], iss: [] }, approve: { grn: [], iss: [] }, ho: { req: true, grn: false, iss: false } });
+  const wf = W.wfOf({ wf: { verify: { grn: [P('V@x', 'Vinay')], iss: [P('v@x', 'Vinay')] }, approve: { grn: [P('a@x', 'Asha')], iss: [] }, ho: { req: false, grn: true, iss: false } } });
+  assert.deepStrictEqual(wf.verify.grn, [P('v@x', 'Vinay')], 'e-mails in small letters');
+  assert.deepStrictEqual(wf.ho, { req: false, grn: true, iss: false });
+  // a GRN: to verification → approval → done, to Head Office (the rule)
+  let w = W.wfStart(wf, 'grn', 'S@x', 't0');
+  assert.deepStrictEqual(w, { state: 'verify', by: 's@x', at: 't0', steps: [] });
+  assert.strictEqual(W.wfMay(wf, 'grn', w, 's@x'), false, 'the store keeper cannot');
+  assert.strictEqual(W.wfMay(wf, 'grn', w, 'a@x'), false, 'the approver not before the verification');
+  assert.strictEqual(W.wfMay(wf, 'grn', w, 'v@x'), true);
+  assert.deepStrictEqual(W.wfWaitFor(wf, 'grn', w), ['Vinay']);
+  w = W.wfNext(wf, 'grn', w, { email: 'v@x', name: 'Vinay' }, true, '', 't1');
+  assert.deepStrictEqual([w.state, w.steps.length, w.steps[0].step, w.ho], ['approve', 1, 'verify', undefined]);
+  assert.strictEqual(W.wfMay(wf, 'grn', w, 'v@x'), false); assert.strictEqual(W.wfMay(wf, 'grn', w, 'a@x'), true);
+  w = W.wfNext(wf, 'grn', w, { email: 'a@x', name: 'Asha' }, true, '', 't2');
+  assert.deepStrictEqual([w.state, w.ho, w.doneAt, w.steps.map(s => s.step + ':' + s.name)], ['done', true, 't2', ['verify:Vinay', 'approve:Asha']]);
+  assert.strictEqual(W.wfMay(wf, 'grn', w, 'a@x'), false, 'done: nobody decides it again');
+  // sent back: returned, with why; the approver's own entry: he never approves it (nobody else – done at once)
+  const r = W.wfNext(wf, 'grn', W.wfStart(wf, 'grn', 's@x'), { email: 'v@x', name: 'Vinay' }, false, 'qty wrong');
+  assert.deepStrictEqual([r.state, r.steps[0].ok, r.steps[0].note], ['returned', false, 'qty wrong']);
+  assert.deepStrictEqual(W.wfStart(wf, 'grn', 'v@x', 't'), { state: 'approve', by: 'v@x', at: 't', steps: [] }, 'the verifier\'s own GRN: to its approval');
+  // the issues: the one verifier is the maker → no step; not to Head Office → nothing (as before)
+  assert.strictEqual(W.wfStart(wf, 'iss', 'v@x'), null);
+  assert.deepStrictEqual(W.wfStart(wf, 'iss', 's@x', 't').state, 'verify');
+  // nothing set at all: nothing (a GRN as before); to Head Office with no step: done at once, to HO
+  assert.strictEqual(W.wfStart(W.wfOf(null), 'grn', 's@x'), null);
+  assert.deepStrictEqual(W.wfStart(W.wfOf({ wf: { ho: { grn: true } } }), 'grn', 's@x', 't'), { state: 'done', by: 's@x', at: 't', steps: [], ho: true, doneAt: 't' });
+  // nobody verifies any more: its approval; nobody approves either: nobody (said on the page)
+  const wf2 = W.wfOf({ wf: { approve: { grn: [P('a@x', 'Asha')] } } });
+  assert.strictEqual(W.wfStepNow(wf2, 'grn', { state: 'verify', by: 's@x' }), 'approve'); assert.strictEqual(W.wfMay(wf2, 'grn', { state: 'verify', by: 's@x' }, 'a@x'), true);
+  assert.strictEqual(W.wfStepNow(W.wfOf(null), 'grn', { state: 'verify', by: 's@x' }), '');
+});
+
+test('(29-10-2026, "standard ERP … 500 MT cement … aaj 100 udya 100 … GRN … PO balance") the bill (a GRN against its PO) checked with the PO; a PO\'s ordered · came · balance', () => {
+  const W = require('../lib/work');
+  const po = { no: 7, lines: [{ line: 1, code: 'ITM-0001', name: 'Cement', unit: 'MT', qty: 500, rate: 400, disc_pct: 5, gst_pct: 28 }, { line: 2, code: 'ITM-0002', name: 'Steel', unit: 'MT', qty: 10, rate: 60000, disc_pct: 0, gst_pct: 18 }] };
+  // the first 100 MT as per the PO (400 less 5 % = 380)
+  assert.deepStrictEqual(W.billCheck([{ po_line: 1, name: 'Cement', unit: 'MT', qty: 100, taxable: 38000, gst_pct: 28 }], po, {}), { ok: true, diffs: [] });
+  // a rate below the PO's is fine; above it, another GST %, more than the PO still has, an item not on the PO – each said
+  assert.strictEqual(W.billCheck([{ po_line: 1, name: 'Cement', qty: 100, taxable: 37000, gst_pct: 28 }], po, {}).ok, true);
+  const c = W.billCheck([{ po_line: 1, name: 'Cement', unit: 'MT', qty: 120, taxable: 46800, gst_pct: 18 }, { po_line: null, name: 'Binding wire', unit: 'Kg', qty: 5, taxable: 400, gst_pct: 18 }], po, { '7:1': 400 });
+  assert.deepStrictEqual(c.diffs, [{ kind: 'rate', name: 'Cement', unit: 'MT', po: 380, bill: 390 }, { kind: 'gst', name: 'Cement', po: 28, bill: 18 }, { kind: 'qty', name: 'Cement', unit: 'MT', po: 100, bill: 120 }, { kind: 'extra', name: 'Binding wire', unit: 'Kg', bill: 5 }]);
+  assert.match(W.billWords(c), /^Cement: rate ₹390 – PO ₹380; Cement: GST 18% – PO 28%; Cement: 120 MT – PO still had 100; Binding wire: not on the PO$/);
+  assert.strictEqual(W.billWords({ ok: true, diffs: [] }), 'As per PO');
+  // the PO after 2 GRNs of 100 MT: 300 MT still to come (quantity and value at its rate after its Disc. %)
+  const b = W.poBalance(po, { '7:1': 200 });
+  assert.deepStrictEqual(b[0], { line: 1, code: 'ITM-0001', name: 'Cement', unit: 'MT', qty: 500, rate: 380, came: 200, left: 300, value: 190000, cameValue: 76000, leftValue: 114000 });
+  assert.deepStrictEqual([b[1].came, b[1].left, b[1].leftValue], [0, 10, 600000]);
+  assert.strictEqual(W.poBalance(po, { '7:1': 520 })[0].left, 0, 'more came than ordered: nothing left (never below 0)');
+});
+
+test('(29-10-2026, the review) who made a paper: the one who made it AND the one who changed it last – neither verifies or approves it; the bill check never flags a paisa of rounding; two lines on one PO line', () => {
+  const W = require('../lib/work');
+  const P = (e, n) => ({ email: e, name: n });
+  // U made the GRN and approves GRNs; sent back, the Store Admin corrects it: U never approves it (nor the Admin)
+  const wf = W.wfOf({ wf: { verify: { grn: [P('v@x', 'Vinay')] }, approve: { grn: [P('u@x', 'Umesh'), P('a@x', 'Asha')] } } });
+  let w = W.wfStart(wf, 'grn', 'admin@x', 't', 'U@x');
+  assert.deepStrictEqual(w, { state: 'verify', by: 'admin@x', at: 't', steps: [], made: 'u@x' });
+  assert.strictEqual(W.wfMay(wf, 'grn', w, 'v@x'), true);
+  w = W.wfNext(wf, 'grn', w, { email: 'v@x', name: 'Vinay' }, true, '', 't1');
+  assert.deepStrictEqual([W.wfMay(wf, 'grn', w, 'u@x'), W.wfMay(wf, 'grn', w, 'admin@x'), W.wfMay(wf, 'grn', w, 'a@x')], [false, false, true]);
+  assert.deepStrictEqual(W.wfWaitFor(wf, 'grn', w), ['Asha']);
+  assert.deepStrictEqual(W.wfStart(wf, 'grn', 'u@x', 't', 'u@x'), { state: 'verify', by: 'u@x', at: 't', steps: [] }, 'his own save: as before');
+  // a PO: its maker and who changed it last – neither approves it
+  assert.deepStrictEqual(W.makersOf('Y@x', null, ['x@x', 'y@x']), ['y@x', 'x@x']);
+  assert.deepStrictEqual([W.mayApprovePo([P('x@x', 'X'), P('z@x', 'Z')], 'x@x', ['y@x', 'x@x']), W.mayApprovePo([P('x@x', 'X'), P('z@x', 'Z')], 'z@x', ['y@x', 'x@x']), W.mayApprovePo([P('x@x', 'X')], 'x@x', 'y@x')], [false, true, true]);
+  // the bill at the PO's rate and discount: never flagged for rounding (72.35 less 7.5 % for 2; 10.37 for half a unit)
+  const po = { no: 3, lines: [{ line: 1, name: 'Bolt', unit: 'Nos', qty: 10, rate: 72.35, disc_pct: 7.5, gst_pct: 18 }, { line: 2, name: 'Wire', unit: 'Kg', qty: 5, rate: 10.37, disc_pct: 0, gst_pct: 18 }] };
+  assert.deepStrictEqual(W.billCheck([{ po_line: 1, name: 'Bolt', qty: 2, taxable: 133.85, gst_pct: 18 }, { po_line: 2, name: 'Wire', qty: 0.5, taxable: 5.19, gst_pct: 18 }], po, {}), { ok: true, diffs: [] });
+  // a real rise is still told
+  assert.deepStrictEqual(W.billCheck([{ po_line: 1, name: 'Bolt', unit: 'Nos', qty: 2, taxable: 140, gst_pct: 18 }], po, {}).diffs, [{ kind: 'rate', name: 'Bolt', unit: 'Nos', po: 66.92, bill: 70 }]);
+  // two lines of one GRN on one PO line: the second checked with what the first left (10 ordered: 6 + 6)
+  assert.deepStrictEqual(W.billCheck([{ po_line: 1, name: 'Bolt', unit: 'Nos', qty: 6, taxable: 401.54, gst_pct: 18 }, { po_line: 1, name: 'Bolt', unit: 'Nos', qty: 6, taxable: 401.54, gst_pct: 18 }], po, {}).diffs, [{ kind: 'qty', name: 'Bolt', unit: 'Nos', po: 4, bill: 6 }]);
+  // the page's GRN form the same rule (rateChk), the server's (rateOver)
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  assert.match(page, /bill > po \+ 0\.009 && m\.taxable > r2\(q \* ex\) \+ 0\.02/);
+  assert.strictEqual(W.rateOver(133.85, 2, po.lines[0]), false); assert.strictEqual(W.rateOver(140, 2, po.lines[0]), true);
+  // a GRN / issue / return save: its workflow read and written inside its own try (the paper is saved already – never an error)
+  const api = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), ws = api.slice(api.indexOf('async function wfSet('), api.indexOf('// what is still to come of a PO'));
+  assert.ok(ws.indexOf('try {') > -1 && ws.indexOf('try {') < ws.indexOf('await wfAt(site)'), 'wfAt inside the try');
+  // the Requirements list: every row its State cell and its Asked by cell (no code hidden in a comment)
+  const row = page.split('\n').find(l => l.indexOf("tag('Waiting verification', 'warn')") > -1 && l.indexOf('<td>') > -1) || '';
+  assert.match(row.split('//')[0], /In PO .*<\/td><td><small>' \+ esc\(x\.created_name/);
+});
+
+test('(29-10-2026) the workflow told by the Portal (signed ticket), kept with the approvers; the pages of one who verifies / approves; step 9 only adds', () => {
+  const src = fs.readFileSync(path.join(root, 'lib', 'portal.js'), 'utf8'), api = fs.readFileSync(path.join(root, 'api', 'portal.js'), 'utf8'), work = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
+  assert.ok(src.includes("wf = { verify: { req: people(v.req), po: people(v.po), grn: people(v.grn), iss: people(v.iss) }, approve: { grn: people(a.grn), iss: people(a.iss) },") && src.includes('ho: { req: h.req !== false, grn: h.grn === true, iss: h.iss === true } };'));
+  assert.ok(api.includes("if (wf === null) wf = was && was.wf && typeof was.wf === 'object' ? was.wf : undefined;"), 'a Portal of before (no wf): kept as it was');
+  assert.ok(api.includes("send(res, 200, { ok: true, site: c.site, levels: c.levels.length, po: po.length, step9: step9 });"));
+  // the pages: one who verifies / approves a work sees its page (View), one who approves the requirements too
+  const { pagesFor } = require('../api/me.js');
+  const set = { levels: [{ level: 1, people: [{ email: 'l1@x', name: 'L1' }] }], po: [{ email: 'pa@x', name: 'PA' }], wf: { verify: { req: [{ email: 'vr@x' }], po: [{ email: 'vp@x' }], grn: [{ email: 'vg@x' }], iss: [] }, approve: { grn: [], iss: [{ email: 'ai@x' }] } } };
+  const pg = e => pagesFor({ email: e, pages: { dashboard: 'View', items: 'Edit', req: 'None', grn: 'None', issue: 'Edit', reports: 'None', po: 'None' } }, set);
+  assert.deepStrictEqual([pg('l1@x').req, pg('vr@x').req, pg('pa@x').po, pg('vp@x').po, pg('vg@x').grn, pg('ai@x').issue, pg('zz@x').req], ['View', 'View', 'View', 'View', 'View', 'Edit', 'None']);
+  // step 9: only four empty columns and their indexes
+  const sql = fs.readFileSync(path.join(root, 'sql', 'store_step9_workflow.sql'), 'utf8'), body = sql.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  assert.ok(!/\bdrop\b|\btruncate\b|\bdelete\b|\bupdate\b|\binsert\b|create or replace function/i.test(body), 'step 9 only adds');
+  ['store_po', 'store_grn', 'store_issue', 'store_return'].forEach(tb => assert.ok(body.includes('alter table public.' + tb + ' add column if not exists wf jsonb;'), tb));
+  // the server: never one's own; a GRN's stock untouched by the workflow (its own write after the save); HO Purchase only for Head Office's check
+  const act = n => { const i = work.indexOf('  async ' + n + '(s, x) {'); assert.ok(i > -1, n); return work.slice(i, work.indexOf('\n  },', i)); };
+  assert.ok(act('wfDecide').includes("W.makersOf(w.by, w.made).includes(me_(s)) ? 'Nobody verifies or approves his own entry.'") && act('wfDecide').includes("'&wf->>state=eq.' + w.state, { wf: nw }") && !/rpc\(/.test(act('wfDecide')), 'only its wf is written');
+  assert.ok(act('hoCheck').startsWith('  async hoCheck(s, x) {\n    buyerOnly(s);') && act('hoInbox').startsWith('  async hoInbox(s, x) {\n    buyerOnly(s);'));
+  assert.ok(act('poDecide').includes("if (ps.step === 'verify') {") && act('poDecide').includes("'Nobody verifies his own purchase order.'"));
+  assert.ok(act('reqDecide').includes("if (own || !W.isIn(wf.verify.req, s.email)) { left.push({ no: no, why: own ? 'your own requirement' : 'it waits for its verification – not yours' }); continue; }"));
+  assert.ok(act('grnSave').includes("const wfr = await wfSet(s.site, 'store_grn', n, s, 'grn', !no);") && act('issueSave').includes("wfSet(s.site, 'store_issue', n, s, 'iss', !no)") && act('retSave').includes("wfSet(s.site, 'store_return', n, s, 'iss', !no)"));
+  assert.ok(act('purPending').includes("if (!mine && !wf.ho.req) { out.push({ site: st.code, name: st.name, reqs: [], own: true,"), 'a site that buys itself: not in HO Purchase\'s list');
+  ['poSave', 'poCancel', 'poDelete'].forEach(n => assert.ok(act(n).includes('await buyerOr(s, site)'), n));
 });
