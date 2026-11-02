@@ -855,3 +855,24 @@ test('(29-10-2026) the workflow told by the Portal (signed ticket), kept with th
   assert.ok(act('purPending').includes("if (!mine && !wf.ho.req) { out.push({ site: st.code, name: st.name, reqs: [], own: true,"), 'a site that buys itself: not in HO Purchase\'s list');
   ['poSave', 'poCancel', 'poDelete'].forEach(n => assert.ok(act(n).includes('await buyerOr(s, site)'), n));
 });
+
+test('02-11-2026: the BETA copy – branch "beta" AND RCL_CHANNEL = beta (Vercel, that branch only): the live data and its own band; any other Preview only the test database, as before', async () => {
+  const P = require('../lib/preview'), f0 = global.fetch, env = { e: process.env.VERCEL_ENV, r: process.env.VERCEL_GIT_COMMIT_REF, c: process.env.RCL_CHANNEL };
+  const set = (e, r, c) => { [['VERCEL_ENV', e], ['VERCEL_GIT_COMMIT_REF', r], ['RCL_CHANNEL', c]].forEach(([k, x]) => { if (x === undefined) delete process.env[k]; else process.env[k] = x; }); };
+  const asked = []; global.fetch = async url => { asked.push(String(url)); return new Response('{"code":"PGRST205"}', { status: 404 }); };      // (a database with no mark: the live one)
+  try {
+    set('preview', 'beta', 'beta');
+    assert.strictEqual(P.isBeta(), true); assert.deepStrictEqual(P.band(), { beta: true });
+    await P.guard({ url: 'http://live-a.test', key: 'k' }); assert.strictEqual(asked.length, 0, 'the beta copy asks no mark – it works on the live data');
+    set('preview', 'beta', undefined);
+    assert.strictEqual(P.isBeta(), false); assert.deepStrictEqual(P.band(), { preview: true });
+    await assert.rejects(P.guard({ url: 'http://live-b.test', key: 'k' }), e => e.status === 503 && /This is a Preview/.test(e.message));
+    set('preview', 'staging', 'beta'); assert.strictEqual(P.isBeta(), false, 'another branch');
+    await assert.rejects(P.guard({ url: 'http://live-c.test', key: 'k' }), e => e.status === 503);
+    set('production', 'beta', 'beta'); assert.strictEqual(P.isBeta(), false, 'live'); assert.deepStrictEqual(P.band(), {});
+  } finally { global.fetch = f0; set(env.e, env.r, env.c); }
+  const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
+  assert.strictEqual(html.split("if (j.beta) previewBand(true); else if (j.preview || /^This is a Preview/.test(String(j.error || ''))) previewBand();").length - 1, 2, 'both calls (api and look)');
+  assert.ok(html.indexOf("'BETA – the new version for testers · the data is LIVE'") > -1 && html.indexOf("'TEST copy (Preview) – the staging database · nothing here is live'") > -1);
+  ['me.js', 'sso.js'].forEach(f => { const s = fs.readFileSync(path.join(root, 'api', f), 'utf8'); assert.ok(/\.\.\.band\(\)/.test(s) && !/isPreview/.test(s), f); });
+});

@@ -3,7 +3,7 @@
 const { handler, send } = require('../lib/http');
 const portal = require('../lib/portal');
 const ses = require('../lib/session');
-const { isPreview } = require('../lib/preview');
+const { band } = require('../lib/preview');
 const { db } = require('../lib/sites');
 const W = require('../lib/work');
 /* (28-10-2026) one who approves the site's purchase orders sees its Purchase Orders page (as one who approves requirements);
@@ -21,9 +21,9 @@ function pagesFor(s, set) {
 }
 module.exports = handler(async (req, res) => {
   const s = await ses.read(req);
-  if (!s) return send(res, 200, { signedIn: false, portal: portal.url(), preview: isPreview() || undefined });
+  if (!s) return send(res, 200, { signedIn: false, portal: portal.url(), ...band() });
   let pages = s.pages;
   if (!s.admin) { try { const r = ((await db(s.site, 'GET', 'store_settings?select=value&id=eq.approvers')) || [])[0]; pages = pagesFor(s, r ? r.value : null); } catch (e) { /* as given */ } }
-  send(res, 200, { signedIn: true, preview: isPreview() || undefined, user: { email: s.email, name: s.name, admin: s.admin, super: s.super || undefined }, pages: pages, site: s.site, siteName: s.info.siteName || s.site, mods: s.info.mods || [], sites: s.info.sites || [], portal: portal.url() });
+  send(res, 200, { signedIn: true, ...band(), user: { email: s.email, name: s.name, admin: s.admin, super: s.super || undefined }, pages: pages, site: s.site, siteName: s.info.siteName || s.site, mods: s.info.mods || [], sites: s.info.sites || [], portal: portal.url() });
 });
 module.exports.pagesFor = pagesFor;      // (for the unit test – 29-10-2026)
