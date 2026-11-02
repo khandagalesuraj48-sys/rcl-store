@@ -374,15 +374,16 @@
   async function api(path, body) {
     const r = await fetch(BASE + path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-RCL': '1' }, body: JSON.stringify(body) });
     let j = {}; try { j = await r.json(); } catch (e) { j = { error: 'The Store did not answer properly (' + r.status + ').' }; }
-    if (j.preview || /^This is a Preview/.test(String(j.error || ''))) previewBand();
+    if (j.beta) previewBand(true); else if (j.preview || /^This is a Preview/.test(String(j.error || ''))) previewBand();
     if (!r.ok || j.error) { const e = new Error(j.error || ('Error ' + r.status)); e.status = r.status; e.code = j.code; e.data = j; throw e; }
     return j;
   }
   // (20-10-2026) a Preview (a test copy on the staging database): a band on top, so nobody takes it for the live Store
-  function previewBand() {
+  // (02-11-2026) the BETA copy (the testers' copy of the next version) has its own band: what is saved here IS live
+  function previewBand(beta) {
     if (document.getElementById('rcl_preview_band') || EMBED) return;      // inside Mechanical's screen: Mechanical shows it
-    const b = document.createElement('div'); b.id = 'rcl_preview_band'; b.textContent = 'TEST copy (Preview) – the staging database · nothing here is live';
-    b.style.cssText = 'display:block;height:22px;line-height:22px;padding:0 8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:#F59E0B;color:#111;font:700 12px/22px system-ui,sans-serif;text-align:center';
+    const b = document.createElement('div'); b.id = 'rcl_preview_band'; b.textContent = beta ? 'BETA – the new version for testers · the data is LIVE' : 'TEST copy (Preview) – the staging database · nothing here is live';
+    b.style.cssText = 'display:block;height:22px;line-height:22px;padding:0 8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:' + (beta ? '#6D28D9;color:#fff' : '#F59E0B;color:#111') + ';font:700 12px/22px system-ui,sans-serif;text-align:center';
     document.body.insertBefore(b, document.body.firstChild);      // in the page's flow, above its top bar – it hides nothing
   }
   /* (24-10-2026, Mechanical's update-155) THE LAST ANSWER OF A LOOK IS KEPT IN THIS PAGE'S MEMORY ONLY (never in the browser's
@@ -413,7 +414,7 @@
     const k = path + '|' + JSON.stringify(body), had = whole ? null : KEPT.get(k);
     const r = await fetch(BASE + path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-RCL': '1' }, body: JSON.stringify(Object.assign({}, body, { m: 1 }, had ? { have: had.h } : {}, had && CAN_CHECK ? { dx: 1 } : {})) });
     const t = await r.text(); let j = {}; try { j = JSON.parse(t); } catch (e) { j = { error: 'The Store did not answer properly (' + r.status + ').' }; }
-    if (j.preview || /^This is a Preview/.test(String(j.error || ''))) previewBand();
+    if (j.beta) previewBand(true); else if (j.preview || /^This is a Preview/.test(String(j.error || ''))) previewBand();
     if (!r.ok || j.error) { KEPT.delete(k); const e = new Error(j.error || ('Error ' + r.status)); e.status = r.status; e.code = j.code; e.data = j; throw e; }
     if (typeof j.h !== 'string') return j;      // (a server without this way: the answer as it always came)
     if (j.same) { if (had && had.h === j.h) return JSON.parse(had.text); return look(path, body, true); }
