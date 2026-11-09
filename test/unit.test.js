@@ -876,3 +876,54 @@ test('02-11-2026: the BETA copy – branch "beta" AND RCL_CHANNEL = beta (Vercel
   assert.ok(html.indexOf("'BETA – the new version for testers · the data is LIVE'") > -1 && html.indexOf("'TEST copy (Preview) – the staging database · nothing here is live'") > -1);
   ['me.js', 'sso.js'].forEach(f => { const s = fs.readFileSync(path.join(root, 'api', f), 'utf8'); assert.ok(/\.\.\.band\(\)/.test(s) && !/isPreview/.test(s), f); });
 });
+
+/* (09-11-2026, Purchase Phase 1) PURCHASE'S INBOX – api/purinbox.js answers only Purchase's server: signed with PUR_STORE_SECRET (HMAC-SHA256),
+ * its time within 5 minutes, its nonce once; not set – 503 and nothing else. It gives HO Purchase's own list (purPending, as it is) for the
+ * asked sites only, with only the fields of the lines. */
+test('Purchase\'s inbox: only with the secret, the signature, the time and a nonce used once; HO Purchase\'s own figures for the asked sites', async () => {
+  const crypto = require('crypto'), E = require('../api/purinbox.js'), work = require('../api/work.js'), sites = require('../lib/sites');
+  const env = { s: process.env.PUR_STORE_SECRET, u: process.env.SUPABASE_URL, k: process.env.SUPABASE_SECRET_KEY, v: process.env.VERCEL_ENV }, f0 = global.fetch, pp = work.ACTIONS.purPending;
+  const K = 'p'.repeat(32), used = new Set(), asked = [], seen = [];
+  global.fetch = async (url, o) => { const u = decodeURIComponent(String(url)), m = (o && o.method) || 'GET'; asked.push(m + ' ' + u);
+    if (/rcl_sites\?select=/.test(u)) return new Response(JSON.stringify([{ code: 'S1', name: 'VTR', home: true, status: 'ready' }, { code: 'T2', name: 'T2', home: false, status: 'ready', db_url: 'http://t2.test' }]), { status: 200 });
+    if (m === 'POST' && /store_tickets$/.test(u)) { const j = JSON.parse(o.body)[0].jti; if (used.has(j)) return new Response('{"code":"23505","message":"duplicate key value"}', { status: 409 }); used.add(j); return new Response('', { status: 201 }); }
+    return new Response('[]', { status: 200 }); };
+  work.ACTIONS.purPending = async (s, x) => { seen.push([s, x]); return { today: '2026-11-09', sites: [
+    { site: 'S1', name: 'VTR', open: 2, reqs: [{ no: 3, ref: 'RCL/VTR/2026-27/P/0003', date: '2026-11-01', need_by: '2026-11-10', for_kind: 'Site work', for_text: 'Toe wall', remark: '', since: '2026-11-02', made_by: 'View', approvals: [{ email: 'x' }], photos: [{ sha: 'a' }], status: 'Approved',
+      lines: [{ line: 1, code: 'ITM-0001', name: 'Cement', unit: 'Bag', qty: 200, ordered: 150, left: 50, brand: 'UltraTech', spec: 'OPC 53', note: '' }] }] },
+    { site: 'T2', name: 'T2', reqs: [], own: true, open: 0 }, { site: 'N3', name: 'N3', reqs: [{ no: 1, lines: [] }] }] }; };
+  const call = async (body, method) => { let status = 0, out = null; const res = { setHeader() {}, end(t) { out = JSON.parse(t); }, set statusCode(v) { status = v; } };
+    await E({ method: method || 'POST', headers: {}, body: body }, res); return { status: status, j: out }; };
+  const q = (key, ts, nonce, list) => ({ v: 1, ts: ts, nonce: nonce, sites: list, sig: crypto.createHmac('sha256', key).update(['rcl-pur-store', 'v1', ts, nonce, list.join(',')].join('|')).digest('hex') });
+  const nonce = () => crypto.randomBytes(16).toString('hex');
+  try {
+    process.env.SUPABASE_URL = 'http://s1.test'; process.env.SUPABASE_SECRET_KEY = 'k'; process.env.VERCEL_ENV = 'production'; sites.forget();
+    delete process.env.PUR_STORE_SECRET;
+    let r = await call(q(K, Date.now(), nonce(), ['S1']));
+    assert.deepStrictEqual([r.status, r.j.code], [503, 'setup'], 'not set: 503'); assert.strictEqual((await call({}, 'GET')).status, 503, 'and nothing else');
+    assert.strictEqual(asked.length + seen.length, 0, 'nothing read');
+    process.env.PUR_STORE_SECRET = K + '\n';
+    r = await call(q('w'.repeat(32), Date.now(), nonce(), ['S1'])); assert.deepStrictEqual([r.status, r.j.code], [401, 'sig'], 'a wrong secret');
+    const ok = q(K, Date.now(), nonce(), ['S1']); r = await call(Object.assign({}, ok, { sites: ['S1', 'T2'] })); assert.deepStrictEqual([r.status, r.j.code], [401, 'sig'], 'the sites changed after signing');
+    r = await call(q(K, Date.now() - 6 * 60000, nonce(), ['S1'])); assert.deepStrictEqual([r.status, r.j.code], [401, 'time'], 'more than 5 minutes old');
+    r = await call(q(K, Date.now() + 6 * 60000, nonce(), ['S1'])); assert.deepStrictEqual([r.status, r.j.code], [401, 'time'], 'from the future');
+    r = await call(Object.assign(q(K, Date.now(), nonce(), ['S1']), { v: 2 })); assert.deepStrictEqual([r.status, r.j.code], [400, 'shape']);
+    assert.strictEqual(seen.length, 0, 'none of them read anything');
+    const good = q(K, Date.now(), nonce(), ['S1', 'T2', 'ZZ']);
+    r = await call(good);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.j));
+    assert.deepStrictEqual(r.j.sites.map(s => [s.site, s.reqs.length, !!s.own, s.error || '']), [['S1', 1, false, ''], ['T2', 0, true, ''], ['ZZ', 0, false, 'No Store at this site.']], 'only the asked sites (N3 not asked: not given)');
+    assert.deepStrictEqual(Object.keys(r.j.sites[0].reqs[0]).sort(), ['date', 'for_kind', 'for_text', 'lines', 'made_by', 'need_by', 'no', 'ref', 'remark', 'since'], 'no approvals, photos …');
+    assert.deepStrictEqual(r.j.sites[0].reqs[0].lines[0], { line: 1, code: 'ITM-0001', name: 'Cement', unit: 'Bag', qty: 200, ordered: 150, left: 50, brand: 'UltraTech', spec: 'OPC 53', note: '' });
+    assert.ok(seen[0][0].pages.purchase === 'Edit' && seen[0][0].email === '' && Object.isFrozen(seen[0][0]) && JSON.stringify(seen[0][1]) === '{}', 'HO Purchase\'s own list (every site), asked as it is');
+    assert.ok(asked.some(a => /^POST http:\/\/s1\.test\/rest\/v1\/store_tickets$/.test(a)), 'the nonce noted in the first site\'s store_tickets');
+    r = await call(good); assert.deepStrictEqual([r.status, r.j.code], [401, 'nonce'], 'the same question again: refused');
+    assert.strictEqual(seen.length, 1);
+    // nothing else of the Store changed for it: purPending itself, its rule of a site that buys itself
+    const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8');
+    assert.ok(src.indexOf("if (!mine && !wf.ho.req) { out.push({ site: st.code, name: st.name, reqs: [], own: true,") > -1 && !/purinbox|PUR_STORE_SECRET/.test(src));
+  } finally {
+    work.ACTIONS.purPending = pp; global.fetch = f0; sites.forget();
+    [['PUR_STORE_SECRET', env.s], ['SUPABASE_URL', env.u], ['SUPABASE_SECRET_KEY', env.k], ['VERCEL_ENV', env.v]].forEach(([k, v]) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; });
+  }
+});
