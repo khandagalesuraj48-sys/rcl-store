@@ -348,17 +348,46 @@ each site's own database; Purchase only ASKS the Store's server:
   only the asked sites; purPending asked as it is); rig: Purchase's `test/rfqcs.test.js` (the Inbox = the Store's HO list, the door
   called directly).
 
+## Purchase's purchase orders (10-11-2026, Purchase Phase 2; the Store's step 10)
+The owner's decisions: **D-2** – a PO's master copy is kept in Purchase; the **site keeps a copy** in its own Store, written ONLY by the
+Store's own server; an older revision never overwrites a newer one. **G-6** – no extra approval after the comparative statement's final
+approval: the copy comes **approved and Open** (the site's "Approves / Verifies purchase orders" do not stop it).
+* **`api/purpo.js`** answers ONLY Purchase's server, as `api/purinbox.js` (the same `PUR_STORE_SECRET`, at most 5 minutes off, a nonce used
+  once – noted in the first site's `store_tickets` as `pur-<nonce>`), but its signature covers the whole question (another text:
+  `rcl-pur-po|v1|<op>|<ts>|<nonce>|<data>` – an Inbox signature is never taken here). Not set: 503 and nothing else.
+  * `papers` – the sites' heading and what their PO starts with (the shipping address, site contact and terms – the same as HO Purchase's
+    PO form here, `purItems`);
+  * `put` – the copy: checked as every PO (`checkPo`: the site's Item Master, each line its requirement's line and item; never more than
+    asked, only an approved requirement – in the database); its figures worked out here and compared with Purchase's; the site's next PO
+    number; "From Purchase – PO-0001" (`pur_no`, `pur_rev`, `pur`); the same PO again – the same copy, nothing new; an older revision –
+    nothing changes; a later one – not taken yet (Purchase's amendment comes later);
+  * `cancel` – only while no GRN is made against it (one at a time with the GRN saves); never at the site – kept as Cancelled (a late copy
+    of it changes nothing);
+  * `state` – each copy with what came (every GRN on it, the bill checked with the PO) and its balance – read only.
+  Each write notes the site's activity ("PO from Purchase", "… (the same copy again)", "PO cancelled by Purchase") – the live pages show it.
+* **The site**: the copy is used as any PO – the GRN form offers it ("PO 23 (From Purchase – PO-0001)"), each GRN lowers its balance, the
+  bill is checked with it. It is **read-only** here: the Purchase Orders page shows "From Purchase – PO-0001", "Approved in Purchase by …",
+  Details and Print only; `poSave`, `poCancel`, `poDelete`, `poClose`, `poDecide` refuse it ("… only in Purchase"). Its paper: the PO
+  Details also say "Purchase PO – PO-0001" and its payment terms; the supplier's details are Purchase's (not in the site's Vendor Master).
+* **Database: `sql/store_step10_purchase_po.sql`** – once in EVERY site's Supabase after step 9: it only adds three empty columns to
+  `store_po` (`pur_no`, `pur_rev`, `pur`), one index and two functions (`store_po_pur_put`, `store_po_pur_cancel`). Until it is run at a
+  site, Purchase keeps that site's POs as "Not yet at the site" (Send again after it); nothing of the Store changes.
+* Tests: unit (`test/unit.test.js` – the door's signature, time, nonce, not set; step 10 only adds, the same check as every PO; every
+  change of a Purchase PO refused; the page); rig: Purchase's `test/po.test.js` and `test/po.browser.test.js` (the copy, the GRNs and the
+  balance, cancel, the Store down, the door called directly).
+
 ## Parts
 | Part | File |
 |---|---|
 | The page (dark menu, Item Master, Excel) | `public/index.html` (Excel tool: `public/vendor/`) |
 | Purchase's Inbox – only for Purchase's server (09-11-2026) | `api/purinbox.js` |
+| Purchase's POs at a site – only for Purchase's server (10-11-2026) | `api/purpo.js` |
 | Sign-in with the Portal's ticket / who is signed in / sign out | `api/sso.js`, `api/me.js`, `api/logout.js` |
 | Item Master (list, check, save, delete, import) | `api/items.js` |
 | The rules of an item (names, near names, suggestions, fields) | `lib/items.js` |
 | Which database is a site's | `lib/sites.js` (Mechanical's list of sites, `rcl_sites`) |
 | Ticket check, sign-ins, activity record | `lib/portal.js`, `lib/session.js`, `lib/activity.js` |
-| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql`, `sql/store_step3_grn_import.sql`, `sql/store_step4_grn_no.sql`, `sql/store_step5_po_format.sql`, `sql/store_step6_grn_discount.sql`, `sql/store_step7_req_photos.sql` |
+| Database (run once in EVERY site's Supabase, in this order) | `sql/store_step1_items.sql`, `sql/store_step2_work.sql`, `sql/store_step3_grn_import.sql`, `sql/store_step4_grn_no.sql`, `sql/store_step5_po_format.sql`, `sql/store_step6_grn_discount.sql`, `sql/store_step7_req_photos.sql`, … `sql/store_step10_purchase_po.sql` |
 | The Store's work (step 2) | `api/work.js`, `lib/work.js`, `lib/sreport.js`, `public/work.js`, `api/portal.js` |
 
 ## Settings (Vercel → the Store project → Settings → Environment Variables – never in a file)
@@ -369,7 +398,7 @@ each site's own database; Purchase only ASKS the Store's server:
 | `SITE_<CODE>_KEY` | each other site's secret key, e.g. `SITE_18B_KEY` – the same as in the Mechanical project |
 | `RCL_SITES_KEY` | only if a site's key is kept locked in Mechanical's list (update-90 sites) |
 | `ANTHROPIC_API_KEY` | the AI of the old inward register's import (the same key as Mechanical's); `ANTHROPIC_MODEL` only to fix the model |
-| `PUR_STORE_SECRET` | (09-11-2026) a long secret word (24 letters or more), the SAME as in the Purchase project – Purchase's Inbox (`api/purinbox.js`). Not set = it answers 503. |
+| `PUR_STORE_SECRET` | (09-11-2026) a long secret word (24 letters or more), the SAME as in the Purchase project – Purchase's Inbox (`api/purinbox.js`) and (10-11-2026) Purchase's POs (`api/purpo.js`). Not set = they answer 503. |
 
 ## Tests (local test rig only – never the live databases)
 ```
