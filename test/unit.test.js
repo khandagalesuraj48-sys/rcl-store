@@ -995,3 +995,18 @@ test('Purchase\'s POs: step 10 only adds; the copy approved and Open, one a Purc
   assert.ok(page.includes("'<td><b>' + p.no + '</b>' + purTag(p) + '</td>") && page.includes("(p.pur_no ? ' (From Purchase – ' + purRef(p) + ')' : '')") && page.includes("[['Purchase PO', '<b>' + esc(purRef(p)) + '</b> (From Purchase)']]"));
   const P = require('../api/purpo.js'); assert.strictEqual(P.textOf('put', 1, 'n', '{}'), 'rcl-pur-po|v1|put|1|n|{}');
 });
+
+test('(10-11-2026, Purchase\'s Inbox showed "HEAD OFFICE – Could not be read now.") a site of the every-site lists that cannot be read says WHY when it is a set-up matter (its key not in Vercel, not set up, a step not run) – names of settings only; a passing failure as before', () => {
+  const { siteErr } = require('../api/work.js');
+  const err = (code, msg) => Object.assign(new Error(msg), { code: code });
+  const noKey = 'The Store server has no key for site HO: add SITE_HO_KEY (the same as in Mechanical) in Vercel → Environment Variables, then Redeploy.';
+  assert.strictEqual(siteErr(err('key', noKey)), noKey);
+  assert.strictEqual(siteErr(err('site', 'This site is not set up (HO).')), 'This site is not set up (HO).');
+  assert.strictEqual(siteErr(err('notinstalled', 'NOT_INSTALLED'), 'The Store\'s step 2 is not run in this site\'s database yet.'), 'The Store\'s step 2 is not run in this site\'s database yet.');
+  assert.strictEqual(siteErr(err('notinstalled', 'NOT_INSTALLED')), 'Could not be read now.', 'HO\'s work list: as before');
+  assert.strictEqual(siteErr(err('net', 'Could not reach the database (site HO) – please try again in a moment.')), 'Could not be read now.');
+  assert.strictEqual(siteErr(new Error('x')), 'Could not be read now.');
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'api', 'work.js'), 'utf8');
+  assert.strictEqual((src.match(/error: siteErr\(e/g) || []).length, 2, 'both every-site lists (HO Purchase / the Inbox, HO\'s work)');
+});
+
