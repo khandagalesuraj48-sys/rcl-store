@@ -209,6 +209,10 @@ function liveOf(site) {
 // who approves the POs of a site (the Portal tells: store_settings 'approvers' → po)
 const poPeople = async site => { const r = ((await db(site, 'GET', 'store_settings?select=value&id=eq.approvers')) || [])[0]; return W.poApprovers(r ? r.value : null); };
 const apprOf = p => p.appr || 'Approved';      // a PO made before step 5: as approved
+/* (10-11-2026, Purchase Phase 2 – the Store's step 10) a PO of the PURCHASE DEPARTMENT: its copy at this site (pur_no), written only by
+ * api/purpo.js. The master is Purchase's (D-2): here it is read-only – it is changed, cancelled or closed only in Purchase. */
+const purRef = p => p && p.pur_no ? String((p.pur && p.pur.ref) || 'PO-' + String(p.pur_no).padStart(4, '0')) : '';
+const notPur = (p, no) => { if (p && p.pur_no) throw fail(409, 'PO ' + no + ' is the Purchase Department\'s (' + purRef(p) + ') – it is changed, cancelled or closed only in Purchase.', 'purchase'); };
 const byNo = (a, b) => b.no - a.no;
 const sortLines = l => (l || []).slice().sort((a, b) => a.line - b.line);
 // ordered so far of each requirement line (POs not cancelled): 'req:line' → qty
@@ -727,7 +731,9 @@ const ACTIONS = {
     // (28-10-2026, his format) the supplier's details from the Vendor Master of the site (Mechanical's – the same database): address,
     // mobile, e-mail, the Owner Name as the contact person, GSTIN – what is not there stays blank
     let v = null; try { v = ((await dbAll(site, 'vendors?select=*', 'id')) || []).find(r => I.keyOf(r.vendor_name) === I.keyOf(p.vendor)) || null; } catch (e) { v = null; }
-    const supplier = { name: p.vendor, address: v ? v.address || '' : '', mobile: v ? v.phone || '' : '', email: v ? v.email || '' : '', contact: v ? v.owner_name || '' : '', gstin: p.vendor_gst || (v ? v.gst_number || '' : '') };
+    const pv = p.pur_no && p.pur && p.pur.vendor ? p.pur.vendor : null;      // (10-11-2026) a Purchase PO: its supplier as in Purchase's own list
+    const supplier = pv ? { name: p.vendor, address: pv.address || '', mobile: pv.phone || '', email: pv.email || '', contact: '', gstin: p.vendor_gst || pv.gstin || '' }
+      : { name: p.vendor, address: v ? v.address || '' : '', mobile: v ? v.phone || '' : '', email: v ? v.email || '' : '', contact: v ? v.owner_name || '' : '', gstin: p.vendor_gst || (v ? v.gst_number || '' : '') };
     // (29-10-2026) each line of a requirement with its Indent No.
     const rn = [...new Set((p.lines || []).map(l => Number(l.req_no)).filter(n => n > 0))], rq = {};
     if (rn.length) { try { (await dbAll(site, 'store_req?select=*&no=in.(' + rn.join(',') + ')', 'no')).forEach(r => { rq[r.no] = W.indentOf(r, h, site); }); } catch (e) { /* (the number alone) */ } }
@@ -740,7 +746,7 @@ const ACTIONS = {
     const site = await siteFor(s, x); await buyerOr(s, site);      // (29-10-2026) a site that buys itself: its Store Admin too
     const no = x.no ? noOf(x.no) : null, items = await itemsOf(site);
     let cur = null;
-    if (no) { cur = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!cur) throw gone('PO ' + no); if (cur.status !== 'Open') throw fail(409, 'PO ' + no + ' is ' + cur.status.toLowerCase() + ' – it is not changed.', 'decided'); }
+    if (no) { cur = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!cur) throw gone('PO ' + no); notPur(cur, no); if (cur.status !== 'Open') throw fail(409, 'PO ' + no + ' is ' + cur.status.toLowerCase() + ' – it is not changed.', 'decided'); }
     const rn = [...new Set(((x.po && x.po.lines) || []).map(l => Number(l && l.req_no)).filter(n => Number.isInteger(n) && n > 0))];
     const reqs = {}; if (rn.length) (await dbAll(site, 'store_req?select=no,status,lines&no=in.(' + rn.join(',') + ')', 'no')).forEach(r => { reqs[r.no] = r; });
     let p; try { p = W.checkPo(x.po, items, { reqs: reqs, had: new Set(cur ? (cur.lines || []).map(l => l.code) : []) }); } catch (e) { userErr(e); }
@@ -777,6 +783,7 @@ const ACTIONS = {
     if (!(await step5On(s.site))) throw fail(400, STEP5, 'sql');
     const no = noOf(x.no), ok = x.ok === true, note = I.clean(x.note, 300), [people, wf] = await Promise.all([poPeople(s.site), wfAt(s.site)]);
     const p = ((await db(s.site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
+    notPur(p, no);      // (10-11-2026) a Purchase PO comes approved (G-6) – nothing to decide here
     if (p.status !== 'Open' || apprOf(p) !== 'Waiting') throw fail(409, 'PO ' + no + ' is not waiting for its approval any more (it is ' + (p.status !== 'Open' ? p.status.toLowerCase() : apprOf(p).toLowerCase()) + ') – refresh.', 'decided');
     const own = poMakers(p).includes(me_(s)), ps = poStep(p, wf, people, s, true), at = new Date().toISOString();
     /* (29-10-2026) its VERIFICATION: one who verifies the POs of this site (never his own) – verified: it waits for its approval (nobody
@@ -806,7 +813,8 @@ const ACTIONS = {
   },
   async poCancel(s, x) {
     const site = await siteFor(s, x), no = noOf(x.no); await buyerOr(s, site);      // (29-10-2026) a site that buys itself: its Store Admin too
-    const p = ((await db(site, 'GET', 'store_po?select=no,status&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
+    const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
+    notPur(p, no);      // (10-11-2026) a Purchase PO – only in Purchase
     if (p.status !== 'Open') throw fail(409, 'PO ' + no + ' is ' + p.status.toLowerCase() + ' already.', 'decided');
     if ((await dbAll(site, 'store_grn?select=no&po_no=eq.' + no, 'no')).length) throw fail(409, 'Material of PO ' + no + ' has come (a GRN has it) – it cannot be cancelled. Close it (the rest will not come).', 'received');
     await db(site, 'PATCH', 'store_po?no=eq.' + no + '&status=eq.Open', { status: 'Cancelled', close_note: W.dmy(W.today()) + ' cancelled by ' + s.name, updated_by: s.email }, 'return=minimal');
@@ -819,6 +827,7 @@ const ACTIONS = {
     const site = await siteFor(s, x), no = noOf(x.no); await buyerOr(s, site);      // (29-10-2026) a site that buys itself: its Store Admin too
     if (!(await step8On(site))) throw fail(400, STEP8, 'sql');
     const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
+    notPur(p, no);      // (10-11-2026) a Purchase PO – only in Purchase
     await rpc(site, 'store_po_del', { p_no: no }).catch(e => said(e));
     changed(site);
     await activity(site, s.email, 'PO deleted', 'PO ' + no, { date: p.date, vendor: p.vendor, total: num(p.total), status: p.status, requirements: [...new Set((p.lines || []).map(l => l.req_no).filter(Boolean))], by: s.site !== site ? 'HO Purchase (' + s.site + ')' : undefined });
@@ -827,7 +836,8 @@ const ACTIONS = {
   async poClose(s, x) {
     const site = await siteFor(s, x), no = noOf(x.no), note = I.clean(x.note, 200);
     if (!isBuyer(s) && !(site === s.site && s.admin)) throw fail(403, 'Only HO Purchase or the Store Admin closes a PO.', 'admin');
-    const p = ((await db(site, 'GET', 'store_po?select=no,status&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
+    const p = ((await db(site, 'GET', 'store_po?select=*&no=eq.' + no)) || [])[0]; if (!p) throw gone('PO ' + no);
+    notPur(p, no);      // (10-11-2026) a Purchase PO – only in Purchase
     if (p.status !== 'Open') throw fail(409, 'PO ' + no + ' is ' + p.status.toLowerCase() + ' already.', 'decided');
     await db(site, 'PATCH', 'store_po?no=eq.' + no + '&status=eq.Open', { status: 'Closed', close_note: W.dmy(W.today()) + ' closed by ' + s.name + (note ? ': ' + note : ''), updated_by: s.email }, 'return=minimal');
     await activity(site, s.email, 'PO closed', 'PO ' + no, { note: note || undefined });
@@ -1318,5 +1328,7 @@ module.exports = handler(async (req, res) => {
   catch (e) { if (e && e.code === 'notinstalled') throw fail(500, 'The Store\'s work is not set up in the database of site ' + s.site + ' yet: run sql/store_step2_work.sql once in that site\'s Supabase → SQL Editor.', 'notinstalled'); throw e; }
 });
 module.exports.ACTIONS = ACTIONS;      // (for the unit test)
+// (10-11-2026, Purchase Phase 2) the Store's own reading and saving of a site's papers and POs, for api/purpo.js (Purchase's POs) – the same functions
+module.exports._po = { colOn, rpc, said, changed, itemsOf, headingOf, papersOf, headOut, startOf, prefixOf, poView, recOf, grnsOfPos, beforeOf, sortLines, purRef, notPur };
 module.exports.todayOnly = todayOnly;      // (for the unit test – 29-10-2026)
 module.exports._ph = { phOf, phTok, phList, phPath, PH, STEP7 };      // (for the unit test – 29-10-2026, a requirement's photos)

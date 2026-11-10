@@ -927,3 +927,71 @@ test('Purchase\'s inbox: only with the secret, the signature, the time and a non
     [['PUR_STORE_SECRET', env.s], ['SUPABASE_URL', env.u], ['SUPABASE_SECRET_KEY', env.k], ['VERCEL_ENV', env.v]].forEach(([k, v]) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; });
   }
 });
+
+/* (10-11-2026, Purchase Phase 2) PURCHASE'S POs AT A SITE – api/purpo.js answers only Purchase's server (the same PUR_STORE_SECRET as the
+ * Inbox, another text – "rcl-pur-po"); its time within 5 minutes, its nonce once; not set – 503 and nothing else. The copy: the Store's
+ * step 10 (only adds); approved and Open (G-6); read-only at the site – every change of a Purchase PO refused by the Store's own server;
+ * the page shows it "From Purchase – PO-0001" without Change / Cancel / Delete / Close / Approve. */
+test('Purchase\'s POs: only with the secret, the signature over the data, the time and a nonce used once; another text than the Inbox\'s', async () => {
+  const crypto = require('crypto'), E = require('../api/purpo.js'), IN = require('../api/purinbox.js'), sites = require('../lib/sites');
+  const env = { s: process.env.PUR_STORE_SECRET, u: process.env.SUPABASE_URL, k: process.env.SUPABASE_SECRET_KEY, v: process.env.VERCEL_ENV }, f0 = global.fetch;
+  const K = 'p'.repeat(32), used = new Set(), asked = [];
+  global.fetch = async (url, o) => { const u = decodeURIComponent(String(url)), m = (o && o.method) || 'GET'; asked.push(m + ' ' + u);
+    if (/rcl_sites\?select=/.test(u)) return new Response(JSON.stringify([{ code: 'S1', name: 'VTR', home: true, status: 'ready' }]), { status: 200 });
+    if (m === 'POST' && /store_tickets$/.test(u)) { const j = JSON.parse(o.body)[0].jti; if (used.has(j)) return new Response('{"code":"23505","message":"duplicate key value"}', { status: 409 }); used.add(j); return new Response('', { status: 201 }); }
+    return new Response('[]', { status: 200 }); };
+  const call = async (body, method) => { let status = 0, out = null; const res = { setHeader() {}, end(t) { out = JSON.parse(t); }, set statusCode(v) { status = v; } };
+    await E({ method: method || 'POST', headers: {}, body: body }, res); return { status: status, j: out }; };
+  const q = (key, op, ts, nonce, data) => { const d = JSON.stringify(data); return { v: 1, op: op, ts: ts, nonce: nonce, data: d, sig: crypto.createHmac('sha256', key).update(['rcl-pur-po', 'v1', op, ts, nonce, d].join('|')).digest('hex') }; };
+  const nonce = () => crypto.randomBytes(16).toString('hex');
+  try {
+    process.env.SUPABASE_URL = 'http://s1.test'; process.env.SUPABASE_SECRET_KEY = 'k'; process.env.VERCEL_ENV = 'production'; sites.forget();
+    delete process.env.PUR_STORE_SECRET;
+    let r = await call(q(K, 'state', Date.now(), nonce(), { q: [] }));
+    assert.deepStrictEqual([r.status, r.j.code], [503, 'setup'], 'not set: 503'); assert.strictEqual(asked.length, 0, 'nothing read');
+    process.env.PUR_STORE_SECRET = K + '\n';
+    r = await call(q('w'.repeat(32), 'state', Date.now(), nonce(), { q: [] })); assert.deepStrictEqual([r.status, r.j.code], [401, 'sig'], 'a wrong secret');
+    const good = q(K, 'put', Date.now(), nonce(), { site: 'S1', po: { pur_no: 1 } });
+    r = await call(Object.assign({}, good, { data: JSON.stringify({ site: 'S1', po: { pur_no: 2 } }) })); assert.deepStrictEqual([r.status, r.j.code], [401, 'sig'], 'the data changed after signing');
+    r = await call(Object.assign({}, good, { op: 'cancel' })); assert.deepStrictEqual([r.status, r.j.code], [401, 'sig'], 'another op with the same signature');
+    r = await call(q(K, 'state', Date.now() - 6 * 60000, nonce(), { q: [] })); assert.deepStrictEqual([r.status, r.j.code], [401, 'time'], 'more than 5 minutes old');
+    r = await call(q(K, 'drop', Date.now(), nonce(), {})); assert.deepStrictEqual([r.status, r.j.code], [400, 'shape'], 'only its four questions');
+    const ts = Date.now(), n = nonce(), inboxSig = IN.check ? crypto.createHmac('sha256', K).update(IN.textOf(ts, n, ['S1'])).digest('hex') : '';
+    r = await call({ v: 1, op: 'state', ts: ts, nonce: n, data: '{"q":[]}', sig: inboxSig }); assert.deepStrictEqual([r.status, r.j.code], [401, 'sig'], 'the Inbox\'s signature is not taken here');
+    assert.strictEqual(asked.length, 0, 'none of them read anything');
+    const st = q(K, 'state', Date.now(), nonce(), { q: [] });
+    r = await call(st); assert.deepStrictEqual([r.status, r.j], [200, { ok: true, sites: [] }]);
+    assert.ok(asked.some(a => /^POST http:\/\/s1\.test\/rest\/v1\/store_tickets$/.test(a)), 'the nonce noted in the first site\'s store_tickets');
+    r = await call(st); assert.deepStrictEqual([r.status, r.j.code], [401, 'nonce'], 'the same question again: refused');
+  } finally {
+    global.fetch = f0; sites.forget();
+    [['PUR_STORE_SECRET', env.s], ['SUPABASE_URL', env.u], ['SUPABASE_SECRET_KEY', env.k], ['VERCEL_ENV', env.v]].forEach(([k, v]) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; });
+  }
+});
+test('Purchase\'s POs: step 10 only adds; the copy approved and Open, one a Purchase PO, an older revision never over a newer one; read-only at the site (server and page)', () => {
+  const sql = fs.readFileSync(path.join(root, 'sql', 'store_step10_purchase_po.sql'), 'utf8'), body = sql.split('\n').filter(l => !/^\s*--/.test(l)).join('\n');
+  const out = body.replace(/create or replace function[\s\S]*?\$\$;/g, '');
+  assert.ok(!/\bdrop\b|\btruncate\b|\bdelete\b|\bupdate\b|\binsert\b/i.test(out), 'the step itself changes no row');
+  assert.strictEqual((body.match(/alter table public\.store_po add column if not exists /g) || []).length, 3);
+  assert.match(body, /create unique index if not exists store_po_pur_no on public\.store_po \(pur_no\) where pur_no is not null;/);
+  assert.match(body, /'Approved', coalesce\(nullif\(p_row ->> 'appr_by', ''\), p_by\)/); assert.match(body, /null, 'Open', v_pur, v_rev, p_row -> 'pur'\);/, 'approved and Open; no workflow (G-6)');
+  assert.match(body, /if coalesce\(v_has, 1\) > v_rev then return jsonb_build_object\('no', v_no, 'rev', v_has, 'result', 'older'\); end if;/);
+  assert.match(body, /if exists \(select 1 from public\.store_grn g where g\.po_no = v_no\) then raise exception 'STORE_PO_RECEIVED %', v_no; end if;/, 'cancelled only while no GRN');
+  assert.strictEqual((body.match(/perform pg_advisory_xact_lock\(hashtext\('rcl-store'\)\);/g) || []).length, 2, 'one save at a time on the site (as the GRN saves)');
+  const step5 = fs.readFileSync(path.join(root, 'sql', 'store_step5_po_format.sql'), 'utf8'), chk = s => (/with mine as \([\s\S]*?raise exception 'STORE_OVER_ORDER %\|%\|%\|%', r\.rn, r\.nm, r\.asked, r\.ordered;/.exec(s) || [''])[0];
+  assert.ok(chk(body) && chk(body) === chk(step5), 'the same check as every PO: never more than asked, only an approved requirement');
+  ['Run ONCE in EVERY site\'s Supabase project', 'Safe to run again', 'Rollback (only while no Purchase PO is at the site)', 'D-2', 'G-6'].forEach(h => assert.ok(sql.indexOf(h) > -1, h));
+  for (const f of ['store_po_pur_put(jsonb, text, text)', 'store_po_pur_cancel(jsonb, text, text, text)']) assert.ok(body.includes('grant execute on function public.' + f + ' to service_role;') && body.includes('revoke all on function public.' + f + ' from public, anon, authenticated;'), f);
+  // the server: every change of a Purchase PO refused – "only in Purchase"
+  const src = fs.readFileSync(path.join(root, 'api', 'work.js'), 'utf8'), act = n => { const i = src.indexOf('  async ' + n + '(s'); assert.ok(i > -1, n); return src.slice(i, src.indexOf('\n  },', i)); };
+  ['poSave', 'poCancel', 'poDelete', 'poClose', 'poDecide'].forEach(n => assert.ok(/notPur\((cur|p), no\)/.test(act(n)), n + ': a Purchase PO refused'));
+  const { _po } = require('../api/work.js');
+  assert.throws(() => _po.notPur({ pur_no: 3, pur: { ref: 'PO-0003' } }, 7), e => e.status === 409 && e.code === 'purchase' && /PO 7 is the Purchase Department's \(PO-0003\)/.test(e.message));
+  assert.doesNotThrow(() => _po.notPur({ pur_no: null }, 7)); assert.strictEqual(_po.purRef({ pur_no: 12 }), 'PO-0012');
+  assert.ok(!/select=no,status&no=eq\./.test(src), 'a PO read whole (pur_no is there only after step 10 – no column named that is missing before it)');
+  // the page: "From Purchase – PO-0001"; no Change / Cancel / Delete / Close / Approve on it; the GRN form names it; its paper
+  const page = fs.readFileSync(path.join(root, 'public', 'work.js'), 'utf8');
+  assert.ok(page.includes("(p.mayApprove && !p.pur_no ?") && page.includes("(p.pur_no ? '' : (buy && p.status === 'Open' ? '<button type=\"button\" class=\"link po-edit\">Change</button>'"), 'read-only at the site');
+  assert.ok(page.includes("'<td><b>' + p.no + '</b>' + purTag(p) + '</td>") && page.includes("(p.pur_no ? ' (From Purchase – ' + purRef(p) + ')' : '')") && page.includes("[['Purchase PO', '<b>' + esc(purRef(p)) + '</b> (From Purchase)']]"));
+  const P = require('../api/purpo.js'); assert.strictEqual(P.textOf('put', 1, 'n', '{}'), 'rcl-pur-po|v1|put|1|n|{}');
+});

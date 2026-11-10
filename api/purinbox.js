@@ -62,3 +62,4 @@ module.exports = handler(async (req, res) => {
 module.exports.check = check;      // (for the unit test)
 module.exports.textOf = textOf;
 module.exports.SVC = SVC;
+module.exports.once = once;      // (10-11-2026, Purchase Phase 2) the same nonce rule for Purchase's POs (api/purpo.js)
