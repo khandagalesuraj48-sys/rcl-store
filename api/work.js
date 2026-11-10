@@ -305,6 +305,10 @@ const reqView = (r, ordered, lv, s, wf) => { const st = reqStep(r, lv, wf), make
     level: st.level, step: st.step, mayVerify: mayVerify, mayApprove: r.status === 'Pending' && (st.step === 'verify' ? mayVerify : W.canApprove(lv, st.level, s.email, r.created_by)), mine: maker === me_(s),
     waitFor: st.step === 'verify' ? W.othersOf(wf.verify.req, maker).map(p => p.name) : st.step === 'approve' ? ((lv.find(l => l.level === st.level) || { people: [] }).people.filter(p => p.email !== maker).map(p => p.name)) : [] }); };
 // the sites with the Store's step 2 – HO Purchase works on every one of them
+/* (10-11-2026) why one site of the every-site lists (HO Purchase, Purchase's Inbox, HO's work) could not be read: what to set up – the
+ * site's key not in Vercel, the site not set up, a step not run – said as it is (names of settings only, never a value); anything else
+ * (no answer for a moment) as before */
+const siteErr = (e, notRun) => e && e.code === 'notinstalled' && notRun ? notRun : e && ['key', 'site', 'setup'].indexOf(e.code) > -1 ? String(e.message || '') : 'Could not be read now.';
 async function storeSites() { return (await registry()).filter(x => x.status === 'ready').map(x => ({ code: x.code, name: x.name || x.code })); }
 async function siteFor(s, x) {
   const site = String(x.site || s.site).toUpperCase();
@@ -672,7 +676,7 @@ const ACTIONS = {
         if (!mine && !wf.ho.req) { out.push({ site: st.code, name: st.name, reqs: [], own: true, open: pos.filter(p => p.status === 'Open').length }); continue; }      // (the site buys itself)
         const o = orderedOf(pos), list = reqs.sort((a, b) => a.no - b.no).map(r => Object.assign(reqView(r, o, [], s), { ref: W.indentOf(r, h, st.code), since: sinceOf(r), made_by: r.created_name || r.created_by || '' })).filter(r => r.lines.some(l => l.left > 0.0005));      // (29-10-2026) with its Indent No.
         out.push({ site: st.code, name: st.name, reqs: list, open: pos.filter(p => p.status === 'Open').length });
-      } catch (e) { out.push({ site: st.code, name: st.name, reqs: [], error: e && e.code === 'notinstalled' ? 'The Store\'s step 2 is not run in this site\'s database yet.' : 'Could not be read now.' }); }
+      } catch (e) { out.push({ site: st.code, name: st.name, reqs: [], error: siteErr(e, 'The Store\'s step 2 is not run in this site\'s database yet.') }); }
     }
     return { sites: out, today: W.today() };
   },
@@ -898,7 +902,7 @@ const ACTIONS = {
           const all = more.length ? is.concat(await dbAll(st.code, 'store_issue?select=*,store_issue_lines(*)&no=in.(' + more.slice(0, 300).join(',') + ')', 'no')) : is;
           out.push({ site: st.code, name: st.name, ho: wf.ho.iss, rows: await issuesOut(s, st.code, all, wf), step9: true });
         }
-      } catch (e) { out.push({ site: st.code, name: st.name, rows: [], error: 'Could not be read now.' }); }
+      } catch (e) { out.push({ site: st.code, name: st.name, rows: [], error: siteErr(e) }); }
     }
     return { kind: kind, done: !!x.done, sites: out };
   },
@@ -1319,4 +1323,5 @@ module.exports = handler(async (req, res) => {
 });
 module.exports.ACTIONS = ACTIONS;      // (for the unit test)
 module.exports.todayOnly = todayOnly;      // (for the unit test – 29-10-2026)
+module.exports.siteErr = siteErr;      // (for the unit test – 10-11-2026)
 module.exports._ph = { phOf, phTok, phList, phPath, PH, STEP7 };      // (for the unit test – 29-10-2026, a requirement's photos)
