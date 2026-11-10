@@ -332,10 +332,27 @@ checks it; about 40 bytes) and reads its list again **only when it changed**.
   `test/live.test.js` 10/10 (another's save on the page within 4 s, details held, hidden tab, Stock & Reports nothing, two pages → one
   read every 2 s); `work.test.js` 108/108, `work.browser.test.js` 34/34, `reqphoto.test.js` 7/7 + 52/52, `today.test.js` 6/6 with it.
 
+## Purchase's Inbox (09-11-2026, with Purchase Phase 1; no database step)
+The Purchase Department (rcl-purchase) shows the approved Material Requirement lines still to order of the person's sites. They stay in
+each site's own database; Purchase only ASKS the Store's server:
+* **`api/purinbox.js`** answers ONLY Purchase's server (never a browser): `{ v: 1, ts, nonce, sites, sig }`, signed with HMAC-SHA256 of
+  the shared secret **`PUR_STORE_SECRET`** (the same in the Store's and Purchase's Vercel projects); its time at most 5 minutes off; the
+  nonce used once (noted with the Portal's used tickets in the first site's `store_tickets` as `pur-<nonce>`). A wrong signature, an old
+  time, a nonce used again: refused (401). **Not set: 503 and nothing else.**
+* It gives **HO Purchase's own list** – `purPending` of `api/work.js`, used as it is (the same figures: approved, still to order = asked −
+  in POs not cancelled; a site that buys itself – Portal → Workflow – gives none) – for the asked sites only, with only what Purchase
+  needs of each requirement (number, Indent No., dates, for, since, made by) and line (item, unit, qty, ordered, left, brand, spec).
+* It only reads (and notes the nonce): no activity line, so the Store's live pages are not woken by it. **Nothing else of the Store
+  changed** – `api/work.js` and every page as before.
+* Tests: unit (`test/unit.test.js` – not set 503; wrong secret, sites changed after signing, old / future time, a nonce twice refused;
+  only the asked sites; purPending asked as it is); rig: Purchase's `test/rfqcs.test.js` (the Inbox = the Store's HO list, the door
+  called directly).
+
 ## Parts
 | Part | File |
 |---|---|
 | The page (dark menu, Item Master, Excel) | `public/index.html` (Excel tool: `public/vendor/`) |
+| Purchase's Inbox – only for Purchase's server (09-11-2026) | `api/purinbox.js` |
 | Sign-in with the Portal's ticket / who is signed in / sign out | `api/sso.js`, `api/me.js`, `api/logout.js` |
 | Item Master (list, check, save, delete, import) | `api/items.js` |
 | The rules of an item (names, near names, suggestions, fields) | `lib/items.js` |
@@ -352,6 +369,7 @@ checks it; about 40 bytes) and reads its list again **only when it changed**.
 | `SITE_<CODE>_KEY` | each other site's secret key, e.g. `SITE_18B_KEY` – the same as in the Mechanical project |
 | `RCL_SITES_KEY` | only if a site's key is kept locked in Mechanical's list (update-90 sites) |
 | `ANTHROPIC_API_KEY` | the AI of the old inward register's import (the same key as Mechanical's); `ANTHROPIC_MODEL` only to fix the model |
+| `PUR_STORE_SECRET` | (09-11-2026) a long secret word (24 letters or more), the SAME as in the Purchase project – Purchase's Inbox (`api/purinbox.js`). Not set = it answers 503. |
 
 ## Tests (local test rig only – never the live databases)
 ```
