@@ -474,3 +474,9 @@ window.rclModule = { key, search(q) /* → [{ group, kind, title, sub, page, fin
 The Store searches its Item Master: code, name, category, HSN, unit and status. All words must be found; when nothing is
 found, a spelling mistake is allowed. `open('items', code)` shows Item Master filtered to that item. A new module that gives
 these two is searched with no change in Mechanical.
+
+
+## The product's name – "Sketchline Lion", from the Portal (14-11-2026)
+Asked 14-11-2026 (the app and the web are "Sketchline Lion"; the Super Admin changes the name in the Portal, not in the code): the
+page's title and the line "by …" show the name the Portal's "Branding" keeps (`/portal/api/brand`, asked once when the page opens,
+written as text); the built-in "Sketchline Lion" until it answers. Nothing else of the page is changed; the papers are headed as before.
