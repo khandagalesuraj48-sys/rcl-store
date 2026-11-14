@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Store – RCL ERP</title>
+<title>Store – Sketchline Lion</title>
 <link rel="icon" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -279,7 +279,7 @@
   <aside class="side" id="side">
     <div class="brandbox">
       <div class="brandtile"><span class="rlogo"><img src="https://i.ibb.co/CpSfBqXX/RCL-LOGO-PDF.png" alt="Rachana Construction Limited" onerror="this.parentNode.classList.add('noimg')"><span class="fb">Rachana</span></span></div>
-      <div class="brandsub">Store<small>by One Click Solution</small></div>
+      <div class="brandsub">Store<small>by <span class="pb-name">Sketchline Lion</span></small></div>
     </div>
     <div class="sitebox"><button type="button" class="site-chg" id="site_chg" title="Change site – open another of your sites" aria-haspopup="dialog">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/></svg>
@@ -854,6 +854,18 @@
   };
 
   start();
+})();
+</script>
+<script>
+/* (14-11-2026, asked: "aple app ch name change kraych aahe ani logo pn – Sketchline Lion … super admin multiple changes kru shakel,
+ * pratek weli code change krne garjech nahi") THE PRODUCT'S NAME comes from the Portal's "Branding" (rcl-portal /api/brand, at the one
+ * address): asked once when the page opens. Until it answers – and where the Portal is not at this address – the built-in
+ * "Sketchline Lion" stays. It is written as text only. */
+(function () {
+  try { fetch('/portal/api/brand', { credentials: 'omit' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (v) {
+    if (!v || typeof v.name !== 'string' || !v.name.trim()) return; var n = v.name.trim().slice(0, 60);
+    document.title = 'Store – ' + n; [].forEach.call(document.querySelectorAll('.pb-name'), function (e) { e.textContent = n; });
+  }).catch(function () {}); } catch (e) { /* the built-in name stays */ }
 })();
 </script>
 </body>
